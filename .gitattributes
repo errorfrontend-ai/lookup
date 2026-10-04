@@ -1,0 +1,12 @@
+# Store and check out text files with LF line endings on every platform, so shell scripts,
+# Dockerfiles and SQL behave the same on Windows, macOS and Linux.
+* text=auto eol=lf
+
+# Binary files: never touch their bytes.
+*.png binary
+*.jpg binary
+*.ico binary
+*.jar binary
+*.m4a binary
+*.wav binary
+*.mp3 binary
