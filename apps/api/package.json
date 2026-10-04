@@ -1,0 +1,53 @@
+{
+  "name": "@lookup/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Look Up API: station portal, listener recognition, tenancy and security",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:watch": "nest start --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "database:create-roles": "tsx scripts/create-database-roles.ts",
+    "database:migrate": "tsx scripts/run-migrations.ts",
+    "database:revert-latest": "tsx scripts/run-migrations.ts --revert-latest",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
+    "@nestjs/typeorm": "12.0.2",
+    "cookie-parser": "1.4.7",
+    "helmet": "8.3.0",
+    "ioredis": "5.11.1",
+    "nestjs-cls": "7.0.1",
+    "nestjs-pino": "5.3.1",
+    "pg": "8.23.1",
+    "pino": "10.4.0",
+    "pino-http": "11.0.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "typeorm": "1.1.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "12.0.8",
+    "@nestjs/testing": "12.1.2",
+    "@swc/core": "1.16.13",
+    "@types/cookie-parser": "1.4.10",
+    "@types/express": "5.0.6",
+    "@types/node": "24.19.1",
+    "@types/pg": "8.23.1",
+    "@types/supertest": "7.2.1",
+    "supertest": "7.3.1",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3",
+    "unplugin-swc": "2.0.0",
+    "vitest": "5.0.3"
+  }
+}

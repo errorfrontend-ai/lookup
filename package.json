@@ -1,0 +1,17 @@
+{
+  "name": "look-up",
+  "private": true,
+  "description": "Look Up — tap to identify a radio ad and get the station's buttons",
+  "workspaces": [
+    "apps/api"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "database:create-roles": "npm run database:create-roles -w @lookup/api",
+    "database:migrate": "npm run database:migrate -w @lookup/api",
+    "test": "npm test -w @lookup/api",
+    "typecheck": "npm run typecheck -w @lookup/api"
+  }
+}
