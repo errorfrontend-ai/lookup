@@ -1,0 +1,45 @@
+# Local development stack. Credentials below are for local development only.
+# Step 1 (foundations): postgres + valkey. Object storage for ad uploads is added in step 2.
+# Ports bind to 127.0.0.1 only, so nothing here is reachable from the local network.
+name: lookup
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lookup
+      POSTGRES_USER: lookup            # local superuser: creates roles and runs migrations only, never the app
+      POSTGRES_PASSWORD: ${LOOKUP_DEVELOPMENT_DATABASE_PASSWORD:-lookup_development_only}
+    ports:
+      # High port: 5432/5433 are often taken by other local projects.
+      - "127.0.0.1:${LOOKUP_DEVELOPMENT_DATABASE_PORT:-55432}:5432"
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lookup -d lookup"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  valkey:
+    # Key-value store for job queues (API ⇄ fingerprint worker), rate limits and short-lived codes.
+    # noeviction + append-only file are what BullMQ needs to never lose or silently drop jobs;
+    # Render Key Value offers the same settings on paid plans. A password even locally, so the API
+    # and worker are always built for an authenticated store.
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction",
+              "--requirepass", "${LOOKUP_DEVELOPMENT_KEY_VALUE_PASSWORD:-lookup_key_value_development_only}"]
+    ports:
+      - "127.0.0.1:${LOOKUP_DEVELOPMENT_KEY_VALUE_PORT:-56379}:6379"
+    volumes:
+      - key-value-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "--no-auth-warning",
+             "-a", "${LOOKUP_DEVELOPMENT_KEY_VALUE_PASSWORD:-lookup_key_value_development_only}", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  database-data:
+  key-value-data:
