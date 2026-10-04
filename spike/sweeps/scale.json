@@ -1,0 +1,5 @@
+[
+  {"maximum_peaks_per_frame": 10, "fan_value": 10},
+  {"peak_neighborhood": 6, "maximum_peaks_per_frame": 8, "fan_value": 8},
+  {"sample_rate": 8000, "window_size": 1024, "maximum_peaks_per_frame": 10, "fan_value": 10}
+]

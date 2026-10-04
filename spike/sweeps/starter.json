@@ -1,0 +1,8 @@
+[
+  {},
+  {"sample_rate": 8000, "window_size": 1024},
+  {"sample_rate": 16000, "window_size": 2048},
+  {"peak_neighborhood": 6},
+  {"maximum_peaks_per_frame": 10, "fan_value": 10},
+  {"peak_floor_above_median_decibels": 6.0}
+]
