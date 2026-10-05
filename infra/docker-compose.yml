@@ -40,6 +40,30 @@ services:
       timeout: 3s
       retries: 30
 
+  object-storage:
+    # S3-compatible storage standing in for Cloudflare R2 (Step 2 uploads). versitygw validates presigned
+    # URL signatures and per-bucket CORS, so tests exercise the real security properties. MinIO's
+    # community images can no longer be pulled (2025-2026), hence this choice. Pinned by digest.
+    image: versity/versitygw:v1.8.0@sha256:30292fc2eeacc67a36993b01f7a7a5e3361a19cced0e80c1d71cfa2a4b0a2499
+    environment:
+      ROOT_ACCESS_KEY: ${LOOKUP_DEVELOPMENT_OBJECT_STORAGE_ACCESS_KEY:-lookup_development_only}
+      ROOT_SECRET_KEY: ${LOOKUP_DEVELOPMENT_OBJECT_STORAGE_SECRET_KEY:-lookup_object_storage_development_only}
+      VGW_BACKEND: posix
+      VGW_BACKEND_ARGS: /data/objects
+      VGW_PORT: ":7070"
+      VGW_HEALTH: /health
+    ports:
+      - "127.0.0.1:${LOOKUP_DEVELOPMENT_OBJECT_STORAGE_PORT:-59000}:7070"
+    volumes:
+      # A named volume (ext4 inside Docker's VM) supports the extended attributes versitygw stores metadata in.
+      - object-storage-data:/data/objects
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7070/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
 volumes:
   database-data:
   key-value-data:
+  object-storage-data:

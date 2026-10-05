@@ -36,6 +36,17 @@ const AppConfigSchema = z
      */
     AUTHENTICATION_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
 
+    /** How the API reaches object storage (R2's S3 endpoint in production). */
+    OBJECT_STORAGE_ENDPOINT: z.url({ protocol: /^https?$/ }),
+    /** What browsers reach; presigned upload and playback URLs are signed for this host. */
+    OBJECT_STORAGE_PUBLIC_ENDPOINT: z.url({ protocol: /^https?$/ }),
+    /** "auto" on R2. */
+    OBJECT_STORAGE_REGION: z.string().min(1).default('auto'),
+    OBJECT_STORAGE_ACCESS_KEY_ID: z.string().min(1),
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().min(1),
+    /** Private bucket for uploaded ad audio. */
+    OBJECT_STORAGE_AD_UPLOADS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/),
+
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     /** Full request details in logs; off by default so customer data never reaches logs by accident. */
     LOG_REQUEST_DETAILS: z.stringbool().default(false),
@@ -55,6 +66,11 @@ const AppConfigSchema = z
     if (config.NODE_ENV !== 'production') return;
     if (config.DATABASE_TLS_MODE === 'disable') {
       context.addIssue({ code: 'custom', path: ['DATABASE_TLS_MODE'], message: 'must not be "disable" in production' });
+    }
+    for (const endpointName of ['OBJECT_STORAGE_ENDPOINT', 'OBJECT_STORAGE_PUBLIC_ENDPOINT'] as const) {
+      if (!config[endpointName].startsWith('https://')) {
+        context.addIssue({ code: 'custom', path: [endpointName], message: 'must be https in production' });
+      }
     }
     if (config.ALLOWED_BROWSER_ORIGINS.some((origin) => !origin.startsWith('https://'))) {
       context.addIssue({ code: 'custom', path: ['ALLOWED_BROWSER_ORIGINS'], message: 'must all be https in production' });

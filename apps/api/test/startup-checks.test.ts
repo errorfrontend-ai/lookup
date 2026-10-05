@@ -35,6 +35,11 @@ describe('production configuration fails closed', () => {
     DATABASE_URL: 'postgresql://lookup_api:password@database.internal:5432/lookup',
     KEY_VALUE_STORE_URL: 'redis://:password@key-value.internal:6379',
     AUTHENTICATION_SECRET: 'q4P1k5o8zXhN3wVt7RmYb2LcJ9sUeA6GdF0iHnKjTpW',
+    OBJECT_STORAGE_ENDPOINT: 'https://account.r2.cloudflarestorage.com',
+    OBJECT_STORAGE_PUBLIC_ENDPOINT: 'https://account.r2.cloudflarestorage.com',
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'access-key-id',
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret-access-key',
+    OBJECT_STORAGE_AD_UPLOADS_BUCKET: 'lookup-ad-uploads',
     DATABASE_TLS_MODE: 'require',
     ALLOWED_BROWSER_ORIGINS: 'https://portal.example.com',
   };

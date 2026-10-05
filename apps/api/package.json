@@ -20,14 +20,17 @@
     "database:create-roles": "tsx scripts/create-database-roles.ts",
     "database:migrate": "tsx scripts/run-migrations.ts",
     "database:revert-latest": "tsx scripts/run-migrations.ts --revert-latest",
+    "object-storage:prepare": "tsx scripts/prepare-object-storage.ts",
     "test": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/s3-request-presigner": "3.1146.0",
+    "@lookup/contracts": "0.1.0",
     "@nestjs/common": "12.1.2",
     "@nestjs/core": "12.1.2",
     "@nestjs/platform-express": "12.1.2",
     "@nestjs/typeorm": "12.0.2",
-    "@lookup/contracts": "0.1.0",
     "argon2": "0.45.1",
     "cookie-parser": "1.4.7",
     "helmet": "8.3.0",

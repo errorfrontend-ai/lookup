@@ -1,0 +1,308 @@
+import { randomUUID } from 'node:crypto';
+import type {
+  AdListPage,
+  AdPlaybackUrl,
+  AdStatus,
+  AdSummary,
+  AdUploadContentType,
+  CreateAdInput,
+  CreatedAd,
+  RequestUploadUrlInput,
+  UploadInstructions,
+  UploadRequest,
+} from '@lookup/contracts';
+import { Injectable } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
+import type { EntityManager } from 'typeorm';
+import { AuditTrail } from '../../common/audit/audit-trail.js';
+import { AppError } from '../../common/errors/app-error.js';
+import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
+import { ObjectStorage } from '../../infrastructure/object-storage/object-storage.js';
+import { AUDIO_SIGNATURE_BYTES_TO_READ, isDeclaredAudioFormat } from './audio-file-signatures.js';
+
+/** Upload URLs live 10 minutes: expiry is checked when the upload starts, so a slow link still finishes. */
+const UPLOAD_URL_LIFETIME_SECONDS = 600;
+const PLAYBACK_URL_LIFETIME_SECONDS = 300;
+const ADS_PER_PAGE = 20;
+/** Statuses in which the uploaded file has been verified and may be played back. */
+const VERIFIED_UPLOAD_STATUSES: readonly AdStatus[] = ['PROCESSING', 'READY', 'NEEDS_REVIEW'];
+
+interface AdRow {
+  id: string;
+  title: string;
+  status: AdStatus;
+  duration_milliseconds: number | null;
+  upload_original_file_name: string | null;
+  upload_object_key: string | null;
+  upload_content_type: AdUploadContentType | null;
+  upload_size_bytes: number | null;
+  client_id: string;
+  client_name: string;
+  updated_at_text: string;
+}
+
+const AD_COLUMNS = `
+  ads.id, ads.title, ads.status, ads.duration_milliseconds, ads.upload_original_file_name, ads.upload_object_key,
+  ads.upload_content_type, ads.upload_size_bytes, clients.id AS client_id, clients.name AS client_name,
+  to_char(ads.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_text`;
+const AD_SOURCE = `app.ads JOIN app.clients ON clients.id = ads.client_id AND clients.station_id = ads.station_id`;
+
+/**
+ * Ads and their audio uploads. The browser uploads straight to object storage through a presigned URL
+ * (the API never handles the bytes); `complete` then checks what actually arrived — exact size and
+ * type, and the first bytes — before the ad moves on to processing. Object keys are made by the
+ * server; a file name the station chose is kept only for display.
+ */
+@Injectable()
+export class AdsService {
+  constructor(
+    private readonly stationScopedTransaction: StationScopedTransaction,
+    private readonly objectStorage: ObjectStorage,
+    private readonly auditTrail: AuditTrail,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext('ads');
+  }
+
+  async create(input: CreateAdInput): Promise<CreatedAd> {
+    const adId = randomUUID();
+    const prepared = await this.stationScopedTransaction.run(async (database) => {
+      const [client] = (await database.query(`SELECT id FROM app.clients WHERE id = $1`, [input.clientId])) as Array<{ id: string }>;
+      if (!client) {
+        throw new AppError('VALIDATION_FAILED', {
+          fields: [{ path: 'clientId', code: 'unknown_client' }],
+          internalDetail: 'client not found at this station',
+        });
+      }
+      const upload = await this.prepareUploadAttempt(database, adId, input.upload);
+      await database.query(
+        `INSERT INTO app.ads (id, station_id, client_id, title, upload_object_key, upload_content_type, upload_size_bytes,
+                              upload_original_file_name, upload_expires_at)
+         VALUES ($1, app.current_station_id(), $2, $3, $4, $5, $6, $7, $8)`,
+        [adId, input.clientId, input.title, upload.objectKey, input.upload.contentType, input.upload.sizeBytes, upload.displayFileName, upload.expiresAt],
+      );
+      await this.auditTrail.record(database, {
+        action: 'ad_created',
+        entityType: 'ad',
+        entityId: adId,
+        changes: { title: input.title, clientId: input.clientId, upload: describeUpload(input.upload, upload.displayFileName) },
+      });
+      return upload;
+    });
+    return { adId, upload: await this.buildUploadInstructions(prepared.objectKey, input.upload, prepared.expiresAt) };
+  }
+
+  /** A fresh upload URL: to retry an upload that didn't finish, or to replace a file that was refused. */
+  async requestUploadUrl(adId: string, input: RequestUploadUrlInput): Promise<UploadInstructions> {
+    const { prepared, previousObjectKey } = await this.stationScopedTransaction.run(async (database) => {
+      const ad = await this.findAdForUpdate(database, adId);
+      if (ad.status !== 'AWAITING_UPLOAD' && ad.status !== 'FAILED') {
+        throw new AppError('CONFLICT', {
+          publicMessage: "This ad's audio has already been uploaded and checked.",
+          internalDetail: `upload url requested in status ${ad.status}`,
+        });
+      }
+      const upload = await this.prepareUploadAttempt(database, adId, input.upload);
+      await database.query(
+        `UPDATE app.ads
+            SET upload_object_key = $2, upload_content_type = $3, upload_size_bytes = $4, upload_original_file_name = $5,
+                upload_expires_at = $6, upload_entity_tag = NULL, uploaded_at = NULL, processing_error_code = NULL,
+                status = 'AWAITING_UPLOAD'
+          WHERE id = $1`,
+        [adId, upload.objectKey, input.upload.contentType, input.upload.sizeBytes, upload.displayFileName, upload.expiresAt],
+      );
+      await this.auditTrail.record(database, {
+        action: 'ad_upload_restarted',
+        entityType: 'ad',
+        entityId: adId,
+        changes: { upload: describeUpload(input.upload, upload.displayFileName) },
+      });
+      return { prepared: upload, previousObjectKey: ad.upload_object_key };
+    });
+    if (previousObjectKey) await this.deleteObjectQuietly(previousObjectKey);
+    return this.buildUploadInstructions(prepared.objectKey, input.upload, prepared.expiresAt);
+  }
+
+  /**
+   * Checks what arrived in storage and moves the ad to PROCESSING. Safe to repeat: an ad whose upload
+   * was already accepted is simply returned. A wrong file is deleted and the ad marked FAILED with the
+   * reason, so the station can upload again.
+   */
+  async completeUpload(adId: string): Promise<AdSummary> {
+    const ad = await this.stationScopedTransaction.run((database) => this.findAd(database, adId));
+    if (VERIFIED_UPLOAD_STATUSES.includes(ad.status)) return toAdSummary(ad);
+    if (ad.status === 'FAILED') {
+      throw new AppError('CONFLICT', {
+        publicMessage: 'This upload was refused. Please upload the file again.',
+        internalDetail: 'complete called on a FAILED ad',
+      });
+    }
+    const objectKey = ad.upload_object_key as string;
+    const declaredType = ad.upload_content_type as AdUploadContentType;
+
+    const storedFacts = await this.objectStorage.describeObject(objectKey);
+    if (!storedFacts) throw new AppError('UPLOAD_NOT_RECEIVED', { internalDetail: 'no object at the upload key' });
+    if (storedFacts.sizeBytes !== ad.upload_size_bytes || storedFacts.contentType !== declaredType) {
+      return this.refuseUpload(adId, objectKey, 'size_or_type_mismatch');
+    }
+    const firstBytes = await this.objectStorage.readFirstBytes(objectKey, storedFacts.entityTag, AUDIO_SIGNATURE_BYTES_TO_READ);
+    if (!isDeclaredAudioFormat(firstBytes, declaredType)) return this.refuseUpload(adId, objectKey, 'not_the_declared_audio_format');
+
+    return this.stationScopedTransaction.run(async (database) => {
+      const accepted = (await database.query(
+        `UPDATE app.ads SET status = 'PROCESSING', upload_entity_tag = $3, uploaded_at = now()
+          WHERE id = $1 AND status = 'AWAITING_UPLOAD' AND upload_object_key = $2
+          RETURNING id`,
+        [adId, objectKey, storedFacts.entityTag],
+      )) as unknown[];
+      if (accepted.length > 0) {
+        await this.auditTrail.record(database, {
+          action: 'ad_upload_verified',
+          entityType: 'ad',
+          entityId: adId,
+          changes: { sizeBytes: storedFacts.sizeBytes, contentType: declaredType },
+        });
+      }
+      return toAdSummary(await this.findAd(database, adId));
+    });
+  }
+
+  async list(cursor: string | undefined): Promise<AdListPage> {
+    const position = cursor === undefined ? null : parseListCursor(cursor);
+    const rows = (await this.stationScopedTransaction.run((database) =>
+      database.query(
+        `SELECT ${AD_COLUMNS} FROM ${AD_SOURCE}
+          WHERE ads.station_id = app.current_station_id() AND ads.archived_at IS NULL
+            AND ($1::timestamptz IS NULL OR (ads.updated_at, ads.id) < ($1::timestamptz, $2::uuid))
+          ORDER BY ads.updated_at DESC, ads.id DESC
+          LIMIT ${ADS_PER_PAGE + 1}`,
+        [position?.updatedAt ?? null, position?.adId ?? null],
+      ),
+    )) as AdRow[];
+    const pageRows = rows.slice(0, ADS_PER_PAGE);
+    const lastRow = pageRows[pageRows.length - 1];
+    return {
+      ads: pageRows.map(toAdSummary),
+      nextCursor: rows.length > ADS_PER_PAGE && lastRow ? formatListCursor(lastRow.updated_at_text, lastRow.id) : null,
+    };
+  }
+
+  get(adId: string): Promise<AdSummary> {
+    return this.stationScopedTransaction.run(async (database) => toAdSummary(await this.findAd(database, adId)));
+  }
+
+  async playbackUrl(adId: string): Promise<AdPlaybackUrl> {
+    const ad = await this.stationScopedTransaction.run((database) => this.findAd(database, adId));
+    if (!VERIFIED_UPLOAD_STATUSES.includes(ad.status) || !ad.upload_object_key) {
+      throw new AppError('CONFLICT', {
+        publicMessage: "This ad's audio hasn't been uploaded yet.",
+        internalDetail: `playback requested in status ${ad.status}`,
+      });
+    }
+    return {
+      url: await this.objectStorage.createPlaybackUrl(ad.upload_object_key, PLAYBACK_URL_LIFETIME_SECONDS),
+      expiresAt: new Date(Date.now() + PLAYBACK_URL_LIFETIME_SECONDS * 1000).toISOString(),
+    };
+  }
+
+  private async refuseUpload(adId: string, objectKey: string, reason: string): Promise<never> {
+    await this.deleteObjectQuietly(objectKey);
+    await this.stationScopedTransaction.run(async (database) => {
+      const refused = (await database.query(
+        `UPDATE app.ads SET status = 'FAILED', processing_error_code = $3
+          WHERE id = $1 AND status = 'AWAITING_UPLOAD' AND upload_object_key = $2 RETURNING id`,
+        [adId, objectKey, reason],
+      )) as unknown[];
+      if (refused.length > 0) {
+        await this.auditTrail.record(database, { action: 'ad_upload_refused', entityType: 'ad', entityId: adId, changes: { reason } });
+      }
+    });
+    throw new AppError('UPLOAD_REJECTED', { internalDetail: `upload refused: ${reason}` });
+  }
+
+  /** Station-scoped read; another station's ad (or none) is NOT_FOUND. */
+  private async findAd(database: EntityManager, adId: string): Promise<AdRow> {
+    const [ad] = (await database.query(`SELECT ${AD_COLUMNS} FROM ${AD_SOURCE} WHERE ads.id = $1`, [adId])) as AdRow[];
+    if (!ad) throw new AppError('NOT_FOUND', { internalDetail: 'ad not found at this station' });
+    return ad;
+  }
+
+  private async findAdForUpdate(database: EntityManager, adId: string): Promise<AdRow> {
+    await database.query(`SELECT id FROM app.ads WHERE id = $1 FOR UPDATE`, [adId]);
+    return this.findAd(database, adId);
+  }
+
+  /** Server-made object key; the station's file name is kept only, cleaned, for display. */
+  private async prepareUploadAttempt(database: EntityManager, adId: string, upload: UploadRequest) {
+    const [station] = (await database.query(`SELECT app.current_station_id() AS id`)) as Array<{ id: string }>;
+    return {
+      objectKey: `ad-uploads/${station?.id}/${adId}/${randomUUID()}`,
+      displayFileName: cleanFileNameForDisplay(upload.fileName),
+      expiresAt: new Date(Date.now() + UPLOAD_URL_LIFETIME_SECONDS * 1000),
+    };
+  }
+
+  private async buildUploadInstructions(objectKey: string, upload: UploadRequest, expiresAt: Date): Promise<UploadInstructions> {
+    return {
+      method: 'PUT',
+      url: await this.objectStorage.createUploadUrl(objectKey, upload.contentType, upload.sizeBytes, UPLOAD_URL_LIFETIME_SECONDS),
+      headers: { 'Content-Type': upload.contentType },
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  private async deleteObjectQuietly(objectKey: string): Promise<void> {
+    try {
+      await this.objectStorage.deleteObject(objectKey);
+    } catch (error) {
+      this.logger.warn({ err: error }, 'could not delete an uploaded object; it will be swept up later');
+    }
+  }
+}
+
+function toAdSummary(ad: AdRow): AdSummary {
+  return {
+    id: ad.id,
+    title: ad.title,
+    client: { id: ad.client_id, name: ad.client_name },
+    status: ad.status,
+    durationMilliseconds: ad.duration_milliseconds,
+    uploadedFileName: ad.upload_original_file_name,
+    campaign: null,
+    updatedAt: ad.updated_at_text,
+  };
+}
+
+function describeUpload(upload: UploadRequest, displayFileName: string) {
+  return { fileName: displayFileName, contentType: upload.contentType, sizeBytes: upload.sizeBytes };
+}
+
+/** Last path segment only, without control or bidirectional characters, at most 255 characters. */
+export function cleanFileNameForDisplay(fileName: string): string {
+  const lastSegment = fileName.split(/[\\/]/).pop() ?? '';
+  const cleaned = lastSegment.replace(/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g, '').trim();
+  return Array.from(cleaned || 'audio').slice(0, 255).join('');
+}
+
+function formatListCursor(updatedAtText: string, adId: string): string {
+  return Buffer.from(JSON.stringify([updatedAtText, adId]), 'utf8').toString('base64url');
+}
+
+function parseListCursor(cursor: string): { updatedAt: string; adId: string } {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(parsed[0]) &&
+      typeof parsed[1] === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed[1])
+    ) {
+      return { updatedAt: parsed[0], adId: parsed[1] };
+    }
+  } catch {
+    // Falls through to the refusal below.
+  }
+  throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'cursor', code: 'invalid_cursor' }], internalDetail: 'malformed list cursor' });
+}

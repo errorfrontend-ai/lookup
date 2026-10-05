@@ -15,6 +15,11 @@ export const ERROR_CATALOG = {
   NOT_FOUND: { httpStatus: 404, message: 'Not found.' },
   METHOD_NOT_ALLOWED: { httpStatus: 405, message: 'This action is not allowed here.' },
   CONFLICT: { httpStatus: 409, message: 'This conflicts with something that already exists.' },
+  UPLOAD_NOT_RECEIVED: { httpStatus: 409, message: "We haven't received the file yet. Please upload it again." },
+  UPLOAD_REJECTED: {
+    httpStatus: 400,
+    message: "The file isn't a supported audio file, or it isn't the file that was expected. Please upload it again.",
+  },
   PAYLOAD_TOO_LARGE: { httpStatus: 413, message: 'The upload is too large.' },
   UNSUPPORTED_MEDIA_TYPE: { httpStatus: 415, message: 'This file type is not supported.' },
   RATE_LIMITED: { httpStatus: 429, message: 'Too many requests. Please wait a moment and try again.' },

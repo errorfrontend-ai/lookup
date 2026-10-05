@@ -12,6 +12,7 @@
   "scripts": {
     "database:create-roles": "npm run database:create-roles -w @lookup/api",
     "database:migrate": "npm run database:migrate -w @lookup/api",
+    "object-storage:prepare": "npm run object-storage:prepare -w @lookup/api",
     "build:contracts": "npm run build -w @lookup/contracts",
     "test": "npm test --workspaces",
     "typecheck": "npm run typecheck --workspaces"

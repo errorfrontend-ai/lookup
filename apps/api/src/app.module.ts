@@ -6,6 +6,7 @@ import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
 import { RateLimitingModule } from './common/rate-limiting/rate-limiting.module.js';
 import { SecurityModule } from './common/security/security.module.js';
 import { ConfigModule } from './config/config.module.js';
+import { AdsModule } from './features/ads/ads.module.js';
 import { AuthenticationModule } from './features/authentication/authentication.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
@@ -13,6 +14,7 @@ import { StationsModule } from './features/stations/stations.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
 import { KeyValueStoreModule } from './infrastructure/key-value-store/key-value-store.module.js';
 import { LoggingModule } from './infrastructure/logging/logging.module.js';
+import { ObjectStorageModule } from './infrastructure/object-storage/object-storage.module.js';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { LoggingModule } from './infrastructure/logging/logging.module.js';
     }),
     DatabaseModule,
     KeyValueStoreModule,
+    ObjectStorageModule,
     SecurityModule,
     RateLimitingModule,
     AuditModule,
@@ -34,6 +37,7 @@ import { LoggingModule } from './infrastructure/logging/logging.module.js';
     HealthModule,
     StationsModule,
     ClientsModule,
+    AdsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

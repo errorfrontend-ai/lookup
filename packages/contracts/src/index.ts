@@ -1,3 +1,4 @@
+export * from './ads/ad-schemas.js';
 export * from './action-card/action-card-schema.js';
 export * from './action-card/action-card-reader.js';
 export * from './action-card/action-uris.js';
