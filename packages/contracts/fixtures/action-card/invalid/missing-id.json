@@ -1,0 +1,22 @@
+{
+  "description": "Every action needs an id",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions.0.id",
+      "code": "invalid_type"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      }
+    ]
+  }
+}

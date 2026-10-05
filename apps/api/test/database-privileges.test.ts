@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asLookupApi, databaseSetupClient, lookupApiClient } from './support/database-clients.js';
+import { PLACEHOLDER_PASSWORD_HASH } from './support/test-data.js';
 
 /**
  * What the API's own database role (lookup_api) can and cannot do, independent of API code.
@@ -39,10 +40,11 @@ describe('database privileges of the API role', () => {
     );
     await setupClient.query(
       `INSERT INTO app.portal_users (id, email, password_hash, full_name) VALUES
-         ($1, $4, 'hash-owner-a', 'Owner A'), ($2, $5, 'hash-analyst-a', 'Analyst A'), ($3, $6, 'hash-owner-b', 'Owner B')`,
+         ($1, $4, $7, 'Owner A'), ($2, $5, $7, 'Analyst A'), ($3, $6, $7, 'Owner B')`,
       [
         ids.ownerOfA, ids.analystOfA, ids.ownerOfB,
         `owner-a-${runTag}@example.test`, `analyst-a-${runTag}@example.test`, `owner-b-${runTag}@example.test`,
+        PLACEHOLDER_PASSWORD_HASH,
       ],
     );
     await setupClient.query(
@@ -106,15 +108,21 @@ describe('database privileges of the API role', () => {
       ).rejects.toThrow(/permission denied/);
     });
 
-    it("can change its own password, never a teammate's", async () => {
-      const ownPassword = await asOwnerOfA((client) =>
-        client.query(`UPDATE app.portal_users SET password_hash = 'new' WHERE id = $1`, [ids.ownerOfA]),
+    it('cannot write any password hash, even its own (only the sign-in functions can)', async () => {
+      await expect(
+        asOwnerOfA((client) => client.query(`UPDATE app.portal_users SET password_hash = $2 WHERE id = $1`, [ids.ownerOfA, PLACEHOLDER_PASSWORD_HASH])),
+      ).rejects.toThrow(/permission denied/);
+    });
+
+    it("can edit its own name, never a teammate's", async () => {
+      const ownName = await asOwnerOfA((client) =>
+        client.query(`UPDATE app.portal_users SET full_name = 'Owner A Renamed' WHERE id = $1`, [ids.ownerOfA]),
       );
-      expect(ownPassword.rowCount).toBe(1);
-      const teammatePassword = await asOwnerOfA((client) =>
-        client.query(`UPDATE app.portal_users SET password_hash = 'new' WHERE id = $1`, [ids.analystOfA]),
+      expect(ownName.rowCount).toBe(1);
+      const teammateName = await asOwnerOfA((client) =>
+        client.query(`UPDATE app.portal_users SET full_name = 'Changed' WHERE id = $1`, [ids.analystOfA]),
       );
-      expect(teammatePassword.rowCount).toBe(0);
+      expect(teammateName.rowCount).toBe(0);
     });
 
     it('cannot create or delete users directly', async () => {

@@ -1,0 +1,39 @@
+{
+  "name": "@lookup/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Look Up contracts shared by the API, the portal and the listener app: the action-card schema, request schemas, reason codes and test fixtures",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "fixtures"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "emit-json-schemas": "tsx scripts/emit-json-schemas.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "ajv": "8.20.0",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "5.0.3"
+  }
+}

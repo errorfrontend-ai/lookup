@@ -1,0 +1,12 @@
+{
+  "description": "R9: something that is not a card reads as an empty card",
+  "card": "not a card",
+  "expected": {
+    "visible_action_ids": [],
+    "more_options_action_ids": [],
+    "styles": [],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 0,
+    "shows_update_app_hint": false
+  }
+}

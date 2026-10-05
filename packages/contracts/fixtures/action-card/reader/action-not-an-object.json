@@ -1,0 +1,31 @@
+{
+  "description": "R9: an action that is not an object is skipped",
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      "call me",
+      42,
+      null,
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      }
+    ]
+  },
+  "expected": {
+    "visible_action_ids": [
+      "0192a6c4-0000-4000-8000-000000000001"
+    ],
+    "more_options_action_ids": [],
+    "styles": [
+      "PRIMARY"
+    ],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 3,
+    "shows_update_app_hint": false
+  }
+}

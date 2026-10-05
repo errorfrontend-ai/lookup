@@ -1,0 +1,108 @@
+[
+  {
+    "description": "Call",
+    "action": {
+      "type": "CALL",
+      "id": "0192a6c4-0000-4000-8000-000000000001",
+      "label": "Call us",
+      "style": "PRIMARY",
+      "phone_number_e164": "+260977123456"
+    },
+    "expected_uri": "tel:+260977123456"
+  },
+  {
+    "description": "WhatsApp without text",
+    "action": {
+      "type": "WHATSAPP",
+      "id": "0192a6c4-0000-4000-8000-000000000002",
+      "label": "WhatsApp us",
+      "style": "SECONDARY",
+      "phone_number_e164": "+260966123456"
+    },
+    "expected_uri": "https://wa.me/260966123456"
+  },
+  {
+    "description": "WhatsApp with line break, ampersand, hash, plus, percent and emoji",
+    "action": {
+      "type": "WHATSAPP",
+      "id": "0192a6c4-0000-4000-8000-000000000002",
+      "label": "WhatsApp us",
+      "style": "SECONDARY",
+      "phone_number_e164": "+260966123456",
+      "prefilled_text": "Hi & hello #1 +260 50% 😀\nThanks"
+    },
+    "expected_uri": "https://wa.me/260966123456?text=Hi%20%26%20hello%20%231%20%2B260%2050%25%20%F0%9F%98%80%0AThanks"
+  },
+  {
+    "description": "Map with six fixed decimals",
+    "action": {
+      "type": "MAP",
+      "id": "0192a6c4-0000-4000-8000-000000000003",
+      "label": "Find our shop",
+      "style": "OUTLINE",
+      "latitude": -15.4167,
+      "longitude": 28.2833,
+      "place_name": "Cairo Road, Lusaka"
+    },
+    "expected_uri": "https://www.google.com/maps/search/?api=1&query=-15.416700%2C28.283300"
+  },
+  {
+    "description": "Map with whole-number coordinates still prints six decimals",
+    "action": {
+      "type": "MAP",
+      "id": "0192a6c4-0000-4000-8000-000000000003",
+      "label": "Find our shop",
+      "style": "OUTLINE",
+      "latitude": -15,
+      "longitude": 28,
+      "place_name": "Cairo Road, Lusaka"
+    },
+    "expected_uri": "https://www.google.com/maps/search/?api=1&query=-15.000000%2C28.000000"
+  },
+  {
+    "description": "Canonical link opens as is",
+    "action": {
+      "type": "LINK",
+      "id": "0192a6c4-0000-4000-8000-000000000004",
+      "label": "See the menu",
+      "style": "OUTLINE",
+      "url": "https://example.co.zm/menu?utm_source=lookup"
+    },
+    "expected_uri": "https://example.co.zm/menu?utm_source=lookup"
+  },
+  {
+    "description": "javascript: link opens nothing",
+    "action": {
+      "type": "LINK",
+      "id": "0192a6c4-0000-4000-8000-000000000004",
+      "label": "See the menu",
+      "style": "OUTLINE",
+      "url": "javascript:alert(1)"
+    },
+    "expected_uri": null
+  },
+  {
+    "description": "Local-form phone number opens nothing",
+    "action": {
+      "type": "CALL",
+      "id": "0192a6c4-0000-4000-8000-000000000001",
+      "label": "Call us",
+      "style": "PRIMARY",
+      "phone_number_e164": "0977123456"
+    },
+    "expected_uri": null
+  },
+  {
+    "description": "Latitude 91 opens nothing",
+    "action": {
+      "type": "MAP",
+      "id": "0192a6c4-0000-4000-8000-000000000003",
+      "label": "Find our shop",
+      "style": "OUTLINE",
+      "latitude": 91,
+      "longitude": 28.2833,
+      "place_name": "Cairo Road, Lusaka"
+    },
+    "expected_uri": null
+  }
+]

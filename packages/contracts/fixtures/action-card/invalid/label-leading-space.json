@@ -1,0 +1,23 @@
+{
+  "description": "Labels have no leading or trailing spaces",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions.0.label",
+      "code": "invalid_format"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": " Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      }
+    ]
+  }
+}

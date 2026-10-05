@@ -1,0 +1,24 @@
+{
+  "description": "R7: a newer schema version shows no buttons and the update hint",
+  "card": {
+    "schema_version": 2,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      }
+    ]
+  },
+  "expected": {
+    "visible_action_ids": [],
+    "more_options_action_ids": [],
+    "styles": [],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 0,
+    "shows_update_app_hint": true
+  }
+}

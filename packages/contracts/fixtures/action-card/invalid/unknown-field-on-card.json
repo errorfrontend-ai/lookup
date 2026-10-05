@@ -1,0 +1,24 @@
+{
+  "description": "Unknown fields on the card are refused when saving",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "",
+      "code": "unrecognized_keys"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      }
+    ],
+    "theme": "dark"
+  }
+}

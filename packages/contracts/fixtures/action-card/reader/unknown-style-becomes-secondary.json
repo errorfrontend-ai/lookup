@@ -1,0 +1,37 @@
+{
+  "description": "R3: an unknown or missing style reads as SECONDARY",
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "DANGER",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "WHATSAPP",
+        "id": "0192a6c4-0000-4000-8000-000000000002",
+        "label": "WhatsApp us",
+        "phone_number_e164": "+260966123456",
+        "prefilled_text": "Hi, I heard your ad on 98.1 FM.\nPlease send prices."
+      }
+    ]
+  },
+  "expected": {
+    "visible_action_ids": [
+      "0192a6c4-0000-4000-8000-000000000001",
+      "0192a6c4-0000-4000-8000-000000000002"
+    ],
+    "more_options_action_ids": [],
+    "styles": [
+      "SECONDARY",
+      "SECONDARY"
+    ],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 0,
+    "shows_update_app_hint": false
+  }
+}

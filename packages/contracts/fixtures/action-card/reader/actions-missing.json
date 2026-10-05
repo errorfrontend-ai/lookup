@@ -1,0 +1,15 @@
+{
+  "description": "R9: a card without an actions list shows nothing and does not fail",
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK"
+  },
+  "expected": {
+    "visible_action_ids": [],
+    "more_options_action_ids": [],
+    "styles": [],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 0,
+    "shows_update_app_hint": false
+  }
+}

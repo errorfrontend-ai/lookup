@@ -1,0 +1,25 @@
+{
+  "description": "Longitude must be between -180 and 180",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions.0.longitude",
+      "code": "too_big"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "MAP",
+        "id": "0192a6c4-0000-4000-8000-000000000003",
+        "label": "Find our shop",
+        "style": "OUTLINE",
+        "latitude": -15.4167,
+        "longitude": 181,
+        "place_name": "Cairo Road, Lusaka"
+      }
+    ]
+  }
+}

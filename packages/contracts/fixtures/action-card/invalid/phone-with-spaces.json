@@ -1,0 +1,27 @@
+{
+  "description": "Stored numbers carry no spaces",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions.0.phone_number_e164",
+      "code": "invalid_format"
+    },
+    {
+      "path": "actions.0.phone_number_e164",
+      "code": "custom:zambian_number_must_have_nine_digits"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260 97 712 3456"
+      }
+    ]
+  }
+}

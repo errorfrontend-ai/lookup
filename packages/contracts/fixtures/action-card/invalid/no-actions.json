@@ -1,0 +1,15 @@
+{
+  "description": "A card needs at least one button",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions",
+      "code": "too_small"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": []
+  }
+}

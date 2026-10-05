@@ -3,6 +3,7 @@
   "private": true,
   "description": "Look Up — tap to identify a radio ad and get the station's buttons",
   "workspaces": [
+    "packages/contracts",
     "apps/api"
   ],
   "engines": {
@@ -11,7 +12,8 @@
   "scripts": {
     "database:create-roles": "npm run database:create-roles -w @lookup/api",
     "database:migrate": "npm run database:migrate -w @lookup/api",
-    "test": "npm test -w @lookup/api",
-    "typecheck": "npm run typecheck -w @lookup/api"
+    "build:contracts": "npm run build -w @lookup/contracts",
+    "test": "npm test --workspaces",
+    "typecheck": "npm run typecheck --workspaces"
   }
 }

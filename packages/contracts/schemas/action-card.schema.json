@@ -1,0 +1,246 @@
+{
+  "$id": "https://contracts.lookup.invalid/action-card/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ActionCard",
+  "$defs": {
+    "ActionCard": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "number",
+          "const": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/CardLayout"
+        },
+        "actions": {
+          "minItems": 1,
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CardAction"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "layout",
+        "actions"
+      ],
+      "additionalProperties": false,
+      "title": "Look Up action card, schema version 1"
+    },
+    "CardLayout": {
+      "type": "string",
+      "enum": [
+        "VERTICAL_STACK"
+      ]
+    },
+    "CardAction": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LinkAction"
+        },
+        {
+          "$ref": "#/$defs/CallAction"
+        },
+        {
+          "$ref": "#/$defs/WhatsAppAction"
+        },
+        {
+          "$ref": "#/$defs/MapAction"
+        }
+      ]
+    },
+    "LinkAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "LINK"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https:\\/\\/(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z][A-Za-z0-9-]{0,61}[A-Za-z0-9](?:[\\/?#][\\x21-\\x7E]*)?$"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "ActionLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "allOf": [
+        {
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+        },
+        {
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F​-‏‪-‮⁠-⁩﻿]*$"
+        }
+      ]
+    },
+    "ActionStyle": {
+      "type": "string",
+      "enum": [
+        "PRIMARY",
+        "SECONDARY",
+        "OUTLINE"
+      ]
+    },
+    "CallAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "CALL"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "phone_number_e164": {
+          "$ref": "#/$defs/PhoneNumberE164"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "phone_number_e164"
+      ],
+      "additionalProperties": false
+    },
+    "PhoneNumberE164": {
+      "type": "string",
+      "pattern": "^\\+[1-9][0-9]{6,14}$",
+      "description": "E.164: \"+\", the country code, then the number; digits only, no spaces"
+    },
+    "WhatsAppAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "WHATSAPP"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "phone_number_e164": {
+          "$ref": "#/$defs/PhoneNumberE164"
+        },
+        "prefilled_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "allOf": [
+            {
+              "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+            },
+            {
+              "pattern": "^[^\\u0000-\\u0009\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F​-‏‪-‮⁠-⁩﻿]*$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "phone_number_e164"
+      ],
+      "additionalProperties": false
+    },
+    "MapAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "MAP"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "place_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "allOf": [
+            {
+              "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+            },
+            {
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F​-‏‪-‮⁠-⁩﻿]*$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "latitude",
+        "longitude"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

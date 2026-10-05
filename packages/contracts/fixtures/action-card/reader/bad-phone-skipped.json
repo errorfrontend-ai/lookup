@@ -1,0 +1,37 @@
+{
+  "description": "R5: a call button whose number is not E.164 is skipped",
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "0977123456"
+      },
+      {
+        "type": "MAP",
+        "id": "0192a6c4-0000-4000-8000-000000000003",
+        "label": "Find our shop",
+        "style": "OUTLINE",
+        "latitude": -15.4167,
+        "longitude": 28.2833,
+        "place_name": "Cairo Road, Lusaka"
+      }
+    ]
+  },
+  "expected": {
+    "visible_action_ids": [
+      "0192a6c4-0000-4000-8000-000000000003"
+    ],
+    "more_options_action_ids": [],
+    "styles": [
+      "OUTLINE"
+    ],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 1,
+    "shows_update_app_hint": false
+  }
+}

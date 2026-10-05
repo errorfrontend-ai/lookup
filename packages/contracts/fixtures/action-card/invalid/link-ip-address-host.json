@@ -1,0 +1,23 @@
+{
+  "description": "IP-address hosts are refused",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions.0.url",
+      "code": "invalid_format"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "LINK",
+        "id": "0192a6c4-0000-4000-8000-000000000004",
+        "label": "See the menu",
+        "style": "OUTLINE",
+        "url": "https://192.168.1.1/"
+      }
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "description": "More than six buttons is refused",
+  "zod_only": false,
+  "expected_issues": [
+    {
+      "path": "actions",
+      "code": "too_big"
+    }
+  ],
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000002",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000003",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000004",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000005",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000006",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000007",
+        "label": "Call us",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      }
+    ]
+  }
+}
