@@ -8,6 +8,7 @@ import { SecurityModule } from './common/security/security.module.js';
 import { ConfigModule } from './config/config.module.js';
 import { AdsModule } from './features/ads/ads.module.js';
 import { AuthenticationModule } from './features/authentication/authentication.module.js';
+import { ClientErrorsModule } from './features/client-errors/client-errors.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
 import { StationsModule } from './features/stations/stations.module.js';
@@ -38,6 +39,7 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     StationsModule,
     ClientsModule,
     AdsModule,
+    ClientErrorsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

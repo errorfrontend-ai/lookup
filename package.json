@@ -4,7 +4,8 @@
   "description": "Look Up — tap to identify a radio ad and get the station's buttons",
   "workspaces": [
     "packages/contracts",
-    "apps/api"
+    "apps/api",
+    "apps/portal"
   ],
   "engines": {
     "node": ">=22.12"

@@ -1,0 +1,29 @@
+import type { SignedInPortalUser, StationRole } from '@lookup/contracts';
+import { useParams } from 'react-router';
+import { useSignedInUser } from '../session/use-signed-in-user';
+
+export type MemberStation = SignedInPortalUser['stations'][number];
+
+/** Roles that may change a station's content (the API's CHANGE_STATION_CONTENT rule). */
+const ROLES_THAT_CHANGE_CONTENT: ReadonlySet<StationRole> = new Set(['OWNER', 'MANAGER']);
+
+export function canChangeStationContent(station: MemberStation): boolean {
+  return ROLES_THAT_CHANGE_CONTENT.has(station.role) && station.status === 'ACTIVE';
+}
+
+/**
+ * The station named in the address, if the signed-in person belongs to it. A station they don't
+ * belong to is treated as not found, the same answer the API gives.
+ */
+export function useCurrentStation(): MemberStation | null {
+  const { stationId } = useParams();
+  const signedInUser = useSignedInUser();
+  return signedInUser.data?.stations.find((station) => station.id === stationId) ?? null;
+}
+
+/** The current station, for screens that only render inside a station (the shell guarantees it). */
+export function useRequiredCurrentStation(): MemberStation {
+  const station = useCurrentStation();
+  if (!station) throw new Error('useRequiredCurrentStation used outside a station route');
+  return station;
+}

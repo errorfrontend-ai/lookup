@@ -1,0 +1,48 @@
+{
+  "name": "@lookup/portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Look Up station portal: sign in, ads, buttons, schedules",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build:contracts": "npm run build --workspace=@lookup/contracts",
+    "generate:design-tokens": "tsx scripts/generate-design-token-styles.ts",
+    "predev": "npm run build:contracts && npm run generate:design-tokens",
+    "dev": "vite",
+    "prebuild": "npm run build:contracts && npm run generate:design-tokens",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "pretypecheck": "npm run build:contracts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run build:contracts",
+    "test": "vitest run",
+    "test:end-to-end": "playwright test"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.3.0",
+    "@fontsource-variable/public-sans": "5.3.0",
+    "@lookup/contracts": "0.1.0",
+    "@tanstack/react-query": "5.104.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "7.18.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "jsdom": "29.1.1",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  }
+}
