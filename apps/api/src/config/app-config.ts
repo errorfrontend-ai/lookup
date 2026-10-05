@@ -29,6 +29,13 @@ const AppConfigSchema = z
     /** Valkey: job queues, rate-limit counters and short-lived codes. */
     KEY_VALUE_STORE_URL: z.url({ protocol: /^rediss?$/ }),
 
+    /**
+     * At least 32 random bytes, base64url-encoded (43+ characters). Keys for signing access tokens,
+     * trusted-device cookies and hashing identifiers in logs are derived from it. Changing it signs
+     * everyone out.
+     */
+    AUTHENTICATION_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
+
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     /** Full request details in logs; off by default so customer data never reaches logs by accident. */
     LOG_REQUEST_DETAILS: z.stringbool().default(false),
@@ -41,6 +48,10 @@ const AppConfigSchema = z
     RATE_LIMIT_REQUESTS_PER_MINUTE: z.coerce.number().int().min(10).max(100_000).default(300),
   })
   .superRefine((config, context) => {
+    // The template's placeholder has the right shape, so refuse it by name in every environment.
+    if (config.AUTHENTICATION_SECRET.includes('CHANGE_ME')) {
+      context.addIssue({ code: 'custom', path: ['AUTHENTICATION_SECRET'], message: 'must be replaced with a random value' });
+    }
     if (config.NODE_ENV !== 'production') return;
     if (config.DATABASE_TLS_MODE === 'disable') {
       context.addIssue({ code: 'custom', path: ['DATABASE_TLS_MODE'], message: 'must not be "disable" in production' });

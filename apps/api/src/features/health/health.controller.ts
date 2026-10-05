@@ -3,9 +3,11 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import type { Redis } from 'ioredis';
 import type { DataSource } from 'typeorm';
 import { AppError } from '../../common/errors/app-error.js';
+import { PublicRoute } from '../authentication/public-route.decorator.js';
 import { KEY_VALUE_STORE } from '../../infrastructure/key-value-store/key-value-store.module.js';
 
 @Controller('health')
+@PublicRoute()
 export class HealthController {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,

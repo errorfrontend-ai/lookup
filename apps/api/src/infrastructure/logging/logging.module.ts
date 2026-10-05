@@ -21,6 +21,14 @@ export const REDACTED_LOG_PATHS = [
   '*.phoneNumberE164',
   '*.audio',
   '*.audioBase64',
+  '*.accessToken',
+  '*.refreshTokenHash',
+  '*.computedPasswordHash',
+  '*.currentPassword',
+  '*.newPassword',
+  '*.deviceCookie',
+  '*.uploadUrl',
+  '*.playbackUrl',
 ];
 
 @Module({

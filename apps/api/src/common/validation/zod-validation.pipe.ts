@@ -1,3 +1,4 @@
+import { VALIDATION_REASON_CODES } from '@lookup/contracts';
 import type { PipeTransform } from '@nestjs/common';
 import type { z } from 'zod';
 import { AppError } from '../errors/app-error.js';
@@ -11,7 +12,9 @@ const MAXIMUM_PATH_LENGTH = 120;
  * `z.strictObject`, so unknown fields are rejected rather than silently passed along.
  *
  * The caller learns which fields failed and a reason code. Never zod's message text, which can
- * quote the submitted value, and never the names of unknown keys, which the caller chose.
+ * quote the submitted value, and never the names of unknown keys, which the caller chose. A rule
+ * of our own (a custom issue) reports its reason only when the reason is one of the fixed codes in
+ * VALIDATION_REASON_CODES; anything else reports the generic code "custom".
  */
 export class ZodValidationPipe<Schema extends z.ZodType> implements PipeTransform<unknown, z.output<Schema>> {
   constructor(private readonly schema: Schema) {}
@@ -23,9 +26,15 @@ export class ZodValidationPipe<Schema extends z.ZodType> implements PipeTransfor
     throw new AppError('VALIDATION_FAILED', {
       fields: issues.slice(0, MAXIMUM_REPORTED_ISSUES).map((issue) => ({
         path: issue.path.map(String).join('.').slice(0, MAXIMUM_PATH_LENGTH),
-        code: issue.code,
+        code: reasonCodeFor(issue),
       })),
       internalDetail: `request validation failed: ${issues.length} issue(s)`,
     });
   }
+}
+
+function reasonCodeFor(issue: z.core.$ZodIssue): string {
+  if (issue.code !== 'custom') return issue.code;
+  const reason = (issue as { params?: { reason?: unknown } }).params?.reason;
+  return typeof reason === 'string' && VALIDATION_REASON_CODES.has(reason) ? reason : 'custom';
 }

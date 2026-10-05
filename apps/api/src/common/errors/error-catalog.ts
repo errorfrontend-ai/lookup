@@ -7,6 +7,9 @@ export const ERROR_CATALOG = {
   INVALID_JSON: { httpStatus: 400, message: 'The request body is not valid JSON.' },
   VALIDATION_FAILED: { httpStatus: 400, message: 'Some details are missing or not valid.' },
   UNAUTHENTICATED: { httpStatus: 401, message: 'Please sign in.' },
+  // One message for an unknown email, a wrong password and a disabled account, so the answer
+  // never reveals which emails have accounts.
+  INVALID_CREDENTIALS: { httpStatus: 401, message: 'The email or password is not correct.' },
   FORBIDDEN: { httpStatus: 403, message: 'You do not have access to this.' },
   NOT_FOUND: { httpStatus: 404, message: 'Not found.' },
   METHOD_NOT_ALLOWED: { httpStatus: 405, message: 'This action is not allowed here.' },

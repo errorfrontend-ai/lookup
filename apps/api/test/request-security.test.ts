@@ -7,6 +7,7 @@ import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../src/common/errors/app-error.js';
 import { RateLimiter } from '../src/common/rate-limiting/rate-limiter.js';
+import type { DerivedKeys } from '../src/common/security/derived-keys.js';
 import { APP_CONFIG, loadAppConfig } from '../src/config/app-config.js';
 import { FailureRoutesModule } from './support/failure-routes.module.js';
 import { assertNoInternalDetails } from './support/internal-detail-patterns.js';
@@ -182,9 +183,10 @@ describe('rate limiter when its store is unreachable', () => {
   const unreachableKeyValueStore = { eval: () => Promise.reject(new Error('connect ECONNREFUSED')) } as unknown as Redis;
   const response = { setHeader: vi.fn() } as unknown as Response;
   const quietLogger = () => ({ setContext: vi.fn(), warn: vi.fn() });
+  const derivedKeys = { hashIdentifier: (identifier: string) => identifier } as unknown as DerivedKeys;
 
   it('refuses requests for counters marked to refuse (e.g. sign-in)', async () => {
-    const rateLimiter = new RateLimiter(unreachableKeyValueStore, quietLogger() as unknown as PinoLogger);
+    const rateLimiter = new RateLimiter(unreachableKeyValueStore, quietLogger() as unknown as PinoLogger, derivedKeys);
     const rule = { counterName: 'sign-in', maximumRequests: 5, windowSeconds: 60, refuseWhenStoreUnavailable: true };
     const error = await rateLimiter.countRequest(rule, '192.0.2.4', response).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AppError);
@@ -193,7 +195,7 @@ describe('rate limiter when its store is unreachable', () => {
 
   it('allows other requests through and logs a warning', async () => {
     const logger = quietLogger();
-    const rateLimiter = new RateLimiter(unreachableKeyValueStore, logger as unknown as PinoLogger);
+    const rateLimiter = new RateLimiter(unreachableKeyValueStore, logger as unknown as PinoLogger, derivedKeys);
     const rule = { counterName: 'client-address', maximumRequests: 5, windowSeconds: 60 };
     await expect(rateLimiter.countRequest(rule, '192.0.2.4', response)).resolves.toBeUndefined();
     expect(logger.warn).toHaveBeenCalledOnce();

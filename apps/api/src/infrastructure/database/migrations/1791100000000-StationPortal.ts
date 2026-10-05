@@ -33,7 +33,7 @@ export class StationPortal1791100000000 implements MigrationInterface {
         ADD COLUMN consecutive_failed_sign_in_count integer NOT NULL DEFAULT 0,
         ADD COLUMN last_failed_sign_in_at timestamptz,
         ADD COLUMN password_changed_at timestamptz,
-        ADD CONSTRAINT portal_users_password_hash_check CHECK (password_hash ~ '^\\$argon2id\\$v=19\\$m=[0-9]+,t=[0-9]+,p=[0-9]+\\$[A-Za-z0-9+/]+\\$[A-Za-z0-9+/]+$'),
+        ADD CONSTRAINT portal_users_password_hash_check CHECK (password_hash ~ '^\\$argon2id\\$v=19\\$[mtp]=[0-9]+,[mtp]=[0-9]+,[mtp]=[0-9]+\\$[A-Za-z0-9+/]+\\$[A-Za-z0-9+/]+$'),
         ADD CONSTRAINT portal_users_full_name_check CHECK (char_length(full_name) BETWEEN 1 AND 120)`);
 
     // ---- sessions --------------------------------------------------------------------------------

@@ -34,6 +34,7 @@ describe('production configuration fails closed', () => {
     NODE_ENV: 'production',
     DATABASE_URL: 'postgresql://lookup_api:password@database.internal:5432/lookup',
     KEY_VALUE_STORE_URL: 'redis://:password@key-value.internal:6379',
+    AUTHENTICATION_SECRET: 'q4P1k5o8zXhN3wVt7RmYb2LcJ9sUeA6GdF0iHnKjTpW',
     DATABASE_TLS_MODE: 'require',
     ALLOWED_BROWSER_ORIGINS: 'https://portal.example.com',
   };
@@ -47,6 +48,15 @@ describe('production configuration fails closed', () => {
       /DATABASE_TLS_MODE: must not be "disable" in production/,
     );
     expect(() => loadAppConfig({ ...soundProductionConfig, DATABASE_TLS_MODE: undefined })).toThrow(/DATABASE_TLS_MODE/);
+  });
+
+  it('refuses a missing, short or placeholder authentication secret, in any environment', () => {
+    const developmentConfig = { ...soundProductionConfig, NODE_ENV: 'development' };
+    expect(() => loadAppConfig({ ...developmentConfig, AUTHENTICATION_SECRET: undefined })).toThrow(/AUTHENTICATION_SECRET/);
+    expect(() => loadAppConfig({ ...developmentConfig, AUTHENTICATION_SECRET: 'too-short' })).toThrow(/AUTHENTICATION_SECRET/);
+    expect(() =>
+      loadAppConfig({ ...developmentConfig, AUTHENTICATION_SECRET: 'CHANGE_ME_TO_43_OR_MORE_BASE64URL_CHARACTERS_FROM_32_RANDOM_BYTES' }),
+    ).toThrow(/AUTHENTICATION_SECRET: must be replaced with a random value/);
   });
 
   it('refuses non-https browser origins', () => {

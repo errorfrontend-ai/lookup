@@ -4,6 +4,9 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "tsConfigPath": "tsconfig.build.json",
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [
+      { "include": "features/authentication/password-blocklist/*.gz", "outDir": "dist" }
+    ]
   }
 }

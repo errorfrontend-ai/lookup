@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { AppError } from '../../src/common/errors/app-error.js';
 import { RateLimit } from '../../src/common/rate-limiting/rate-limit.decorator.js';
 import { ZodValidationPipe } from '../../src/common/validation/zod-validation.pipe.js';
+import { PublicRoute } from '../../src/features/authentication/public-route.decorator.js';
 
 const ValidatedInput = z.strictObject({
   name: z.string().min(1).max(50),
@@ -13,6 +14,7 @@ const ValidatedInput = z.strictObject({
 
 /** Test-only routes that fail in each way a real handler can. Never imported by the application itself. */
 @Controller('test-only')
+@PublicRoute()
 class FailureRoutesController {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
