@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+/** How the database connection is protected: `require` encrypts it; `verify-full` also checks the server's certificate. */
+export const DATABASE_TLS_MODES = ['disable', 'require', 'verify-full'] as const;
+export type DatabaseTlsMode = (typeof DATABASE_TLS_MODES)[number];
+
 /** Dependency-injection token for the validated application configuration. */
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
@@ -24,7 +28,7 @@ const AppConfigSchema = z
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     DATABASE_STATEMENT_TIMEOUT_MILLISECONDS: z.coerce.number().int().min(100).max(60_000).default(5_000),
     /** `require` encrypts the connection; `verify-full` also checks the server's certificate. */
-    DATABASE_TLS_MODE: z.enum(['disable', 'require', 'verify-full']).default('disable'),
+    DATABASE_TLS_MODE: z.enum(DATABASE_TLS_MODES).default('disable'),
 
     /** Valkey: job queues, rate-limit counters and short-lived codes. */
     KEY_VALUE_STORE_URL: z.url({ protocol: /^rediss?$/ }),

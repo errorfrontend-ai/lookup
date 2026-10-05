@@ -6,6 +6,7 @@ export * from './action-card/action-uris.js';
 export * from './action-card/url-shortener-hosts.js';
 export * from './authentication/authentication-schemas.js';
 export * from './client-errors/client-error-schemas.js';
+export * from './errors/error-envelope-schema.js';
 export * from './stations/station-schemas.js';
 export * from './phone-numbers/zambian-phone-numbers.js';
 export * from './validation-reason-codes.js';

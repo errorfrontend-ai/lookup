@@ -1,7 +1,7 @@
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FailureRoutesModule } from './support/failure-routes.module.js';
-import { assertNoInternalDetails } from './support/internal-detail-patterns.js';
+import { assertErrorEnvelope } from './support/internal-detail-patterns.js';
 import { waitForLogWrites } from './support/log-capture.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
 
@@ -25,7 +25,7 @@ describe('error responses never expose internals', () => {
     expect(response.body.error.code).toBe(code);
     expect(typeof response.body.error.message).toBe('string');
     expect(response.body.error.request_id).toBe(response.headers['x-request-id']);
-    assertNoInternalDetails(response.body);
+    assertErrorEnvelope(response.body);
   }
 
   it('database errors become a generic 500, with the real error and stack in the log', async () => {

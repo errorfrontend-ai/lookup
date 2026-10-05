@@ -7,9 +7,11 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { emitActionCardJsonSchema } from '../src/action-card/action-card-schema.js';
+import { emitErrorEnvelopeJsonSchema } from '../src/errors/error-envelope-schema.js';
 
 export const JSON_SCHEMA_FILES = {
   'action-card.schema.json': emitActionCardJsonSchema,
+  'error-envelope.schema.json': emitErrorEnvelopeJsonSchema,
 };
 
 export function formatJsonSchema(schema: Record<string, unknown>): string {

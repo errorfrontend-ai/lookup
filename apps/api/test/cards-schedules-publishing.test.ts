@@ -112,7 +112,7 @@ describe('buttons, schedules and publishing', () => {
       const firstCard = actionCard();
       const saved = expectStatus(await send(owner, 'put', `${adPath}/card`, firstCard), 200);
       expect(saved.body.actionCard).toEqual(firstCard);
-      const [callButton, linkButton] = firstCard.actions as [Record<string, unknown>, Record<string, unknown>];
+      const [callButton, linkButton] = firstCard.actions as unknown as [Record<string, unknown>, Record<string, unknown>];
       const secondCard = { ...firstCard, actions: [{ ...callButton, phone_number_e164: '+260966000111' }, linkButton] };
       expectStatus(await send(owner, 'put', `${adPath}/card`, secondCard), 200);
       const detail = expectStatus(await send(owner, 'get', adPath), 200);

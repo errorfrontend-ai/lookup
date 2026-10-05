@@ -3,25 +3,25 @@
  * owned by a role nothing logs in as. A separate step from starting the API — on Render it runs as
  * the pre-deploy command; the API itself never changes the schema.
  *
- *   npm run database:migrate    apply pending migrations
- *   npm run database:revert     revert the latest one
+ *   npm run database:migrate          apply pending migrations
+ *   npm run database:revert-latest    revert the latest one
+ *
+ * DATABASE_TLS_MODE (disable, require, verify-full) applies here exactly as it does to the API.
  */
 import 'reflect-metadata';
 import { pathToFileURL } from 'node:url';
 import { DataSource } from 'typeorm';
-import { ALL_MIGRATIONS } from '../src/infrastructure/database/migrations/all-migrations.js';
+import { DATABASE_TLS_MODES, type DatabaseTlsMode } from '../src/config/app-config.js';
+import { lookupDataSourceOptions } from '../src/infrastructure/database/data-source-options.js';
 import { loadDatabaseSetupConfig } from './database-setup-config.js';
 
 export async function runMigrations(setupUrl: string, options: { revertLatest?: boolean } = {}): Promise<string[]> {
+  const tlsMode = (process.env.DATABASE_TLS_MODE ?? 'disable') as DatabaseTlsMode;
+  if (!DATABASE_TLS_MODES.includes(tlsMode)) throw new Error(`DATABASE_TLS_MODE must be one of: ${DATABASE_TLS_MODES.join(', ')}`);
   const dataSource = new DataSource({
-    type: 'postgres',
-    url: setupUrl,
+    ...lookupDataSourceOptions({ url: setupUrl, applicationName: 'lookup-database-migrations', tlsMode }),
     schema: 'app',
-    migrations: ALL_MIGRATIONS,
-    migrationsTableName: 'migrations',
     migrationsTransactionMode: 'each',
-    installExtensions: false,
-    applicationName: 'lookup-database-migrations',
     // Every object created is owned by the schema owner, not by the login that ran the script.
     extra: { options: '-c role=lookup_schema_owner' },
     logging: ['error'],
