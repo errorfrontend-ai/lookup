@@ -33,11 +33,15 @@ export const SIGN_IN_FAILURES_PER_TRUSTED_DEVICE: RateLimitRule = {
   refuseWhenStoreUnavailable: true,
 };
 
+/**
+ * Keeps working when the store is down: a refresh token is 256 random bits, so there is nothing to
+ * guess, and refusing would sign every station out within 15 minutes of a store outage.
+ */
 export const REFRESH_REQUESTS_PER_ADDRESS: RateLimitRule = {
   counterName: 'refresh-requests-per-address',
   maximumRequests: 30,
   windowSeconds: 60,
-  refuseWhenStoreUnavailable: true,
+  refuseWhenStoreUnavailable: false,
 };
 
 export const PASSWORD_CHANGE_REQUESTS_PER_USER: RateLimitRule = {

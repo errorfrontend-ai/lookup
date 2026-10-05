@@ -71,6 +71,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       ...(exception instanceof AppError && exception.internalDetail ? { detail: exception.internalDetail } : {}),
     };
     if (publicError.httpStatus >= 500) this.logger.error({ ...record, err: error }, 'request failed');
+    // A caller's mistake needs no stack, unless something underneath caused it (a duplicate key
+    // behind a CONFLICT, an unreachable store behind a refusal): then the cause is kept.
+    else if (error.cause !== undefined) this.logger.info({ ...record, err: error }, 'request rejected');
     else this.logger.info({ ...record, errorName: error.name }, 'request rejected');
 
     if (response.headersSent) return;

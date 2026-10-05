@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { pathOnly, scrubPersonalData } from '../src/features/client-errors/scrub-personal-data.js';
+import { pathOnly, scrubPersonalData } from '../src/common/privacy/scrub-personal-data.js';
 import { waitForLogWrites } from './support/log-capture.js';
 import { PORTAL_ORIGIN } from './support/portal-test-users.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';

@@ -7,6 +7,13 @@ import { RateLimit } from '../../src/common/rate-limiting/rate-limit.decorator.j
 import { ZodValidationPipe } from '../../src/common/validation/zod-validation.pipe.js';
 import { PublicRoute } from '../../src/features/authentication/public-route.decorator.js';
 
+/** Personal values the database-error routes send as query parameters; none may reach a log line. */
+export const PERSONAL_VALUES_SENT_TO_THE_DATABASE = {
+  email: 'chanda.mwale@example.test',
+  phoneNumber: '0977123456',
+  passwordHash: '$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaA',
+} as const;
+
 const ValidatedInput = z.strictObject({
   name: z.string().min(1).max(50),
   count: z.number().int().min(0),
@@ -31,6 +38,45 @@ class FailureRoutesController {
            VALUES ('\\x6c65616b'::bytea, 'ANDROID', 'test'), ('\\x6c65616b'::bytea, 'ANDROID', 'test')`,
       );
     });
+  }
+
+  /**
+   * A query that fails while carrying personal values: TypeORM keeps them in `parameters`, and
+   * Postgres quotes the rejected one in its message (`invalid input syntax for type uuid: "…"`).
+   */
+  @Get('database-error-with-personal-values')
+  async databaseErrorWithPersonalValues(): Promise<unknown> {
+    const { email, passwordHash } = PERSONAL_VALUES_SENT_TO_THE_DATABASE;
+    return this.dataSource.query('SELECT $1::text AS email, $2::text AS password_hash, $3::uuid AS id', [email, passwordHash, email]);
+  }
+
+  /** A check violation, whose driver `detail` repeats the whole failing row ("Failing row contains …"). */
+  @Get('failing-row-with-personal-values')
+  async failingRowWithPersonalValues(): Promise<void> {
+    const { email, phoneNumber } = PERSONAL_VALUES_SENT_TO_THE_DATABASE;
+    await this.dataSource.transaction(async (database) => {
+      await database.query(
+        `INSERT INTO app.listener_installs (install_id_hash, platform, app_version) VALUES (decode('6c65616b', 'hex'), 'NOT_A_PLATFORM', $1)`,
+        [`${phoneNumber} ${email}`],
+      );
+    });
+  }
+
+  /** A caller-facing refusal (409) caused by a database error that carries personal values. */
+  @Get('conflict-caused-by-database-error')
+  async conflictCausedByDatabaseError(): Promise<void> {
+    const { email } = PERSONAL_VALUES_SENT_TO_THE_DATABASE;
+    try {
+      await this.dataSource.transaction(async (database) => {
+        await database.query(
+          `INSERT INTO app.listener_installs (install_id_hash, platform, app_version)
+             VALUES (decode('6c65616b', 'hex'), 'ANDROID', $1), (decode('6c65616b', 'hex'), 'ANDROID', $1)`,
+          [email],
+        );
+      });
+    } catch (error) {
+      throw new AppError('CONFLICT', { internalDetail: 'duplicate install', cause: error });
+    }
   }
 
   /** A malformed id in a URL, the most common way a driver error reaches a handler. */
@@ -72,5 +118,15 @@ class FailureRoutesController {
   }
 }
 
-@Module({ controllers: [FailureRoutesController] })
+/** Test-only routes behind sign-in, so log lines carry the signed-in actor. */
+@Controller('test-only/signed-in')
+class SignedInFailureRoutesController {
+  @Get('programming-error')
+  programmingError(): unknown {
+    const missing = undefined as unknown as { field: string };
+    return missing.field;
+  }
+}
+
+@Module({ controllers: [FailureRoutesController, SignedInFailureRoutesController] })
 export class FailureRoutesModule {}

@@ -5,7 +5,7 @@ import { PinoLogger } from 'nestjs-pino';
 import { RateLimit } from '../../common/rate-limiting/rate-limit.decorator.js';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.js';
 import { PublicRoute } from '../authentication/public-route.decorator.js';
-import { pathOnly, scrubPersonalData } from './scrub-personal-data.js';
+import { pathOnly, scrubPersonalData } from '../../common/privacy/scrub-personal-data.js';
 
 /**
  * Where the portal and the listener app report their own crashes, so client errors reach the
