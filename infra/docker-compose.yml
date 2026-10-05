@@ -53,7 +53,7 @@ services:
       VGW_PORT: ":7070"
       VGW_HEALTH: /health
     ports:
-      - "127.0.0.1:${LOOKUP_DEVELOPMENT_OBJECT_STORAGE_PORT:-59000}:7070"
+      - "127.0.0.1:${LOOKUP_DEVELOPMENT_OBJECT_STORAGE_PORT:-39000}:7070"
     volumes:
       # A named volume (ext4 inside Docker's VM) supports the extended attributes versitygw stores metadata in.
       - object-storage-data:/data/objects

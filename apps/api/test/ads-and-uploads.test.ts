@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { APP_CONFIG, type AppConfig } from '../src/config/app-config.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { ObjectStorage } from '../src/infrastructure/object-storage/object-storage.js';
+import { UPLOAD_REFUSAL_REASONS } from '@lookup/contracts';
 import { m4aBytes, mp3Bytes, notAudioBytes, wavBytes } from './support/audio-fixtures.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { assertNoInternalDetails } from './support/internal-detail-patterns.js';
@@ -222,6 +223,10 @@ describe('ads and direct audio uploads', () => {
       expect(JSON.stringify(refused.body)).not.toMatch(/S3|Bucket|x-amz|versity/i);
       expect(await adRow(created.adId)).toMatchObject({ status: 'FAILED', processing_error_code: 'not_the_declared_audio_format' });
       expect(await objectStorage.describeObject(objectKey)).toBeNull();
+      // S2-ADS-10: the station sees why, as one of the shared contract's codes.
+      const detail = expectStatus(await get(owner, `${adsPath}/${created.adId}`), 200).body;
+      expect(detail).toMatchObject({ status: 'FAILED', processingErrorCode: 'not_the_declared_audio_format' });
+      expect(UPLOAD_REFUSAL_REASONS).toContain(detail.processingErrorCode);
     });
 
     it('an object that differs from what was declared (written around the signed URL) is refused', async () => {

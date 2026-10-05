@@ -30,19 +30,24 @@ format: capture-app clip file names (`…_neg_…_8s_…_t1.m4a`), recorded valu
 
 ```
 apps/api/src/
-  main.ts                          process entry: start the server, last-resort error logging
+  main.ts                          process entry: start the server
+  process-failures.ts              last-resort JSON logging of start-up failures and unhandled errors
   app.module.ts                    wires infrastructure, then features
   configure-http-application.ts    the HTTP pipeline, in order, shared with the tests
   config/                          validated configuration (fails closed)
-  infrastructure/                  things features rely on: database, key-value store, logging
+  infrastructure/                  things features rely on: database (one data-source definition,
+                                   migrations, partitions), key-value store, object storage, logging
   common/                          cross-cutting rules: errors, http guards, rate limiting, validation
   features/<feature>/              one folder per feature: module, controller, service, input schemas
-apps/api/scripts/                  database setup: roles, migrations
+apps/api/scripts/                  setup commands: database roles, migrations, development seed,
+                                   object storage bucket
 apps/api/test/                     one file per behaviour; shared helpers in test/support/
 ```
 
 A new feature is a new folder under `features/` with its own module, imported once in
-`app.module.ts`. Features never reach into each other's folders; shared rules go in `common/`.
+`app.module.ts`. A feature may use another feature's building blocks that are meant for sharing
+(the `stations` access guard; the `ads` record helpers in `ad-records.ts`), never its services or
+private files; rules shared by everything go in `common/`.
 
 ## Names in the database
 

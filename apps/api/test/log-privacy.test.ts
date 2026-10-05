@@ -92,6 +92,19 @@ describe('logged errors never carry personal values', () => {
     });
   });
 
+  it('S1-LOGGING-15: by default a request line holds only id, method and path: no headers, no query string', async () => {
+    const response = await client().get('/api/v1/auth/me?email=chanda.mwale%40example.test').set('Cookie', 'session=secret-cookie-value');
+    await waitForLogWrites();
+    const requestLine = testApplication.logs.find(
+      (line) => 'res' in line && (line.req as { id?: string } | undefined)?.id === response.headers['x-request-id'],
+    );
+    expect(requestLine?.req).toEqual({ id: response.headers['x-request-id'], method: 'GET', path: '/api/v1/auth/me' });
+    expect(requestLine?.res).toEqual({ statusCode: 401 });
+    const logged = JSON.stringify(testApplication.logs.lines);
+    expect(logged).not.toContain('secret-cookie-value');
+    expect(logged).not.toContain('chanda.mwale%40example.test');
+  });
+
   it('every line of a signed-in request names the actor by a keyed hash, never by id or email', async () => {
     const user = await testUsers.create();
     const signIn = await client().post('/api/v1/auth/sign-in').set('Origin', PORTAL_ORIGIN).send({ email: user.email, password: user.password });

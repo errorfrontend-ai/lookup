@@ -89,6 +89,13 @@ export interface AdCampaignSummary {
   timeWindows: Array<{ daysOfWeek: number[]; localStartTime: string; localEndTime: string }>;
 }
 
+/**
+ * Why an uploaded file was refused and deleted (an ad's `processingErrorCode`). The portal turns each
+ * into plain words; Step 3 adds the fingerprinting outcomes.
+ */
+export const UPLOAD_REFUSAL_REASONS = ['size_or_type_mismatch', 'not_the_declared_audio_format'] as const;
+export type UploadRefusalReason = (typeof UPLOAD_REFUSAL_REASONS)[number];
+
 export interface AdSummary {
   id: string;
   title: string;

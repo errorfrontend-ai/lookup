@@ -80,6 +80,7 @@ export interface AdSchedule extends AdCampaignSummary {
 
 export interface AdDetail extends AdSummary {
   uploadSizeBytes: number | null;
+  /** Why the upload was refused (an UploadRefusalReason), or null. */
   processingErrorCode: string | null;
   actionCard: ActionCard | null;
   schedule: AdSchedule | null;

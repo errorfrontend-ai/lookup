@@ -30,6 +30,19 @@ applies.
 | S2-D14 | **The portal plays an ad back through a 5-minute presigned GET** (the wireframes show Play buttons on the list, the upload step and the detail page). Bucket CORS therefore allows `GET` as well as `PUT`. | Wireframes AdsDesktop, AdsMobile, NewAdUpload, AdDetail. |
 | S2-D15 | Portal stack: React 19.3.0, Vite 8.3.2, @vitejs/plugin-react 6.1.1, Tailwind 4.3.3 (+ @tailwindcss/vite), **react-router 7.18.4** (the maintained 7.x line chosen in the plan), @tanstack/react-query 5.104.1, vitest 5.0.3 with **jsdom 29.1.1** (30.x needs Node ≥ 24.15; this machine has 24.13.1), @testing-library/react 16.3.3, user-event 14.6.7, jest-dom 7.0.1, @playwright/test 1.63.0 (Chromium only). Fonts self-hosted (Public Sans, Bricolage Grotesque), not loaded from Google. | Versions checked against npm on 4–5 October 2026. Self-hosting avoids a third-party request on every portal load. |
 
+### Decisions added at the Step 2 requirements audit (5 October 2026)
+
+| # | Decision | Why |
+|---|---|---|
+| S2-D16 | **A `clientId` in a request body that isn't one of the station's clients answers 400 `VALIDATION_FAILED` with field `clientId: unknown_client`**, the same for a missing client and another station's. 404 stays reserved for ids in the path (S2-D10). | The answer names the field to fix, and is identical whether the client doesn't exist or belongs to another station, so it reveals nothing. |
+| S2-D17 | **Session refresh keeps working when Valkey is down** (its rate limit lets requests through without a count); sign-in still refuses (S2-D7). | A refresh token is 256 random bits, so there is nothing to guess; refusing would sign every station out within 15 minutes of a store outage. |
+| S2-D18 | **The audit trail records what changed, never personal values.** A card save is recorded against the new card version with the previous version's id and the changed fields by path (`actions.<button id>.phone_number_e164`); a schedule save against the campaign with the schedule it replaced; publishing against the campaign; every refresh against the session. | "Who changed the WhatsApp number" is answerable from the trail, and the numbers themselves are recoverable from the immutable card versions, so the trail never has to hold them. |
+| S2-D19 | **The rule "feature code reaches the database only through `StationScopedTransaction`" is enforced by `test/source-scan.test.ts`**, not ESLint. | The scan reads whole files (multi-line shapes included), needs no new dependency, and runs in the same blocking test suite. ESLint can come with continuous integration. |
+| S2-D20 | **`lookup_api` may set `ads.processing_error_code`**, limited by a database check to a fixed lowercase code (`^[a-z][a-z_]{0,63}$`). | It records why an upload was refused (`UPLOAD_REFUSAL_REASONS` in the contracts: `size_or_type_mismatch`, `not_the_declared_audio_format`), which the station sees. Ingest outcomes in Step 3 come through the worker's status function. |
+| S2-D21 | **Stack differences from the plan's pins:** configuration is one zod schema (not `@nestjs/config`); rate limiting is our own Valkey counter (not `@nestjs/throttler`) because it needs failure counters, shared counts and per-rule behaviour when the store is down; tokens use `jose` (S2-D3); `ioredis` stays at 5.11.1 until Step 3 adds BullMQ, then moves to the version BullMQ needs (6.0.0 in the plan) together with its consumer. | Each replacement does something the pinned package doesn't; one dependency bump with the code that needs it. |
+| S2-D22 | **The Python service moves to uv with a lockfile in Step 3**, when its dependencies change anyway. | Needs a metered download of uv; nothing in Step 2 touches the Python service. |
+| S2-D23 | **Feature modules:** `ads` (records and uploads), `action-cards` (buttons), `campaigns` (schedule and publishing). Their routes stay under `/stations/{stationId}/ads/{adId}/…` because an ad has one campaign in Step 2. | The plan's module list (cards, campaigns) with readable, separately growing folders. |
+
 **Needed from the user before the first deploy (not blocking Step 2):** the production domain (S2-D11),
 and whether R2 stays a `weur` location hint (plan D2) or becomes an EU-jurisdiction bucket.
 
@@ -73,8 +86,9 @@ counter).
    - `delete_expired_portal_sessions()` — for the later cleanup job.
 6. **Ads upload columns:** `upload_content_type`, `upload_size_bytes`, `upload_original_file_name`
    (display only, ≤ 255), `upload_expires_at`, `upload_entity_tag`, `uploaded_at`. Insert/update column
-   grants for `lookup_api` extended to exactly these (still never `audio_asset_id`,
-   `duration_milliseconds`, `processing_error_code`).
+   grants for `lookup_api` extended to exactly these (still never `audio_asset_id` or
+   `duration_milliseconds`). `processing_error_code` was added by migration
+   `1791150000000-UploadRefusalReasons` (decision S2-D20).
 7. **Ad status guard** (trigger `ads_guard_status_transition`): when the acting role is `lookup_api`, only
    these transitions are allowed: AWAITING_UPLOAD → AWAITING_UPLOAD (new upload attempt), PROCESSING or
    FAILED; FAILED → AWAITING_UPLOAD. READY and NEEDS_REVIEW are set only by the ingest worker's function
@@ -127,7 +141,7 @@ pipe also relays a fixed allow-list of our own reason codes (password policy, ca
 
 ## Scripts and infrastructure
 
-- `infra/docker-compose.yml` gains `object-storage` (versitygw, 127.0.0.1:59000, named volume, health check).
+- `infra/docker-compose.yml` gains `object-storage` (versitygw, 127.0.0.1:39000, named volume, health check; below the Windows dynamic port range, which Hyper-V reserves blocks from).
 - `npm run object-storage:prepare` creates the private bucket `lookup-ad-uploads` if missing and sets CORS
   (`PUT`, `GET` from the portal origin; header `Content-Type`; expose `ETag`).
 - `npm run database:seed` creates "Station A · 98.1 FM" (ACTIVE), its owner (email and password from

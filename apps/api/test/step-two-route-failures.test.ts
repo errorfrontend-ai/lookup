@@ -32,7 +32,7 @@ function injectedFailure(kind: FailureKind): Error {
     const driverError = Object.assign(new Error('relation "app.ads_internal" does not exist'), { code: '42P01', severity: 'ERROR' });
     return new QueryFailedError('SELECT * FROM app.ads_internal WHERE owner_email = $1', ['chanda.mwale@example.test'], driverError);
   }
-  if (kind === 'storage') return new Error('AccessDenied: http://127.0.0.1:59000/lookup-ad-uploads/ad-uploads/station/ad/key');
+  if (kind === 'storage') return new Error('AccessDenied: http://127.0.0.1:39000/lookup-ad-uploads/ad-uploads/station/ad/key');
   return new TypeError("Cannot read properties of undefined (reading 'station_id')");
 }
 
@@ -145,7 +145,7 @@ describe('Step 2 routes when something underneath fails', () => {
     const envelope = assertErrorEnvelope(response.body);
     expect(envelope.error.code).toBe('INTERNAL');
     expect(envelope.error.request_id).toBe(response.headers['x-request-id']);
-    for (const secret of ['ads_internal', 'chanda.mwale', 'lookup-ad-uploads', '59000', 'station_id']) {
+    for (const secret of ['ads_internal', 'chanda.mwale', 'lookup-ad-uploads', '39000', 'station_id']) {
       expect(JSON.stringify(response.body)).not.toContain(secret);
     }
     await waitForLogWrites();

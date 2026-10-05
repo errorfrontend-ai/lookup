@@ -9,6 +9,7 @@ import type {
   CreatedAd,
   RequestUploadUrlInput,
   UploadInstructions,
+  UploadRefusalReason,
   UploadRequest,
 } from '@lookup/contracts';
 import { Injectable } from '@nestjs/common';
@@ -188,7 +189,7 @@ export class AdsService {
     };
   }
 
-  private async refuseUpload(adId: string, objectKey: string, reason: string): Promise<never> {
+  private async refuseUpload(adId: string, objectKey: string, reason: UploadRefusalReason): Promise<never> {
     await this.deleteObjectQuietly(objectKey);
     await this.stationScopedTransaction.run(async (database) => {
       const refused = (await database.query(
