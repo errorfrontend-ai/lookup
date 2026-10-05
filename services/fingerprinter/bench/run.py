@@ -4,7 +4,7 @@ Usage:
   python -m bench.run --manifest <manifest.csv> [--reference-variant master]
                       [--parameters parameters.json] [--sweep sweep.json]
                       [--minimum-aligned-landmarks T] [--minimum-margin R]
-                      [--index memory|postgres] [--database-url URL]
+                      [--index memory|postgres] [--database-url URL] [--ship-codec aac24]
                       [--distractors 1000] [--distractor-seconds 30]
                       [--output-directory ../../spike/reports] [--require-exit-criteria]
 
@@ -30,7 +30,7 @@ from lookup_fingerprint import (
 )
 
 from .manifest import Entry, load_manifest
-from .synth import synth_ad
+from .synthetic_audio import synthesize_ad
 
 # Synthetic "other ads" that pad the index to production size, so lookup latency and
 # false-positive rates are measured against a realistic index, not a toy one.
@@ -105,8 +105,8 @@ def evaluate(entries: list[Entry], parameters: FingerprintParameters, thresholds
 
     for distractor_number in range(distractor_count):
         audio_asset_number = DISTRACTOR_ASSET_NUMBER_BASE + distractor_number
-        distractor_audio = synth_ad(DISTRACTOR_SEED_BASE + distractor_number, distractor_seconds,
-                                    sample_rate=parameters.sample_rate)
+        distractor_audio = synthesize_ad(DISTRACTOR_SEED_BASE + distractor_number, distractor_seconds,
+                                         sample_rate=parameters.sample_rate)
         distractor_fingerprint = fingerprint(distractor_audio, parameters)
         index.add(audio_asset_number, distractor_fingerprint)
         ad_of_asset[audio_asset_number] = f"distractor-{distractor_number}"   # any match to one of these is a wrong answer
@@ -150,10 +150,10 @@ def _is_match(outcome: ClipOutcome, minimum_aligned_landmarks: int, minimum_marg
             or outcome.best_aligned_landmarks / outcome.runner_up_aligned_landmarks >= minimum_margin)
 
 
-def _rates(outcomes: list[ClipOutcome], minimum_aligned_landmarks: int, minimum_margin: float) -> dict:
+def _calculate_rates(outcomes: list[ClipOutcome], minimum_aligned_landmarks: int, minimum_margin: float) -> dict:
     queries = [outcome for outcome in outcomes if outcome.entry.role == "query"]
     negatives = [outcome for outcome in outcomes if outcome.entry.role == "negative"]
-    queries_8_seconds = [outcome for outcome in queries if outcome.entry.clip_s == 8.0]
+    queries_8_seconds = [outcome for outcome in queries if outcome.entry.clip_seconds == 8.0]
 
     def is_match(outcome: ClipOutcome) -> bool:
         return _is_match(outcome, minimum_aligned_landmarks, minimum_margin)
@@ -165,12 +165,12 @@ def _rates(outcomes: list[ClipOutcome], minimum_aligned_landmarks: int, minimum_
         return is_match(outcome) and outcome.predicted_ad_id != outcome.entry.ad_id
 
     return {
-        "accuracy": _share(queries, is_correct), "accuracy_8_second_clips": _share(queries_8_seconds, is_correct),
-        "wrong_match_rate": _share(queries, is_wrong), "false_positive_rate": _share(negatives, is_match),
+        "accuracy": _fraction_matching(queries, is_correct), "accuracy_8_second_clips": _fraction_matching(queries_8_seconds, is_correct),
+        "wrong_match_rate": _fraction_matching(queries, is_wrong), "false_positive_rate": _fraction_matching(negatives, is_match),
     }
 
 
-def _share(items: list, predicate) -> float | None:
+def _fraction_matching(items: list, predicate) -> float | None:
     return (sum(1 for item in items if predicate(item)) / len(items)) if items else None
 
 
@@ -184,7 +184,7 @@ def calibrate(outcomes: list[ClipOutcome]) -> dict:
     rows = []
     for minimum_aligned_landmarks in MINIMUM_ALIGNED_LANDMARKS_GRID:
         for minimum_margin in MINIMUM_MARGIN_GRID:
-            rates = _rates(outcomes, minimum_aligned_landmarks, minimum_margin)
+            rates = _calculate_rates(outcomes, minimum_aligned_landmarks, minimum_margin)
             rows.append({"minimum_aligned_landmarks": minimum_aligned_landmarks, "minimum_margin": minimum_margin,
                          **rates})
     feasible = [row for row in rows
@@ -207,13 +207,13 @@ def summarize(run: RunResult, ship_codec: str = "aac24") -> dict:
     decoded = [outcome for outcome in run.outcomes if outcome.status != "ERROR"]
 
     groups = {}
-    for attribute in ("clip_s", "scene", "device", "codec", "mic"):
+    for attribute in ("clip_seconds", "scene", "device", "codec", "microphone_settings"):
         values = sorted({getattr(outcome.entry, attribute) for outcome in queries},
                         key=lambda value: (value is None, str(value)))
         groups[attribute] = {}
         for value in values:
             subgroup = [outcome for outcome in queries if getattr(outcome.entry, attribute) == value]
-            subgroup_rates = _rates(subgroup, minimum_aligned_landmarks, minimum_margin)
+            subgroup_rates = _calculate_rates(subgroup, minimum_aligned_landmarks, minimum_margin)
             groups[attribute][str(value)] = {"count": len(subgroup),
                                              "accuracy": subgroup_rates["accuracy"],
                                              "wrong_match_rate": subgroup_rates["wrong_match_rate"]}
@@ -230,7 +230,7 @@ def summarize(run: RunResult, ship_codec: str = "aac24") -> dict:
     upload_bytes_by_format = {}
     for outcome in queries:
         codec_label = outcome.entry.codec or "?"
-        format_label = f"{codec_label} @ {outcome.entry.clip_s:g}s" if outcome.entry.clip_s else codec_label
+        format_label = f"{codec_label} @ {outcome.entry.clip_seconds:g}s" if outcome.entry.clip_seconds else codec_label
         upload_bytes_by_format.setdefault(format_label, []).append(outcome.upload_bytes)
     upload = {format_label: {"count": len(sizes), "p50": _percentile(sizes, 50), "p95": _percentile(sizes, 95)}
               for format_label, sizes in sorted(upload_bytes_by_format.items())}
@@ -247,9 +247,9 @@ def summarize(run: RunResult, ship_codec: str = "aac24") -> dict:
         "suggested_threshold": (min(duplicate_coverages) + maximum_overlap) / 2 if separable else None,
     }
 
-    rates = _rates(run.outcomes, minimum_aligned_landmarks, minimum_margin)
+    rates = _calculate_rates(run.outcomes, minimum_aligned_landmarks, minimum_margin)
     upload_bytes_8_second_clips = [outcome.upload_bytes for outcome in queries
-                                   if outcome.entry.clip_s == 8.0 and outcome.entry.codec == ship_codec]
+                                   if outcome.entry.clip_seconds == 8.0 and outcome.entry.codec == ship_codec]
     exit_checks = {
         "accuracy_8_second_clips": (rates["accuracy_8_second_clips"], TARGETS["accuracy_8_second_clips"], "min"),
         "false_positive_rate": (rates["false_positive_rate"], TARGETS["false_positive_rate"], "max"),
@@ -384,7 +384,7 @@ def _make_index(kind: str, database_url: str | None):
     return index
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(command_line_arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--reference-variant", default=None)
@@ -401,13 +401,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-directory", type=Path, default=Path("spike/reports"))
     parser.add_argument("--require-exit-criteria", action="store_true",
                         help="exit 1 unless every exit criterion is PASS (N/A counts as failure)")
-    args = parser.parse_args(argv)
+    arguments = parser.parse_args(command_line_arguments)
 
-    entries = load_manifest(args.manifest, reference_variant=args.reference_variant)
-    base_parameters = (FingerprintParameters().with_overrides(**json.loads(args.parameters.read_text()))
-                       if args.parameters else FingerprintParameters())
-    variants = json.loads(args.sweep.read_text()) if args.sweep else [{}]
-    thresholds = MatchThresholds(args.minimum_aligned_landmarks, args.minimum_margin)
+    entries = load_manifest(arguments.manifest, reference_variant=arguments.reference_variant)
+    base_parameters = (FingerprintParameters().with_overrides(**json.loads(arguments.parameters.read_text()))
+                       if arguments.parameters else FingerprintParameters())
+    variants = json.loads(arguments.sweep.read_text()) if arguments.sweep else [{}]
+    thresholds = MatchThresholds(arguments.minimum_aligned_landmarks, arguments.minimum_margin)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     reference_audio_cache: dict = {}
     all_passed = True
@@ -415,16 +415,16 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{'variant':<40} {'acc@8s':>7} {'wrong':>6} {'FP':>6} {'p95 ms':>7} {'hash/s':>7}  calibrated T/R → acc@8s")
     for variant_number, overrides in enumerate(variants):
         parameters = base_parameters.with_overrides(**overrides)
-        index = _make_index(args.index, args.database_url)
+        index = _make_index(arguments.index, arguments.database_url)
         try:
-            run = evaluate(entries, parameters, thresholds, index, args.index, reference_audio_cache,
-                           distractor_count=args.distractors, distractor_seconds=args.distractor_seconds)
+            run = evaluate(entries, parameters, thresholds, index, arguments.index, reference_audio_cache,
+                           distractor_count=arguments.distractors, distractor_seconds=arguments.distractor_seconds)
         finally:
             if isinstance(index, PostgresIndex):
                 index.close()
-        summary = summarize(run, ship_codec=args.ship_codec)
+        summary = summarize(run, ship_codec=arguments.ship_codec)
         label = ", ".join(f"{name}={value}" for name, value in overrides.items()) or "baseline"
-        output_directory = args.output_directory / f"{timestamp}-{variant_number:02d}"
+        output_directory = arguments.output_directory / f"{timestamp}-{variant_number:02d}"
         output_directory.mkdir(parents=True, exist_ok=True)
         (output_directory / "report.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
         (output_directory / "report.md").write_text(render_markdown(summary, label), encoding="utf-8")
@@ -440,8 +440,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{_format(summary['index_statistics']['hashes_per_second']):>7}  {calibration_text}")
         all_passed &= all(check["result"] == "PASS" for check in summary["exit_criteria"].values())
 
-    print(f"\nreports: {args.output_directory / timestamp}-*")
-    return 1 if (args.require_exit_criteria and not all_passed) else 0
+    print(f"\nreports: {arguments.output_directory / timestamp}-*")
+    return 1 if (arguments.require_exit_criteria and not all_passed) else 0
 
 
 if __name__ == "__main__":

@@ -7,163 +7,178 @@ import 'capture_settings.dart';
 /// One capture session = one folder: the clips plus `manifest.part.csv` (paths relative to
 /// the folder). Copy the folder into spike/corpus/ and run `python -m bench.import_captures`.
 class SessionStore {
-  SessionStore._(this.dir);
+  SessionStore._(this.directory);
 
-  final Directory dir;
+  final Directory directory;
 
-  static String get _sep => Platform.pathSeparator;
+  static String get _pathSeparator => Platform.pathSeparator;
 
   /// Android's app-specific external folder
   /// (Android/data/zm.lookup.lookup_capture/files/sessions/…). It survives app restarts;
   /// newer Android hides it from file managers, so the app itself must play and send clips.
-  static Future<Directory> _base() async =>
+  static Future<Directory> _findStorageDirectory() async =>
       await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
 
-  static Future<SessionStore> create(DateTime now) async => inDirectory(await _base(), now);
+  static Future<SessionStore> create(DateTime startedAt) async =>
+      createInDirectory(await _findStorageDirectory(), startedAt);
 
-  static Future<SessionStore> inDirectory(Directory base, DateTime now) async {
-    final dir = Directory('${base.path}${_sep}sessions${_sep}session_${stamp(now)}');
-    await dir.create(recursive: true);
-    return SessionStore._(dir);
+  static Future<SessionStore> createInDirectory(Directory baseDirectory, DateTime startedAt) async {
+    final sessionDirectory = Directory(
+        '${baseDirectory.path}${_pathSeparator}sessions${_pathSeparator}session_${formatTimestamp(startedAt)}');
+    await sessionDirectory.create(recursive: true);
+    return SessionStore._(sessionDirectory);
   }
 
   /// Every session on the phone, newest first.
-  static Future<List<SessionStore>> all() async => listIn(await _base());
+  static Future<List<SessionStore>> listAll() async => listInDirectory(await _findStorageDirectory());
 
-  static Future<List<SessionStore>> listIn(Directory base) async {
-    final root = Directory('${base.path}${_sep}sessions');
-    if (!await root.exists()) return [];
-    final dirs = await root
+  static Future<List<SessionStore>> listInDirectory(Directory baseDirectory) async {
+    final sessionsDirectory = Directory('${baseDirectory.path}${_pathSeparator}sessions');
+    if (!await sessionsDirectory.exists()) return [];
+    final sessionDirectories = await sessionsDirectory
         .list()
-        .where((e) => e is Directory && e.uri.pathSegments.where((s) => s.isNotEmpty).last.startsWith('session_'))
+        .where((entity) =>
+            entity is Directory &&
+            entity.uri.pathSegments.where((segment) => segment.isNotEmpty).last.startsWith('session_'))
         .cast<Directory>()
         .toList();
-    dirs.sort((a, b) => b.path.compareTo(a.path));
-    return dirs.map(SessionStore._).toList();
+    sessionDirectories.sort((first, second) => second.path.compareTo(first.path));
+    return sessionDirectories.map(SessionStore._).toList();
   }
 
-  String get name => dir.uri.pathSegments.where((s) => s.isNotEmpty).last;
+  String get name => directory.uri.pathSegments.where((segment) => segment.isNotEmpty).last;
 
   /// When the session was started, from its folder name (session_YYYYMMDDTHHMMSS).
   DateTime? get startedAt {
-    final m = RegExp(r'(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})').firstMatch(name);
-    if (m == null) return null;
-    final p = [for (var i = 1; i <= 6; i++) int.parse(m.group(i)!)];
-    return DateTime(p[0], p[1], p[2], p[3], p[4], p[5]);
+    final match = RegExp(r'(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})').firstMatch(name);
+    if (match == null) return null;
+    final dateParts = [for (var i = 1; i <= 6; i++) int.parse(match.group(i)!)];
+    return DateTime(dateParts[0], dateParts[1], dateParts[2], dateParts[3], dateParts[4], dateParts[5]);
   }
 
-  File get manifest => File('${dir.path}${_sep}manifest.part.csv');
+  File get manifest => File('${directory.path}${_pathSeparator}manifest.part.csv');
 
-  String pathFor(String stem) => '${dir.path}$_sep$stem.m4a';
+  String buildClipPath(String fileStem) => '${directory.path}$_pathSeparator$fileStem.m4a';
 
-  Future<void> addRow(List<String> row) async {
-    final isNew = !await manifest.exists();
+  Future<void> appendManifestRow(List<String> row) async {
+    final isNewFile = !await manifest.exists();
     final sink = manifest.openWrite(mode: FileMode.append);
-    if (isNew) sink.writeln(csvLine(manifestHeader));
-    sink.writeln(csvLine(row));
+    if (isNewFile) sink.writeln(formatCsvLine(manifestHeader));
+    sink.writeln(formatCsvLine(row));
     await sink.close();
   }
 
   /// Clips in the order they were recorded (oldest first). File names start with the phone and
   /// ad labels, so sorting by name would group by ad instead — sort by the recording time and
   /// take number written at the end of each name (…_YYYYMMDDTHHMMSS_tN.m4a).
-  Future<List<File>> clips() async {
-    if (!await dir.exists()) return [];
-    final files = await dir.list().where((e) => e is File && e.path.endsWith('.m4a')).cast<File>().toList();
-    files.sort((a, b) => _recordedKey(a).compareTo(_recordedKey(b)));
-    return files;
+  Future<List<File>> listClipFiles() async {
+    if (!await directory.exists()) return [];
+    final clipFiles = await directory
+        .list()
+        .where((entity) => entity is File && entity.path.endsWith('.m4a'))
+        .cast<File>()
+        .toList();
+    clipFiles.sort((first, second) => _recordingOrderKey(first).compareTo(_recordingOrderKey(second)));
+    return clipFiles;
   }
 
-  static final _recordedAt = RegExp(r'_(\d{8}T\d{6})_t(\d+)\.m4a$');
+  static final _recordedAtAndTakePattern = RegExp(r'_(\d{8}T\d{6})_t(\d+)\.m4a$');
 
-  static String _recordedKey(File f) {
-    final m = _recordedAt.firstMatch(f.path);
-    return m == null ? '0_${f.path}' : '${m.group(1)}_${m.group(2)!.padLeft(3, '0')}';
+  static String _recordingOrderKey(File clipFile) {
+    final match = _recordedAtAndTakePattern.firstMatch(clipFile.path);
+    return match == null ? '0_${clipFile.path}' : '${match.group(1)}_${match.group(2)!.padLeft(3, '0')}';
   }
+
+  /// The manifest's column names, with names from before the rename mapped to the current ones.
+  static List<String> _readManifestHeader(String headerLine) =>
+      [for (final column in parseCsvLine(headerLine)) legacyManifestColumnNames[column] ?? column];
 
   /// Clips that exist on disk, newest first, with the labels from the manifest.
-  Future<List<ClipInfo>> clipInfos() async {
-    final rows = <String, Map<String, String>>{};
+  Future<List<LabelledClip>> listLabelledClips() async {
+    final manifestRowsByPath = <String, Map<String, String>>{};
     if (await manifest.exists()) {
-      final lines = (await manifest.readAsLines()).where((l) => l.trim().isNotEmpty).toList();
+      final lines = (await manifest.readAsLines()).where((line) => line.trim().isNotEmpty).toList();
       if (lines.isNotEmpty) {
-        final header = parseCsvLine(lines.first);
+        final header = _readManifestHeader(lines.first);
         for (final line in lines.skip(1)) {
           final cells = parseCsvLine(line);
           final row = {for (var i = 0; i < header.length && i < cells.length; i++) header[i]: cells[i]};
-          rows[row['path'] ?? ''] = row;
+          manifestRowsByPath[row['path'] ?? ''] = row;
         }
       }
     }
-    final infos = [
-      for (final f in await clips()) ClipInfo(f, rows[f.uri.pathSegments.last] ?? const {}),
+    final labelledClips = [
+      for (final clipFile in await listClipFiles())
+        LabelledClip(clipFile, manifestRowsByPath[clipFile.uri.pathSegments.last] ?? const {}),
     ];
-    return infos.reversed.toList();
+    return labelledClips.reversed.toList();
   }
 
   /// Delete a clip and its manifest row, so the two never disagree.
-  Future<void> deleteClip(File clip) async {
-    final fileName = clip.uri.pathSegments.last;
-    if (await clip.exists()) await clip.delete();
+  Future<void> deleteClip(File clipFile) async {
+    final fileName = clipFile.uri.pathSegments.last;
+    if (await clipFile.exists()) await clipFile.delete();
     if (!await manifest.exists()) return;
-    final lines = (await manifest.readAsLines()).where((l) => l.trim().isNotEmpty).toList();
+    final lines = (await manifest.readAsLines()).where((line) => line.trim().isNotEmpty).toList();
     if (lines.isEmpty) return;
-    final header = parseCsvLine(lines.first);
-    final pathAt = header.indexOf('path');
-    final kept = [
+    final pathColumnIndex = _readManifestHeader(lines.first).indexOf('path');
+    final keptLines = [
       lines.first,
       for (final line in lines.skip(1))
-        if (pathAt < 0 || parseCsvLine(line).elementAtOrNull(pathAt) != fileName) line,
+        if (pathColumnIndex < 0 || parseCsvLine(line).elementAtOrNull(pathColumnIndex) != fileName) line,
     ];
-    await manifest.writeAsString('${kept.join('\n')}\n');
+    await manifest.writeAsString('${keptLines.join('\n')}\n');
   }
 }
 
 /// A saved clip plus the labels written for it in the manifest.
-class ClipInfo {
-  const ClipInfo(this.file, this.row);
+class LabelledClip {
+  const LabelledClip(this.file, this.manifestRow);
 
   final File file;
-  final Map<String, String> row;
+  final Map<String, String> manifestRow;
 
-  bool get negative => row['role'] == 'negative';
+  bool get isNegative => manifestRow['role'] == 'negative';
   String get title {
-    final what = negative ? 'Not an ad' : ((row['ad_id'] ?? '').isEmpty ? 'Unlabelled' : row['ad_id']!);
-    final secs = row['clip_s'];
-    return secs == null || secs.isEmpty ? what : '$what · $secs s';
+    final adLabel =
+        isNegative ? 'Not an ad' : ((manifestRow['ad_id'] ?? '').isEmpty ? 'Unlabelled' : manifestRow['ad_id']!);
+    final clipSeconds = manifestRow['clip_seconds'];
+    return clipSeconds == null || clipSeconds.isEmpty ? adLabel : '$adLabel · $clipSeconds s';
   }
 
   String get details {
-    final kb = file.existsSync() ? (file.lengthSync() / 1024).toStringAsFixed(1) : '?';
-    return [row['scene'], row['mic'], '$kb KB'].where((s) => s != null && s.isNotEmpty).join(' · ');
+    final sizeKilobytes = file.existsSync() ? (file.lengthSync() / 1024).toStringAsFixed(1) : '?';
+    return [manifestRow['scene'], manifestRow['microphone_settings'], '$sizeKilobytes KB']
+        .where((part) => part != null && part.isNotEmpty)
+        .join(' · ');
   }
 }
 
 /// Minimal CSV line parser for the files this app writes (handles quoted cells).
 List<String> parseCsvLine(String line) {
   final cells = <String>[];
-  final cell = StringBuffer();
-  var quoted = false;
+  final currentCell = StringBuffer();
+  var isInsideQuotes = false;
   for (var i = 0; i < line.length; i++) {
-    final c = line[i];
-    if (quoted) {
-      if (c == '"' && i + 1 < line.length && line[i + 1] == '"') {
-        cell.write('"');
+    final character = line[i];
+    if (isInsideQuotes) {
+      if (character == '"' && i + 1 < line.length && line[i + 1] == '"') {
+        currentCell.write('"');
         i++;
-      } else if (c == '"') {
-        quoted = false;
+      } else if (character == '"') {
+        isInsideQuotes = false;
       } else {
-        cell.write(c);
+        currentCell.write(character);
       }
-    } else if (c == '"') {
-      quoted = true;
-    } else if (c == ',') {
-      cells.add(cell.toString());
-      cell.clear();
+    } else if (character == '"') {
+      isInsideQuotes = true;
+    } else if (character == ',') {
+      cells.add(currentCell.toString());
+      currentCell.clear();
     } else {
-      cell.write(c);
+      currentCell.write(character);
     }
   }
-  cells.add(cell.toString());
+  cells.add(currentCell.toString());
   return cells;
 }

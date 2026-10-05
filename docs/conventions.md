@@ -16,9 +16,15 @@ have to decode an abbreviation or guess a unit. These rules apply to all product
 | Domain words, used the same everywhere | station, client (a station's advertiser), ad, action card, campaign, time window, listener install, recognition | tenant, customer, spot, payload |
 
 Accepted exceptions — universal conventions every reader knows: `id`, `url`, `http`, `json`,
-`sql`, `uuid`, established acronyms inside a longer name (`FFT`, `SHA-256`, `E.164`, `CORS`),
-library-mandated names (pino's `err` log field, Express's `next`), and import aliases such as
-`np` for NumPy. Single-letter names only for trivial loop counters.
+`sql`, `uuid`, `csv`, `wav`, established acronyms inside a longer name (`FFT`, `SHA-256`, `E.164`,
+`CORS`, `AAC`, `APK`), library-mandated names (pino's `err` log field, Express's `next`, Flutter's
+`build`/`context`, the record package's `noiseSuppress`/`autoGain`/`bitRate` — also when our own
+settings fields mirror them), and import aliases such as `np` for NumPy. Single-letter names only
+for trivial loop counters.
+
+The same rules apply to the Phase 0 tools in `spike/`. Data already written to disk keeps its
+format: capture-app clip file names (`…_neg_…_8s_…_t1.m4a`), recorded values such as
+`mic/ns-off/agc-off`, and old manifest columns, which the importer renames on read.
 
 ## Structure (API)
 

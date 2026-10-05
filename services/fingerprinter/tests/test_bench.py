@@ -7,7 +7,7 @@ import pytest
 
 from bench.manifest import ManifestError, load_manifest
 from bench.run import main
-from bench.synth import generate_corpus
+from bench.synthetic_audio import generate_corpus
 
 
 @pytest.fixture(scope="module")
@@ -63,8 +63,8 @@ def test_manifest_reports_every_problem(tmp_path):
         "bogus,a.wav,ad1\n",             # bad role
         encoding="utf-8",
     )
-    with pytest.raises(ManifestError) as info:
+    with pytest.raises(ManifestError) as exception_information:
         load_manifest(tmp_path / "manifest.csv")
-    message = str(info.value)
+    message = str(exception_information.value)
     for fragment in ("2 references", "file not found", "'ad9' has no reference", "role 'bogus'"):
         assert fragment in message

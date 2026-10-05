@@ -3,14 +3,14 @@ from __future__ import annotations
 import csv
 
 from bench.prepare import prepare
-from bench.synth import SOURCE_RATE, synth_ad, write_wav
+from bench.synthetic_audio import SOURCE_SAMPLE_RATE, synthesize_ad, write_wav
 
 
 def test_prepare_cuts_encodes_and_is_rerunnable(tmp_path):
-    write_wav(tmp_path / "cap_ad1.wav", synth_ad(1, 14.0), SOURCE_RATE)
-    write_wav(tmp_path / "cap_talk.wav", synth_ad(2, 14.0), SOURCE_RATE)
+    write_wav(tmp_path / "cap_ad1.wav", synthesize_ad(1, 14.0), SOURCE_SAMPLE_RATE)
+    write_wav(tmp_path / "cap_talk.wav", synthesize_ad(2, 14.0), SOURCE_SAMPLE_RATE)
     (tmp_path / "captures.csv").write_text(
-        "path,ad_id,device,scene,start_s,end_s\n"
+        "path,ad_id,device,scene,start_seconds,end_seconds\n"
         "cap_ad1.wav,ad1,itel-a70,vehicle,1,13\n"
         "cap_talk.wav,,itel-a70,market,,\n",
         encoding="utf-8",

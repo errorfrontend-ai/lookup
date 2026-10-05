@@ -5,14 +5,16 @@ import csv
 import pytest
 
 from bench.import_captures import import_session
-from bench.manifest import load_manifest
-from bench.synth import PHONE_RATE, SOURCE_RATE, synth_ad, write_aac, write_wav
+from bench.manifest import LEGACY_COLUMN_NAMES, load_manifest
+from bench.synthetic_audio import PHONE_SAMPLE_RATE, SOURCE_SAMPLE_RATE, synthesize_ad, write_aac, write_wav
+
+SESSION_HEADER = "role,path,ad_id,device,scene,clip_seconds,codec,reference_variant,microphone_settings,notes\n"
 
 
 def _corpus_with_old_header(tmp_path):
-    """A manifest written before the `mic` column existed."""
+    """A manifest written before the microphone column existed, with the old short column names."""
     tmp_path.mkdir(parents=True, exist_ok=True)
-    write_wav(tmp_path / "ref.wav", synth_ad(1, 6.0), SOURCE_RATE)
+    write_wav(tmp_path / "ref.wav", synthesize_ad(1, 6.0), SOURCE_SAMPLE_RATE)
     manifest = tmp_path / "manifest.csv"
     manifest.write_text("role,path,ad_id,device,scene,clip_s,codec,ref_variant,notes\n"
                         "reference,ref.wav,brand-a,,,,wav,master,\n", encoding="utf-8")
@@ -23,9 +25,10 @@ def _phone_session(root):
     """What the capture app writes: clips + manifest.part.csv with paths relative to the folder."""
     session = root / "session_20260930T070509"
     session.mkdir(parents=True)
-    write_aac(session / "clip1.m4a", synth_ad(1, 3.0, sample_rate=PHONE_RATE), PHONE_RATE, 24_000)
+    write_aac(session / "clip1.m4a", synthesize_ad(1, 3.0, sample_rate=PHONE_SAMPLE_RATE), PHONE_SAMPLE_RATE,
+              24_000)
     (session / "manifest.part.csv").write_text(
-        "role,path,ad_id,device,scene,clip_s,codec,ref_variant,mic,notes\n"
+        SESSION_HEADER +
         "query,clip1.m4a,brand-a,itel-a70-a13,vehicle,8,aac24,,mic/ns-off/agc-off,captured 2026-09-30T07:05:09\n",
         encoding="utf-8",
     )
@@ -40,10 +43,12 @@ def test_import_merges_session_and_widens_old_header(tmp_path):
     assert import_session(session, manifest) == 0                   # re-running is safe
 
     rows = list(csv.DictReader(manifest.open(encoding="utf-8")))
-    assert "mic" in rows[0]                                          # header widened, old row kept
-    assert [row["path"] for row in rows] ==["ref.wav", "captures/session_20260930T070509/clip1.m4a"]
+    assert "microphone_settings" in rows[0]                         # header widened, old row kept
+    assert not set(rows[0]) & set(LEGACY_COLUMN_NAMES)               # and brought up to the current names
+    assert rows[0]["reference_variant"] == "master"
+    assert [row["path"] for row in rows] == ["ref.wav", "captures/session_20260930T070509/clip1.m4a"]
     query = [entry for entry in load_manifest(manifest) if entry.role == "query"][0]
-    assert query.mic == "mic/ns-off/agc-off" and query.device == "itel-a70-a13"
+    assert query.microphone_settings == "mic/ns-off/agc-off" and query.device == "itel-a70-a13"
 
 
 def test_overlong_clip_is_cut_to_its_labelled_length(tmp_path):
@@ -55,11 +60,13 @@ def test_overlong_clip_is_cut_to_its_labelled_length(tmp_path):
     manifest = _corpus_with_old_header(tmp_path)
     session = tmp_path / "captures" / "session_x"
     session.mkdir(parents=True)
-    write_aac(session / "long.m4a", synth_ad(1, 4.0, sample_rate=PHONE_RATE), PHONE_RATE, 24_000)
-    write_aac(session / "exact.m4a", synth_ad(1, 3.0, sample_rate=PHONE_RATE), PHONE_RATE, 24_000)
+    write_aac(session / "long.m4a", synthesize_ad(1, 4.0, sample_rate=PHONE_SAMPLE_RATE), PHONE_SAMPLE_RATE,
+              24_000)
+    write_aac(session / "exact.m4a", synthesize_ad(1, 3.0, sample_rate=PHONE_SAMPLE_RATE), PHONE_SAMPLE_RATE,
+              24_000)
     exact_before = (session / "exact.m4a").read_bytes()
     (session / "manifest.part.csv").write_text(
-        "role,path,ad_id,device,scene,clip_s,codec,ref_variant,mic,notes\n"
+        SESSION_HEADER +
         "query,long.m4a,brand-a,emu,quiet,3,aac24,,mic/ns-off/agc-off,captured\n"
         "query,exact.m4a,brand-a,emu,quiet,3,aac24,,mic/ns-off/agc-off,captured\n",
         encoding="utf-8",
@@ -69,7 +76,8 @@ def test_overlong_clip_is_cut_to_its_labelled_length(tmp_path):
 
     with av.open(str(session / "long.m4a")) as container:
         assert 2.85 <= float(container.duration) / av.time_base <= 3.1
-    assert 2.8 * PHONE_RATE <= decode_audio(session / "long.m4a", PHONE_RATE).size <= 3.1 * PHONE_RATE
+    decoded_sample_count = decode_audio(session / "long.m4a", PHONE_SAMPLE_RATE).size
+    assert 2.8 * PHONE_SAMPLE_RATE <= decoded_sample_count <= 3.1 * PHONE_SAMPLE_RATE
     assert (session / "exact.m4a").read_bytes() == exact_before          # already the right length: untouched
     rows = {row["path"].rsplit("/", 1)[-1]: row for row in csv.DictReader(manifest.open(encoding="utf-8"))}
     assert "trimmed to 3 s" in rows["long.m4a"]["notes"] and "trimmed" not in rows["exact.m4a"]["notes"]

@@ -5,7 +5,8 @@ manifest's directory, e.g. spike/corpus/captures/session_20260930T070509), then:
 
   python -m bench.import_captures --session <session folder> --manifest <corpus manifest.csv>
 
-Re-running is safe: clips already listed are skipped.
+Re-running is safe: clips already listed are skipped. Sessions recorded by older builds of the
+app (columns clip_s, ref_variant, mic) import too; their columns get the current names.
 
 Clips that ran longer than their labelled length are cut to it (the recorder starts a little
 before, and stops a little after, the app's timer — up to a second on a slow phone). Without
@@ -15,12 +16,11 @@ this, a "3 s" clip that is really 4 s would make that phone or mic setting look 
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 
 import av
 
-from .manifest import append_rows
+from .manifest import append_rows, read_csv_with_current_column_names
 
 
 def trim_to_length(path: Path, seconds: float, tolerance_seconds: float = 0.1) -> bool:
@@ -56,24 +56,24 @@ def import_session(session: Path, manifest: Path) -> int:
         ) from None
 
     rows: list[dict] = []
-    with part_manifest.open(newline="", encoding="utf-8-sig") as part_manifest_file:
-        for line_number, row in enumerate(csv.DictReader(part_manifest_file), start=2):
-            row = {column: (value or "").strip() for column, value in row.items()}
-            row["path"] = (session_prefix / row["path"]).as_posix()
-            clip_path = corpus_directory / row["path"]
-            if not clip_path.is_file():
-                raise SystemExit(f"{part_manifest.name} line {line_number}: clip not found: {row['path']}")
-            if row.get("clip_s"):
-                try:
-                    trimmed = trim_to_length(clip_path, float(row["clip_s"]))
-                except (av.error.FFmpegError, ValueError, IndexError) as error:
-                    raise SystemExit(
-                        f"{part_manifest.name} line {line_number}: cannot read {row['path']} ({type(error).__name__})"
-                    ) from error
-                if trimmed:
-                    row["notes"] = "; ".join(
-                        note for note in (row.get("notes", ""), f"trimmed to {row['clip_s']} s") if note)
-            rows.append(row)
+    _, part_manifest_rows = read_csv_with_current_column_names(part_manifest)
+    for line_number, row in enumerate(part_manifest_rows, start=2):
+        row = {column: (value or "").strip() for column, value in row.items()}
+        row["path"] = (session_prefix / row["path"]).as_posix()
+        clip_path = corpus_directory / row["path"]
+        if not clip_path.is_file():
+            raise SystemExit(f"{part_manifest.name} line {line_number}: clip not found: {row['path']}")
+        if row.get("clip_seconds"):
+            try:
+                trimmed = trim_to_length(clip_path, float(row["clip_seconds"]))
+            except (av.error.FFmpegError, ValueError, IndexError) as error:
+                raise SystemExit(
+                    f"{part_manifest.name} line {line_number}: cannot read {row['path']} ({type(error).__name__})"
+                ) from error
+            if trimmed:
+                row["notes"] = "; ".join(
+                    note for note in (row.get("notes", ""), f"trimmed to {row['clip_seconds']} s") if note)
+        rows.append(row)
     return append_rows(manifest, rows)
 
 
@@ -81,9 +81,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--session", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
-    args = parser.parse_args()
-    added = import_session(args.session, args.manifest)
-    print(f"added {added} clips to {args.manifest}")
+    arguments = parser.parse_args()
+    added = import_session(arguments.session, arguments.manifest)
+    print(f"added {added} clips to {arguments.manifest}")
 
 
 if __name__ == "__main__":

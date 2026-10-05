@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from bench.synth import SOURCE_RATE, synth_ad
+from bench.synthetic_audio import SOURCE_SAMPLE_RATE, synthesize_ad
 from lookup_fingerprint import FingerprintParameters, MatchThresholds, Matcher, MemoryIndex, fingerprint
 from scipy.signal import resample_poly
 
@@ -24,12 +24,13 @@ def parameters() -> FingerprintParameters:
 @pytest.fixture(scope="session")
 def ads() -> dict[int, np.ndarray]:
     """Five 20 s synthetic ads at 44.1 kHz keyed by audio asset number."""
-    return {audio_asset_number: synth_ad(500 + audio_asset_number, seconds=20.0) for audio_asset_number in range(1, 6)}
+    return {audio_asset_number: synthesize_ad(500 + audio_asset_number, seconds=20.0)
+            for audio_asset_number in range(1, 6)}
 
 
 @pytest.fixture()
 def matcher(ads, parameters) -> Matcher:
     index = MemoryIndex()
     for audio_asset_number, signal in ads.items():
-        index.add(audio_asset_number, fingerprint(to_canonical(signal, SOURCE_RATE, parameters), parameters))
+        index.add(audio_asset_number, fingerprint(to_canonical(signal, SOURCE_SAMPLE_RATE, parameters), parameters))
     return Matcher(index, parameters, SYNTHETIC_THRESHOLDS)

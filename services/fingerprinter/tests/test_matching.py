@@ -3,14 +3,16 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from bench.synth import PHONE_RATE, SOURCE_RATE, phone_capture, synth_ad, write_aac
+from bench.synthetic_audio import (
+    PHONE_SAMPLE_RATE, SOURCE_SAMPLE_RATE, simulate_phone_capture, synthesize_ad, write_aac,
+)
 from lookup_fingerprint import Candidate, Fingerprint, MatchThresholds, Matcher, MemoryIndex, decide, fingerprint
 
 from .conftest import SYNTHETIC_THRESHOLDS, to_canonical
 
 
 def test_fingerprint_is_deterministic(ads, parameters):
-    samples = to_canonical(ads[1], SOURCE_RATE, parameters)
+    samples = to_canonical(ads[1], SOURCE_SAMPLE_RATE, parameters)
     first, second = fingerprint(samples, parameters), fingerprint(samples, parameters)
     assert len(first) > 0
     assert np.array_equal(first.hashes, second.hashes)
@@ -20,9 +22,10 @@ def test_fingerprint_is_deterministic(ads, parameters):
 def test_phone_clip_matches_right_ad_and_offset(matcher, ads, parameters, tmp_path):
     random_generator = np.random.default_rng(11)
     start_seconds = 6.0
-    clip = phone_capture(ads[3], start_seconds, 8.0, signal_to_noise_decibels=15, random_generator=random_generator)
+    clip = simulate_phone_capture(ads[3], start_seconds, 8.0, signal_to_noise_decibels=15,
+                                  random_generator=random_generator)
     path = tmp_path / "query.m4a"
-    write_aac(path, clip, PHONE_RATE, 24_000)            # 16 kHz AAC, like the app will send
+    write_aac(path, clip, PHONE_SAMPLE_RATE, 24_000)            # 16 kHz AAC, like the app will send
 
     recognition = matcher.recognize_file(path)
 
@@ -36,8 +39,8 @@ def test_phone_clip_matches_right_ad_and_offset(matcher, ads, parameters, tmp_pa
 def test_skipping_resampling_breaks_matching(matcher, ads):
     """Regression for the Dejavu flaw this rewrite fixes: fingerprinting a 16 kHz clip at its
     native rate against canonical-rate references finds nothing."""
-    clip_16_kilohertz = phone_capture(ads[3], 6.0, 8.0, signal_to_noise_decibels=15,
-                                      random_generator=np.random.default_rng(11))
+    clip_16_kilohertz = simulate_phone_capture(ads[3], 6.0, 8.0, signal_to_noise_decibels=15,
+                                               random_generator=np.random.default_rng(11))
     result = matcher.recognize_samples(clip_16_kilohertz).result          # deliberately NOT resampled
     assert result.status != "MATCH"
 
@@ -45,21 +48,22 @@ def test_skipping_resampling_breaks_matching(matcher, ads):
 def test_unrelated_audio_is_rejected(matcher, parameters):
     random_generator = np.random.default_rng(5)
     for seed in range(9000, 9010):
-        clip = phone_capture(synth_ad(seed, 10.0), 1.0, 8.0, signal_to_noise_decibels=15,
-                             random_generator=random_generator)
-        result = matcher.recognize_samples(to_canonical(clip, PHONE_RATE, parameters)).result
+        clip = simulate_phone_capture(synthesize_ad(seed, 10.0), 1.0, 8.0, signal_to_noise_decibels=15,
+                                      random_generator=random_generator)
+        result = matcher.recognize_samples(to_canonical(clip, PHONE_SAMPLE_RATE, parameters)).result
         assert result.status != "MATCH", f"unindexed audio seed {seed} matched asset {result.best}"
 
 
 def test_shared_audio_is_ambiguous_not_a_wrong_brand(ads, parameters):
     """Two assets with the same audio must never produce a confident MATCH (plan G14)."""
     index = MemoryIndex()
-    shared_fingerprint = fingerprint(to_canonical(ads[2], SOURCE_RATE, parameters), parameters)
+    shared_fingerprint = fingerprint(to_canonical(ads[2], SOURCE_SAMPLE_RATE, parameters), parameters)
     index.add(1, shared_fingerprint)
     index.add(2, shared_fingerprint)
-    clip = phone_capture(ads[2], 4.0, 8.0, signal_to_noise_decibels=15, random_generator=np.random.default_rng(3))
+    clip = simulate_phone_capture(ads[2], 4.0, 8.0, signal_to_noise_decibels=15,
+                                  random_generator=np.random.default_rng(3))
     matcher = Matcher(index, parameters, SYNTHETIC_THRESHOLDS)
-    result = matcher.recognize_samples(to_canonical(clip, PHONE_RATE, parameters)).result
+    result = matcher.recognize_samples(to_canonical(clip, PHONE_SAMPLE_RATE, parameters)).result
     assert result.status == "AMBIGUOUS"
 
 
@@ -80,9 +84,9 @@ def test_duplicate_check_links_reencoded_copy_only(matcher, ads, parameters):
 
     copy_22_kilohertz = resample_poly(ads[4].astype(np.float64), 1, 2).astype(np.float32) * 0.7
     same = matcher.duplicate_check(
-        fingerprint(to_canonical(copy_22_kilohertz, SOURCE_RATE // 2, parameters), parameters))
+        fingerprint(to_canonical(copy_22_kilohertz, SOURCE_SAMPLE_RATE // 2, parameters), parameters))
     other = matcher.duplicate_check(
-        fingerprint(to_canonical(synth_ad(777, 20.0), SOURCE_RATE, parameters), parameters))
+        fingerprint(to_canonical(synthesize_ad(777, 20.0), SOURCE_SAMPLE_RATE, parameters), parameters))
     assert same.audio_asset_number == 4 and same.coverage >= 0.3
     assert other.coverage < 0.1
 

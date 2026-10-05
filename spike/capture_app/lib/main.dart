@@ -42,66 +42,67 @@ class CaptureHome extends StatefulWidget {
 class _CaptureHomeState extends State<CaptureHome> {
   final _recorder = AudioRecorder();
   final _player = AudioPlayer();
-  StreamSubscription<Amplitude>? _levels;
-  StreamSubscription<void>? _playerDone;
-  Completer<void>? _cancel;
+  StreamSubscription<Amplitude>? _levelSubscription;
+  StreamSubscription<void>? _playbackCompleteSubscription;
+  Completer<void>? _cancelSignal;
 
   CaptureSettings _settings = const CaptureSettings();
-  int _tab = 0;
+  int _selectedTabIndex = 0;
   List<SessionStore> _sessions = []; // newest first; [0] is the current session
-  Map<String, List<ClipInfo>> _clips = {};
-  String? _playing;
+  Map<String, List<LabelledClip>> _clipsBySessionName = {};
+  String? _playingPath;
 
-  bool _recording = false;
-  int _take = 0;
+  bool _isRecording = false;
+  int _currentTakeNumber = 0;
   double _secondsLeft = 0;
-  double _level = -60; // dBFS
-  double _peak = -160;
-  String? _lastResult;
-  bool _lastResultOk = true;
+  double _levelDecibelsFullScale = -60;
+  double _peakDecibelsFullScale = -160;
+  String? _lastResultMessage;
+  bool _isLastResultSuccessful = true;
 
-  SessionStore? get _current => _sessions.isEmpty ? null : _sessions.first;
-  int get _currentCount => _current == null ? 0 : (_clips[_current!.name]?.length ?? 0);
+  SessionStore? get _currentSession => _sessions.isEmpty ? null : _sessions.first;
+  int get _currentSessionClipCount =>
+      _currentSession == null ? 0 : (_clipsBySessionName[_currentSession!.name]?.length ?? 0);
 
   @override
   void initState() {
     super.initState();
-    _levels = _recorder.onAmplitudeChanged(const Duration(milliseconds: 100)).listen((a) {
+    _levelSubscription = _recorder.onAmplitudeChanged(const Duration(milliseconds: 100)).listen((amplitude) {
       if (!mounted) return;
       setState(() {
-        _level = a.current;
-        _peak = math.max(_peak, a.current);
+        _levelDecibelsFullScale = amplitude.current;
+        _peakDecibelsFullScale = math.max(_peakDecibelsFullScale, amplitude.current);
       });
     });
-    _playerDone = _player.onPlayerComplete.listen((_) {
-      if (mounted) setState(() => _playing = null);
+    _playbackCompleteSubscription = _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _playingPath = null);
     });
-    _reload();
+    _reloadSessions();
   }
 
   @override
   void dispose() {
-    _levels?.cancel();
-    _playerDone?.cancel();
+    _levelSubscription?.cancel();
+    _playbackCompleteSubscription?.cancel();
     _player.dispose();
     _recorder.dispose();
     super.dispose();
   }
 
-  Future<void> _reload() async {
-    final sessions = await SessionStore.all();
-    final clips = {for (final s in sessions) s.name: await s.clipInfos()};
+  Future<void> _reloadSessions() async {
+    final sessions = await SessionStore.listAll();
+    final clipsBySessionName = {for (final session in sessions) session.name: await session.listLabelledClips()};
     if (mounted) {
       setState(() {
         _sessions = sessions;
-        _clips = clips;
+        _clipsBySessionName = clipsBySessionName;
       });
     }
   }
 
-  void _update(CaptureSettings next) => setState(() => _settings = next);
+  void _updateSettings(CaptureSettings nextSettings) => setState(() => _settings = nextSettings);
 
-  void _say(String message) {
+  void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
@@ -111,60 +112,60 @@ class _CaptureHomeState extends State<CaptureHome> {
 
   Future<void> _record() async {
     final problem = _settings.validate();
-    if (problem != null) return _say(problem);
+    if (problem != null) return _showMessage(problem);
     if (!await _recorder.hasPermission()) {
-      return _say('Look Up Capture needs the microphone. Allow it in the phone settings.');
+      return _showMessage('Look Up Capture needs the microphone. Allow it in the phone settings.');
     }
     if (!await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
-      return _say('This phone cannot record AAC, so it cannot be used for this test.');
+      return _showMessage('This phone cannot record AAC, so it cannot be used for this test.');
     }
     await _stopPlayback();
-    final store = _current ?? await SessionStore.create(DateTime.now());
+    final session = _currentSession ?? await SessionStore.create(DateTime.now());
     final settings = _settings; // freeze the settings for this run
     setState(() {
-      _recording = true;
-      _lastResult = null;
+      _isRecording = true;
+      _lastResultMessage = null;
     });
     final warnings = <String>[];
-    var saved = 0;
+    var savedCount = 0;
     try {
-      for (var take = 1; take <= settings.takes; take++) {
-        final at = DateTime.now();
-        final stem = settings.fileStem(at, take);
-        _peak = -160;
-        _cancel = Completer<void>();
-        await _recorder.start(settings.toRecordConfig(), path: store.pathFor(stem));
-        final clock = Stopwatch()..start();
-        final ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      for (var takeNumber = 1; takeNumber <= settings.takeCount; takeNumber++) {
+        final recordedAt = DateTime.now();
+        final fileStem = settings.buildFileStem(recordedAt, takeNumber);
+        _peakDecibelsFullScale = -160;
+        _cancelSignal = Completer<void>();
+        await _recorder.start(settings.toRecordConfig(), path: session.buildClipPath(fileStem));
+        final stopwatch = Stopwatch()..start();
+        final countdownTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
           if (!mounted) return;
           setState(() {
-            _take = take;
-            _secondsLeft = math.max(0, settings.clipSeconds - clock.elapsedMilliseconds / 1000);
+            _currentTakeNumber = takeNumber;
+            _secondsLeft = math.max(0, settings.clipSeconds - stopwatch.elapsedMilliseconds / 1000);
           });
         });
-        await Future.any([Future<void>.delayed(Duration(seconds: settings.clipSeconds)), _cancel!.future]);
-        ticker.cancel();
-        final path = await _recorder.stop();
-        if (_cancel!.isCompleted) {
-          if (path != null && await File(path).exists()) await File(path).delete(); // never keep a half clip
+        await Future.any([Future<void>.delayed(Duration(seconds: settings.clipSeconds)), _cancelSignal!.future]);
+        countdownTimer.cancel();
+        final recordedPath = await _recorder.stop();
+        if (_cancelSignal!.isCompleted) {
+          if (recordedPath != null && await File(recordedPath).exists()) await File(recordedPath).delete(); // never keep a half clip
           warnings.add('Cancelled — the unfinished clip was deleted.');
           break;
         }
-        await store.addRow(settings.manifestRow('$stem.m4a', at));
-        saved++;
-        if (_peak > -1) warnings.add('Take $take was very loud (possible distortion).');
-        if (_peak < -45) warnings.add('Take $take was very quiet — is the microphone covered?');
+        await session.appendManifestRow(settings.buildManifestRow('$fileStem.m4a', recordedAt));
+        savedCount++;
+        if (_peakDecibelsFullScale > -1) warnings.add('Take $takeNumber was very loud (possible distortion).');
+        if (_peakDecibelsFullScale < -45) warnings.add('Take $takeNumber was very quiet — is the microphone covered?');
       }
     } catch (error) {
       warnings.add('Recording stopped on this phone (${error.runtimeType}). Try another microphone source.');
     } finally {
-      await _reload();
+      await _reloadSessions();
       if (mounted) {
         setState(() {
-          _recording = false;
-          _lastResultOk = saved > 0;
-          _lastResult = [
-            if (saved > 0) 'Saved $saved clip${saved == 1 ? '' : 's'} to this session.',
+          _isRecording = false;
+          _isLastResultSuccessful = savedCount > 0;
+          _lastResultMessage = [
+            if (savedCount > 0) 'Saved $savedCount clip${savedCount == 1 ? '' : 's'} to this session.',
             ...warnings,
           ].join('\n');
         });
@@ -172,42 +173,42 @@ class _CaptureHomeState extends State<CaptureHome> {
     }
   }
 
-  void _stop() => _cancel?.complete();
+  void _cancelRecording() => _cancelSignal?.complete();
 
   // ---------------------------------------------------------------- playback
 
-  Future<void> _togglePlay(ClipInfo clip) async {
+  Future<void> _togglePlayback(LabelledClip clip) async {
     final path = clip.file.path;
-    if (_playing == path) return _stopPlayback();
+    if (_playingPath == path) return _stopPlayback();
     try {
       await _player.stop();
       await _player.play(DeviceFileSource(path));
-      setState(() => _playing = path);
+      setState(() => _playingPath = path);
     } catch (error) {
-      setState(() => _playing = null);
-      _say('This clip could not be played on this phone (${error.runtimeType}).');
+      setState(() => _playingPath = null);
+      _showMessage('This clip could not be played on this phone (${error.runtimeType}).');
     }
   }
 
   Future<void> _stopPlayback() async {
-    if (_playing == null) return;
+    if (_playingPath == null) return;
     await _player.stop();
-    if (mounted) setState(() => _playing = null);
+    if (mounted) setState(() => _playingPath = null);
   }
 
   // ---------------------------------------------------------------- session actions
 
-  Future<void> _send(SessionStore session) async {
-    final clips = _clips[session.name] ?? [];
-    if (clips.isEmpty) return _say('There are no recordings in this session yet.');
+  Future<void> _sendSession(SessionStore session) async {
+    final clips = _clipsBySessionName[session.name] ?? [];
+    if (clips.isEmpty) return _showMessage('There are no recordings in this session yet.');
     await SharePlus.instance.share(ShareParams(
-      files: [...clips.map((c) => XFile(c.file.path)), XFile(session.manifest.path)],
+      files: [...clips.map((clip) => XFile(clip.file.path)), XFile(session.manifest.path)],
       text: 'Look Up test recordings — ${session.name} — ${clips.length} clips plus manifest.part.csv',
     ));
   }
 
-  Future<void> _delete(SessionStore session, ClipInfo clip) async {
-    final ok = await showDialog<bool>(
+  Future<void> _deleteClip(SessionStore session, LabelledClip clip) async {
+    final isConfirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete this recording?'),
@@ -218,19 +219,19 @@ class _CaptureHomeState extends State<CaptureHome> {
         ],
       ),
     );
-    if (ok != true) return;
-    if (_playing == clip.file.path) await _stopPlayback();
+    if (isConfirmed != true) return;
+    if (_playingPath == clip.file.path) await _stopPlayback();
     await session.deleteClip(clip.file);
-    await _reload();
-    _say('Recording deleted.');
+    await _reloadSessions();
+    _showMessage('Recording deleted.');
   }
 
-  Future<void> _newSession() async {
-    final ok = await showDialog<bool>(
+  Future<void> _startNewSession() async {
+    final isConfirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Start a new session?'),
-        content: Text('The $_currentCount recording${_currentCount == 1 ? '' : 's'} you have now stay saved. '
+        content: Text('The $_currentSessionClipCount recording${_currentSessionClipCount == 1 ? '' : 's'} you have now stay saved. '
             'New recordings go into a fresh session.\n\n'
             'Start a new session when you change place, day or phone, so each batch you send is easy to keep apart.'),
         actions: [
@@ -239,10 +240,10 @@ class _CaptureHomeState extends State<CaptureHome> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (isConfirmed != true) return;
     await SessionStore.create(DateTime.now());
-    await _reload();
-    _say('New session started. Your earlier recordings are under "Earlier sessions".');
+    await _reloadSessions();
+    _showMessage('New session started. Your earlier recordings are under "Earlier sessions".');
   }
 
   // ---------------------------------------------------------------- UI
@@ -264,41 +265,41 @@ class _CaptureHomeState extends State<CaptureHome> {
         ),
       ),
       body: AbsorbPointer(
-        absorbing: _recording,
-        child: IndexedStack(index: _tab, children: [_recordTab(context), _recordingsTab(context)]),
+        absorbing: _isRecording,
+        child: IndexedStack(index: _selectedTabIndex, children: [_buildRecordTab(context), _buildRecordingsTab(context)]),
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_tab == 0)
+          if (_selectedTabIndex == 0)
             SafeArea(
               top: false,
               bottom: false,
               minimum: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: _recording
+              child: _isRecording
                   ? _RecordingBar(
-                      take: _take,
-                      takes: _settings.takes,
+                      takeNumber: _currentTakeNumber,
+                      takeCount: _settings.takeCount,
                       secondsLeft: _secondsLeft,
-                      level: _level,
-                      onStop: _stop,
+                      levelDecibelsFullScale: _levelDecibelsFullScale,
+                      onCancel: _cancelRecording,
                     )
                   : FilledButton.icon(
                       style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
                       onPressed: _record,
                       icon: const Icon(Icons.mic),
-                      label: Text('Record ${_settings.takes == 1 ? '' : '${_settings.takes} × '}${_settings.clipSeconds} s'),
+                      label: Text('Record ${_settings.takeCount == 1 ? '' : '${_settings.takeCount} × '}${_settings.clipSeconds} s'),
                     ),
             ),
           NavigationBar(
-            selectedIndex: _tab,
-            onDestinationSelected: _recording ? null : (i) => setState(() => _tab = i),
+            selectedIndex: _selectedTabIndex,
+            onDestinationSelected: _isRecording ? null : (index) => setState(() => _selectedTabIndex = index),
             destinations: [
               const NavigationDestination(icon: Icon(Icons.mic_none), selectedIcon: Icon(Icons.mic), label: 'Record'),
               NavigationDestination(
                 icon: Badge(
-                  isLabelVisible: _currentCount > 0,
-                  label: Text('$_currentCount'),
+                  isLabelVisible: _currentSessionClipCount > 0,
+                  label: Text('$_currentSessionClipCount'),
                   child: const Icon(Icons.library_music_outlined),
                 ),
                 selectedIcon: const Icon(Icons.library_music),
@@ -311,26 +312,26 @@ class _CaptureHomeState extends State<CaptureHome> {
     );
   }
 
-  Widget _recordTab(BuildContext context) {
-    final s = _settings;
+  Widget _buildRecordTab(BuildContext context) {
+    final settings = _settings;
     final theme = Theme.of(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        if (_lastResult != null)
+        if (_lastResultMessage != null)
           Card(
-            color: _lastResultOk ? theme.colorScheme.secondaryContainer : theme.colorScheme.errorContainer,
+            color: _isLastResultSuccessful ? theme.colorScheme.secondaryContainer : theme.colorScheme.errorContainer,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_lastResult!, style: theme.textTheme.bodyLarge),
-                  if (_lastResultOk)
+                  Text(_lastResultMessage!, style: theme.textTheme.bodyLarge),
+                  if (_isLastResultSuccessful)
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton.icon(
-                        onPressed: () => setState(() => _tab = 1),
+                        onPressed: () => setState(() => _selectedTabIndex = 1),
                         icon: const Icon(Icons.play_circle_outline),
                         label: const Text('Listen to it'),
                       ),
@@ -354,57 +355,83 @@ class _CaptureHomeState extends State<CaptureHome> {
           ),
         _Section('What is playing', [
           TextField(
-            enabled: !s.negative,
+            enabled: !settings.isNegative,
             decoration: const InputDecoration(labelText: 'Ad id (as in the manifest)', hintText: 'e.g. brand-a-summer'),
-            onChanged: (v) => _update(s.copyWith(adId: v)),
+            onChanged: (text) => _updateSettings(settings.copyWith(adId: text)),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Not an ad (music, talk, other)'),
             subtitle: const Text('Saved as a negative clip'),
-            value: s.negative,
-            onChanged: (v) => _update(s.copyWith(negative: v)),
+            value: settings.isNegative,
+            onChanged: (isOn) => _updateSettings(settings.copyWith(isNegative: isOn)),
           ),
         ]),
         _Section('Where', [
           TextField(
             decoration: const InputDecoration(labelText: 'Phone model and Android version', hintText: 'e.g. itel-a70-a13'),
-            onChanged: (v) => _update(s.copyWith(device: v)),
+            onChanged: (text) => _updateSettings(settings.copyWith(device: text)),
           ),
           const SizedBox(height: 12),
-          _Chips<String>(values: scenes, selected: s.scene, label: (v) => v, onSelected: (v) => _update(s.copyWith(scene: v))),
+          _ChoiceChipGroup<String>(
+            values: scenes,
+            selectedValue: settings.scene,
+            labelFor: (scene) => scene,
+            onSelected: (scene) => _updateSettings(settings.copyWith(scene: scene)),
+          ),
         ]),
         _Section('Clip', [
-          _Chips<int>(values: clipLengths, selected: s.clipSeconds, label: (v) => '$v s', onSelected: (v) => _update(s.copyWith(clipSeconds: v))),
+          _ChoiceChipGroup<int>(
+            values: clipLengthsSeconds,
+            selectedValue: settings.clipSeconds,
+            labelFor: (seconds) => '$seconds s',
+            onSelected: (seconds) => _updateSettings(settings.copyWith(clipSeconds: seconds)),
+          ),
           const SizedBox(height: 8),
-          _Chips<int>(values: const [1, 2, 3], selected: s.takes, label: (v) => v == 1 ? '1 take' : '$v takes in a row', onSelected: (v) => _update(s.copyWith(takes: v))),
+          _ChoiceChipGroup<int>(
+            values: const [1, 2, 3],
+            selectedValue: settings.takeCount,
+            labelFor: (takeCount) => takeCount == 1 ? '1 take' : '$takeCount takes in a row',
+            onSelected: (takeCount) => _updateSettings(settings.copyWith(takeCount: takeCount)),
+          ),
           const SizedBox(height: 8),
-          _Chips<int>(values: bitRates, selected: s.bitRate, label: (v) => 'AAC ${v ~/ 1000} kbps', onSelected: (v) => _update(s.copyWith(bitRate: v))),
+          _ChoiceChipGroup<int>(
+            values: bitRatesBitsPerSecond,
+            selectedValue: settings.bitRate,
+            labelFor: (bitRate) => 'AAC ${bitRate ~/ 1000} kbps',
+            onSelected: (bitRate) => _updateSettings(settings.copyWith(bitRate: bitRate)),
+          ),
         ]),
         _Section('Microphone settings', [
-          _Chips<AndroidAudioSource>(values: audioSources, selected: s.audioSource, label: (v) => v.name, onSelected: (v) => _update(s.copyWith(audioSource: v))),
+          _ChoiceChipGroup<AndroidAudioSource>(
+            values: audioSources,
+            selectedValue: settings.audioSource,
+            labelFor: (audioSource) => audioSource.name,
+            onSelected: (audioSource) => _updateSettings(settings.copyWith(audioSource: audioSource)),
+          ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Noise suppression'),
-            value: s.noiseSuppress,
-            onChanged: (v) => _update(s.copyWith(noiseSuppress: v)),
+            value: settings.noiseSuppress,
+            onChanged: (isOn) => _updateSettings(settings.copyWith(noiseSuppress: isOn)),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Auto gain'),
-            value: s.autoGain,
-            onChanged: (v) => _update(s.copyWith(autoGain: v)),
+            value: settings.autoGain,
+            onChanged: (isOn) => _updateSettings(settings.copyWith(autoGain: isOn)),
           ),
-          Text('Saved as: ${s.codecLabel} · 16 kHz mono · ${s.micLabel}', style: theme.textTheme.bodySmall),
+          Text('Saved as: ${settings.codecLabel} · 16 kHz mono · ${settings.microphoneSettingsLabel}',
+              style: theme.textTheme.bodySmall),
         ]),
       ],
     );
   }
 
-  Widget _recordingsTab(BuildContext context) {
+  Widget _buildRecordingsTab(BuildContext context) {
     final theme = Theme.of(context);
-    final current = _current;
-    if (current == null || (_sessions.length == 1 && _currentCount == 0)) {
+    final currentSession = _currentSession;
+    if (currentSession == null || (_sessions.length == 1 && _currentSessionClipCount == 0)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -421,13 +448,14 @@ class _CaptureHomeState extends State<CaptureHome> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              FilledButton.tonal(onPressed: () => setState(() => _tab = 0), child: const Text('Go to Record')),
+              FilledButton.tonal(onPressed: () => setState(() => _selectedTabIndex = 0), child: const Text('Go to Record')),
             ],
           ),
         ),
       );
     }
-    final earlier = _sessions.skip(1).where((s) => (_clips[s.name] ?? []).isNotEmpty).toList();
+    final earlierSessions =
+        _sessions.skip(1).where((session) => (_clipsBySessionName[session.name] ?? []).isNotEmpty).toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -437,14 +465,15 @@ class _CaptureHomeState extends State<CaptureHome> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('Current session · $_currentCount recording${_currentCount == 1 ? '' : 's'}', style: theme.textTheme.titleMedium),
+                Text('Current session · $_currentSessionClipCount recording${_currentSessionClipCount == 1 ? '' : 's'}',
+                    style: theme.textTheme.titleMedium),
                 const SizedBox(height: 4),
-                Text('Started ${_when(current.startedAt)}. A session is one batch you send to the computer together.',
+                Text('Started ${_formatSessionTime(currentSession.startedAt)}. A session is one batch you send to the computer together.',
                     style: theme.textTheme.bodySmall),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                  onPressed: _currentCount == 0 ? null : () => _send(current),
+                  onPressed: _currentSessionClipCount == 0 ? null : () => _sendSession(currentSession),
                   icon: const Icon(Icons.send),
                   label: const Text('Send to computer'),
                 ),
@@ -454,7 +483,7 @@ class _CaptureHomeState extends State<CaptureHome> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                  onPressed: _newSession,
+                  onPressed: _startNewSession,
                   icon: const Icon(Icons.create_new_folder_outlined),
                   label: const Text('Start new session'),
                 ),
@@ -462,20 +491,22 @@ class _CaptureHomeState extends State<CaptureHome> {
             ),
           ),
         ),
-        for (final clip in _clips[current.name] ?? const <ClipInfo>[]) _clipTile(current, clip),
-        if (earlier.isNotEmpty) ...[
+        for (final clip in _clipsBySessionName[currentSession.name] ?? const <LabelledClip>[])
+          _buildClipTile(currentSession, clip),
+        if (earlierSessions.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text('Earlier sessions', style: theme.textTheme.titleSmall),
-          for (final s in earlier)
+          for (final session in earlierSessions)
             Card(
               child: ExpansionTile(
-                title: Text('${_when(s.startedAt)} · ${_clips[s.name]!.length} recordings'),
+                title: Text('${_formatSessionTime(session.startedAt)} · ${_clipsBySessionName[session.name]!.length} recordings'),
                 childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                 children: [
-                  for (final clip in _clips[s.name]!) _clipTile(s, clip),
+                  for (final clip in _clipsBySessionName[session.name]!) _buildClipTile(session, clip),
                   Align(
                     alignment: Alignment.centerRight,
-                    child: TextButton.icon(onPressed: () => _send(s), icon: const Icon(Icons.send), label: const Text('Send this session')),
+                    child: TextButton.icon(
+                        onPressed: () => _sendSession(session), icon: const Icon(Icons.send), label: const Text('Send this session')),
                   ),
                 ],
               ),
@@ -485,31 +516,31 @@ class _CaptureHomeState extends State<CaptureHome> {
     );
   }
 
-  Widget _clipTile(SessionStore session, ClipInfo clip) {
-    final playing = _playing == clip.file.path;
+  Widget _buildClipTile(SessionStore session, LabelledClip clip) {
+    final isPlaying = _playingPath == clip.file.path;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
       leading: IconButton.filledTonal(
-        tooltip: playing ? 'Stop' : 'Play',
+        tooltip: isPlaying ? 'Stop' : 'Play',
         iconSize: 28,
-        onPressed: () => _togglePlay(clip),
-        icon: Icon(playing ? Icons.stop : Icons.play_arrow),
+        onPressed: () => _togglePlayback(clip),
+        icon: Icon(isPlaying ? Icons.stop : Icons.play_arrow),
       ),
       title: Text(clip.title),
-      subtitle: Text(playing ? 'Playing…' : clip.details),
+      subtitle: Text(isPlaying ? 'Playing…' : clip.details),
       trailing: IconButton(
         tooltip: 'Delete',
-        onPressed: () => _delete(session, clip),
+        onPressed: () => _deleteClip(session, clip),
         icon: const Icon(Icons.delete_outline),
       ),
     );
   }
 
-  static String _when(DateTime? t) {
-    if (t == null) return 'earlier';
-    String two(int n) => n.toString().padLeft(2, '0');
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${t.day} ${months[t.month - 1]}, ${two(t.hour)}:${two(t.minute)}';
+  static String _formatSessionTime(DateTime? time) {
+    if (time == null) return 'earlier';
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${time.day} ${monthNames[time.month - 1]}, ${twoDigits(time.hour)}:${twoDigits(time.minute)}';
   }
 }
 
@@ -535,12 +566,17 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _Chips<T> extends StatelessWidget {
-  const _Chips({required this.values, required this.selected, required this.label, required this.onSelected});
+class _ChoiceChipGroup<T> extends StatelessWidget {
+  const _ChoiceChipGroup({
+    required this.values,
+    required this.selectedValue,
+    required this.labelFor,
+    required this.onSelected,
+  });
 
   final List<T> values;
-  final T selected;
-  final String Function(T) label;
+  final T selectedValue;
+  final String Function(T) labelFor;
   final ValueChanged<T> onSelected;
 
   @override
@@ -549,8 +585,8 @@ class _Chips<T> extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final v in values)
-          ChoiceChip(label: Text(label(v)), selected: v == selected, onSelected: (_) => onSelected(v)),
+        for (final value in values)
+          ChoiceChip(label: Text(labelFor(value)), selected: value == selectedValue, onSelected: (_) => onSelected(value)),
       ],
     );
   }
@@ -558,22 +594,22 @@ class _Chips<T> extends StatelessWidget {
 
 class _RecordingBar extends StatelessWidget {
   const _RecordingBar({
-    required this.take,
-    required this.takes,
+    required this.takeNumber,
+    required this.takeCount,
     required this.secondsLeft,
-    required this.level,
-    required this.onStop,
+    required this.levelDecibelsFullScale,
+    required this.onCancel,
   });
 
-  final int take;
-  final int takes;
+  final int takeNumber;
+  final int takeCount;
   final double secondsLeft;
-  final double level;
-  final VoidCallback onStop;
+  final double levelDecibelsFullScale;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
-    final fill = ((level + 60) / 60).clamp(0.0, 1.0);
+    final levelFraction = ((levelDecibelsFullScale + 60) / 60).clamp(0.0, 1.0);
     return Row(
       children: [
         Expanded(
@@ -581,12 +617,12 @@ class _RecordingBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Recording take $take of $takes · ${secondsLeft.toStringAsFixed(1)} s left',
+              Text('Recording take $takeNumber of $takeCount · ${secondsLeft.toStringAsFixed(1)} s left',
                   style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               Semantics(
                 label: 'Microphone level',
-                child: LinearProgressIndicator(value: fill, minHeight: 10, borderRadius: BorderRadius.circular(5)),
+                child: LinearProgressIndicator(value: levelFraction, minHeight: 10, borderRadius: BorderRadius.circular(5)),
               ),
             ],
           ),
@@ -594,7 +630,7 @@ class _RecordingBar extends StatelessWidget {
         const SizedBox(width: 12),
         OutlinedButton(
           style: OutlinedButton.styleFrom(minimumSize: const Size(88, 56)),
-          onPressed: onStop,
+          onPressed: onCancel,
           child: const Text('Cancel'),
         ),
       ],
