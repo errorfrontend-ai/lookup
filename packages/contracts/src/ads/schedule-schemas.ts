@@ -57,7 +57,7 @@ export const ScheduleInput = z
     timeWindows: z.array(TimeWindowInput).min(1).max(MAXIMUM_TIME_WINDOWS_PER_SCHEDULE),
     gracePeriodMinutes: z.union(GRACE_PERIOD_MINUTES_OPTIONS.map((minutes) => z.literal(minutes))),
     /** After this many button taps, listeners see the client's default card instead. Null for no limit. */
-    engagementLimit: z.number().int().min(1).max(MAXIMUM_ENGAGEMENT_LIMIT).nullable(),
+    engagementLimit: z.number().int().min(1).max(MAXIMUM_ENGAGEMENT_LIMIT).nullable().default(null),
   })
   .superRefine((schedule, context) => {
     const bothDatesWellFormed = DATE_PATTERN.test(schedule.startsOn) && DATE_PATTERN.test(schedule.endsOn);

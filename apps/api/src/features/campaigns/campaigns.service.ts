@@ -1,10 +1,10 @@
-import type { ActionCard, AdDetail, AdStatus, PublishBlocker, ScheduleInput } from '@lookup/contracts';
+import type { AdDetail, AdStatus, PublishBlocker, ScheduleInput } from '@lookup/contracts';
 import { Injectable } from '@nestjs/common';
-import { QueryFailedError, type EntityManager } from 'typeorm';
+import { QueryFailedError } from 'typeorm';
 import { AuditTrail } from '../../common/audit/audit-trail.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
-import { findAdRecord, toAdDetail } from './ad-records.js';
+import { type AdRecord, findAdRecord, lockAndFindAdRecord, toAdDetail } from '../ads/ad-records.js';
 
 const VERIFIED_UPLOAD_STATUSES: readonly AdStatus[] = ['PROCESSING', 'READY', 'NEEDS_REVIEW'];
 
@@ -16,51 +16,37 @@ const PUBLISH_BLOCKER_FIELDS: Record<PublishBlocker, string> = {
   schedule_already_ended: 'schedule',
 };
 
+/** A schedule as the audit trail records it (the saved values, read back from the campaign). */
+type RecordedSchedule = Omit<ScheduleInput, 'gracePeriodMinutes'> & { gracePeriodMinutes: number };
+
+/** The schedule an ad's latest campaign had before this change, or null for its first schedule. */
+function scheduleBefore(ad: AdRecord, campaignId: string | null): RecordedSchedule | null {
+  if (!campaignId || ad.campaign_id !== campaignId || !ad.campaign_starts_on || !ad.campaign_ends_on) return null;
+  return {
+    startsOn: ad.campaign_starts_on,
+    endsOn: ad.campaign_ends_on,
+    engagementLimit: ad.campaign_engagement_limit,
+    gracePeriodMinutes: ad.campaign_grace_period_minutes ?? 0,
+    timeWindows: ad.campaign_time_windows ?? [],
+  };
+}
+
 /**
- * An ad's buttons, its schedule and publishing. In Step 2 an ad has one campaign: saving a schedule
- * creates it as a draft (or updates it), publishing makes it ACTIVE with the ad's current card.
+ * When an ad airs (its campaign's dates and time windows) and making it live. In Step 2 an ad has
+ * one campaign: saving a schedule creates it as a draft (or updates it); publishing makes it ACTIVE
+ * with the ad's current card.
  */
 @Injectable()
-export class AdCampaignsService {
+export class CampaignsService {
   constructor(
     private readonly stationScopedTransaction: StationScopedTransaction,
     private readonly auditTrail: AuditTrail,
   ) {}
 
-  /**
-   * Saves the buttons as a new immutable card version and makes it the ad's current one. A campaign
-   * that is already live switches to it at once, so a corrected phone number reaches listeners straight away.
-   */
-  putActionCard(adId: string, actionCard: ActionCard): Promise<AdDetail> {
-    return this.stationScopedTransaction.run(async (database) => {
-      const ad = await this.lockAd(database, adId);
-      const [savedCard] = (await database.query(
-        `INSERT INTO app.action_cards (station_id, client_id, schema_version, content, created_by_portal_user_id)
-         VALUES (app.current_station_id(), $1, $2, $3::jsonb, app.current_user_id())
-         RETURNING id`,
-        [ad.client_id, actionCard.schema_version, JSON.stringify(actionCard)],
-      )) as Array<{ id: string }>;
-      const actionCardId = (savedCard as { id: string }).id;
-      await database.query(`UPDATE app.ads SET current_action_card_id = $2 WHERE id = $1`, [adId, actionCardId]);
-      await database.query(
-        `UPDATE app.campaigns SET action_card_id = $2 WHERE ad_id = $1 AND status IN ('ACTIVE', 'PAUSED')`,
-        [adId, actionCardId],
-      );
-      // Phone numbers and links stay in the card itself; the audit row records what changed in outline.
-      await this.auditTrail.record(database, {
-        action: 'action_card_saved',
-        entityType: 'ad',
-        entityId: adId,
-        changes: { actionCardId, actionTypes: actionCard.actions.map((action) => action.type) },
-      });
-      return toAdDetail(await findAdRecord(database, adId));
-    });
-  }
-
   /** Creates the ad's draft campaign from the schedule, or replaces the schedule of its current campaign. */
   putSchedule(adId: string, schedule: ScheduleInput): Promise<AdDetail> {
     return this.stationScopedTransaction.run(async (database) => {
-      const ad = await this.lockAd(database, adId);
+      const ad = await lockAndFindAdRecord(database, adId);
       const [latestCampaign] = (await database.query(
         `SELECT id, status FROM app.campaigns WHERE ad_id = $1 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
         [adId],
@@ -71,6 +57,7 @@ export class AdCampaignsService {
       const periodParameters = [schedule.startsOn, schedule.endsOn, schedule.engagementLimit, schedule.gracePeriodMinutes];
 
       let campaignId: string;
+      let previousSchedule: RecordedSchedule | null = null;
       if (!latestCampaign || latestCampaign.status === 'ENDED') {
         const [created] = (await database.query(
           `INSERT INTO app.campaigns (station_id, ad_id, name, status, active_period, engagement_limit, time_window_grace_period)
@@ -82,6 +69,7 @@ export class AdCampaignsService {
         campaignId = (created as { id: string }).id;
       } else {
         campaignId = latestCampaign.id;
+        previousSchedule = scheduleBefore(ad, campaignId);
         await database.query(
           `UPDATE app.campaigns AS campaign
               SET active_period = ${activePeriod}, engagement_limit = $3, time_window_grace_period = make_interval(mins => $4)
@@ -99,11 +87,12 @@ export class AdCampaignsService {
           [campaignId, [...timeWindow.daysOfWeek].sort((first, second) => first - second), timeWindow.localStartTime, timeWindow.localEndTime],
         );
       }
+      // A schedule holds no personal data, so the trail keeps both versions in full.
       await this.auditTrail.record(database, {
-        action: 'ad_schedule_saved',
-        entityType: 'ad',
-        entityId: adId,
-        changes: { campaignId, ...schedule },
+        action: 'campaign_schedule_saved',
+        entityType: 'campaign',
+        entityId: campaignId,
+        changes: { adId, previousSchedule, schedule },
       });
       return toAdDetail(await findAdRecord(database, adId));
     });
@@ -117,15 +106,15 @@ export class AdCampaignsService {
   async publish(adId: string): Promise<AdDetail> {
     try {
       return await this.stationScopedTransaction.run(async (database) => {
-        const ad = await this.lockAd(database, adId);
+        const ad = await lockAndFindAdRecord(database, adId);
         const [campaign] = (await database.query(
-          `SELECT campaign.id, upper(campaign.active_period) <= now() AS has_ended,
+          `SELECT campaign.id, campaign.status, campaign.action_card_id, upper(campaign.active_period) <= now() AS has_ended,
                   (SELECT count(*) FROM app.campaign_time_windows AS time_window WHERE time_window.campaign_id = campaign.id)::integer AS time_window_count
              FROM app.campaigns AS campaign
             WHERE campaign.ad_id = $1 AND campaign.status <> 'ENDED'
             ORDER BY campaign.created_at DESC LIMIT 1 FOR UPDATE`,
           [adId],
-        )) as Array<{ id: string; has_ended: boolean; time_window_count: number }>;
+        )) as Array<{ id: string; status: string; action_card_id: string | null; has_ended: boolean; time_window_count: number }>;
 
         const blockers: PublishBlocker[] = [];
         if (!VERIFIED_UPLOAD_STATUSES.includes(ad.status)) blockers.push('upload_not_verified');
@@ -144,10 +133,15 @@ export class AdCampaignsService {
           ad.current_action_card_id,
         ]);
         await this.auditTrail.record(database, {
-          action: 'ad_published',
-          entityType: 'ad',
-          entityId: adId,
-          changes: { campaignId: campaign.id, actionCardId: ad.current_action_card_id },
+          action: 'campaign_published',
+          entityType: 'campaign',
+          entityId: campaign.id,
+          changes: {
+            adId,
+            previousStatus: campaign.status,
+            previousActionCardId: campaign.action_card_id,
+            actionCardId: ad.current_action_card_id,
+          },
         });
         return toAdDetail(await findAdRecord(database, adId));
       });
@@ -161,10 +155,5 @@ export class AdCampaignsService {
       }
       throw error;
     }
-  }
-
-  private async lockAd(database: EntityManager, adId: string) {
-    await database.query(`SELECT id FROM app.ads WHERE id = $1 FOR UPDATE`, [adId]);
-    return findAdRecord(database, adId);
   }
 }

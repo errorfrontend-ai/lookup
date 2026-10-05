@@ -6,9 +6,11 @@ import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
 import { RateLimitingModule } from './common/rate-limiting/rate-limiting.module.js';
 import { SecurityModule } from './common/security/security.module.js';
 import { ConfigModule } from './config/config.module.js';
+import { ActionCardsModule } from './features/action-cards/action-cards.module.js';
 import { AdsModule } from './features/ads/ads.module.js';
 import { AuthenticationModule } from './features/authentication/authentication.module.js';
 import { ClientErrorsModule } from './features/client-errors/client-errors.module.js';
+import { CampaignsModule } from './features/campaigns/campaigns.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
 import { StationsModule } from './features/stations/stations.module.js';
@@ -39,6 +41,8 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     StationsModule,
     ClientsModule,
     AdsModule,
+    ActionCardsModule,
+    CampaignsModule,
     ClientErrorsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],

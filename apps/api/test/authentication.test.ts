@@ -204,6 +204,16 @@ describe('portal sign-in and sessions', () => {
       await me(newCookies).expect(200);
     });
 
+    it('S2-AUDIT-05: each refresh is recorded in the audit trail with its request id', async () => {
+      const user = await testUsers.create();
+      const refreshed = await refresh(await signedInCookies(user)).expect(204);
+      const auditRows = await setupClient.query(
+        `SELECT action, entity_type, request_id FROM app.audit_events WHERE actor_portal_user_id = $1 AND action = 'session_refreshed'`,
+        [user.userId],
+      );
+      expect(auditRows.rows).toEqual([{ action: 'session_refreshed', entity_type: 'portal_session', request_id: refreshed.headers['x-request-id'] }]);
+    });
+
     it('a refresh token used again after its grace (three extra uses) ends the session: every cookie stops working', async () => {
       const user = await testUsers.create();
       const cookies = await signedInCookies(user);

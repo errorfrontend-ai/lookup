@@ -112,7 +112,8 @@ describe('buttons, schedules and publishing', () => {
       const firstCard = actionCard();
       const saved = expectStatus(await send(owner, 'put', `${adPath}/card`, firstCard), 200);
       expect(saved.body.actionCard).toEqual(firstCard);
-      const secondCard = actionCard({ phone: '+260966000111' });
+      const [callButton, linkButton] = firstCard.actions as [Record<string, unknown>, Record<string, unknown>];
+      const secondCard = { ...firstCard, actions: [{ ...callButton, phone_number_e164: '+260966000111' }, linkButton] };
       expectStatus(await send(owner, 'put', `${adPath}/card`, secondCard), 200);
       const detail = expectStatus(await send(owner, 'get', adPath), 200);
       expect(detail.body.actionCard).toEqual(secondCard);
@@ -121,9 +122,22 @@ describe('buttons, schedules and publishing', () => {
         [adId],
       );
       expect(versions.rows[0].version_count).toBe(2);
-      const audit = await setupClient.query(`SELECT changes FROM app.audit_events WHERE entity_id = $1 AND action = 'action_card_saved'`, [adId]);
+      // S2-AUDIT-02, S2-CARDS-21: who changed which field, and from which version, never the number itself.
+      const audit = await setupClient.query(
+        `SELECT entity_type, entity_id, changes FROM app.audit_events WHERE changes->>'adId' = $1 AND action = 'action_card_saved' ORDER BY occurred_at`,
+        [adId],
+      );
       expect(audit.rows).toHaveLength(2);
+      const [firstSave, secondSave] = audit.rows;
+      expect(firstSave.entity_type).toBe('action_card');
+      expect(firstSave.changes.previousActionCardId).toBeNull();
+      expect(firstSave.changes.changedFields).toEqual(
+        expect.arrayContaining([{ path: `actions.${callButton.id}`, change: 'added' }, { path: 'layout', change: 'added' }]),
+      );
+      expect(secondSave.changes.previousActionCardId).toBe(firstSave.entity_id);
+      expect(secondSave.changes.changedFields).toEqual([{ path: `actions.${callButton.id}.phone_number_e164`, change: 'changed' }]);
       expect(JSON.stringify(audit.rows)).not.toContain('+260966000111');
+      expect(JSON.stringify(audit.rows)).not.toContain('+260977123456');
     });
 
     it('refuses a javascript: link or a local phone number, naming the field and the rule, never echoing the value', async () => {
@@ -183,6 +197,32 @@ describe('buttons, schedules and publishing', () => {
       ).body;
       expect(replaced.schedule.id).toBe(saved.schedule.id);
       expect(replaced.schedule.timeWindows).toEqual([{ daysOfWeek: [6, 7], localStartTime: '10:00', localEndTime: '14:00' }]);
+
+      // S2-SCHEDULE-08, S2-AUDIT-02: each save is audited against the campaign, with the schedule it replaced.
+      const audit = await setupClient.query(
+        `SELECT entity_type, entity_id, changes FROM app.audit_events WHERE entity_id = $1 AND action = 'campaign_schedule_saved' ORDER BY occurred_at`,
+        [saved.schedule.id],
+      );
+      expect(audit.rows).toHaveLength(2);
+      expect(audit.rows[0].changes.previousSchedule).toBeNull();
+      expect(audit.rows[1].changes.previousSchedule).toMatchObject({
+        startsOn: '2026-11-02',
+        endsOn: '2026-11-30',
+        gracePeriodMinutes: 20,
+        engagementLimit: 250,
+        timeWindows: [
+          { daysOfWeek: [1, 3, 5], localStartTime: '07:00', localEndTime: '09:00' },
+          { daysOfWeek: [5], localStartTime: '22:00', localEndTime: '02:00' },
+        ],
+      });
+      expect(audit.rows[1].changes.schedule.timeWindows).toEqual([{ daysOfWeek: [6, 7], localStartTime: '10:00', localEndTime: '14:00' }]);
+    });
+
+    it('treats a missing engagement limit as no limit', async () => {
+      const { owner, adPath } = await adFor();
+      const { engagementLimit: _omitted, ...withoutLimit } = onAirNowSchedule();
+      const saved = expectStatus(await send(owner, 'put', `${adPath}/schedule`, withoutLimit), 200).body;
+      expect(saved.schedule.engagementLimit).toBeNull();
     });
 
     it('refuses an end before the start with the rule named', async () => {
@@ -228,8 +268,16 @@ describe('buttons, schedules and publishing', () => {
       const listed = expectStatus(await send(owner, 'get', adsPath), 200).body.ads.find((ad: { id: string }) => ad.id === adId);
       expect(listed.campaign.displayStatus).toBe('LIVE_NOW');
       expect(listed.campaign.timeWindows).toHaveLength(1);
-      const audit = await setupClient.query(`SELECT 1 FROM app.audit_events WHERE entity_id = $1 AND action = 'ad_published'`, [adId]);
-      expect(audit.rowCount).toBe(1);
+      const audit = await setupClient.query(
+        `SELECT entity_type, changes FROM app.audit_events WHERE changes->>'adId' = $1 AND action = 'campaign_published'`,
+        [adId],
+      );
+      expect(audit.rows).toEqual([
+        {
+          entity_type: 'campaign',
+          changes: { adId, previousStatus: 'DRAFT', previousActionCardId: null, actionCardId: expect.any(String) },
+        },
+      ]);
     });
 
     it('a card saved while the ad is live reaches listeners at once', async () => {

@@ -83,6 +83,12 @@ export async function findAdRecord(database: EntityManager, adId: string): Promi
   return ad;
 }
 
+/** Locks the ad's row for the rest of the transaction, then reads it, so concurrent edits to one ad queue up. */
+export async function lockAndFindAdRecord(database: EntityManager, adId: string): Promise<AdRecord> {
+  await database.query(`SELECT id FROM app.ads WHERE id = $1 FOR UPDATE`, [adId]);
+  return findAdRecord(database, adId);
+}
+
 export function toAdSummary(ad: AdRecord): AdSummary {
   return {
     id: ad.id,
