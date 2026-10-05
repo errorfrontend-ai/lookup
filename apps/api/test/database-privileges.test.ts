@@ -57,7 +57,7 @@ describe('database privileges of the API role', () => {
       ids.stationA,
     ]);
     await setupClient.query(
-      `INSERT INTO app.action_cards (id, station_id, client_id, schema_version, content) VALUES ($1, $2, $3, 1, '{}')`,
+      `INSERT INTO app.action_cards (id, station_id, client_id, schema_version, content) VALUES ($1, $2, $3, 1, '{"schema_version":1}')`,
       [ids.actionCardOfA, ids.stationA, ids.clientOfA],
     );
     await setupClient.query(`INSERT INTO app.ads (id, station_id, client_id, title) VALUES ($1, $2, $3, 'Ad A')`, [

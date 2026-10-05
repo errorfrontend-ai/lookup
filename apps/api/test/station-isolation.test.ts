@@ -76,7 +76,7 @@ describe('row-level security between stations', () => {
     await expect(
       asStationA((client) =>
         client.query(
-          `INSERT INTO app.action_cards (station_id, client_id, schema_version, content) VALUES ($1, $2, 1, '{}'::jsonb)`,
+          `INSERT INTO app.action_cards (station_id, client_id, schema_version, content) VALUES ($1, $2, 1, '{"schema_version":1}'::jsonb)`,
           [ids.stationA, ids.clientOfB],
         ),
       ),

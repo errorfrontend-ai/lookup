@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AdDetail,
   AdListPage,
   AdPlaybackUrl,
   AdStatus,
-  AdSummary,
   AdUploadContentType,
   CreateAdInput,
   CreatedAd,
@@ -18,6 +18,7 @@ import { AuditTrail } from '../../common/audit/audit-trail.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
 import { ObjectStorage } from '../../infrastructure/object-storage/object-storage.js';
+import { AD_RECORD_SELECT, type AdRecord, findAdRecord, toAdDetail, toAdSummary } from './ad-records.js';
 import { AUDIO_SIGNATURE_BYTES_TO_READ, isDeclaredAudioFormat } from './audio-file-signatures.js';
 
 /** Upload URLs live 10 minutes: expiry is checked when the upload starts, so a slow link still finishes. */
@@ -27,25 +28,7 @@ const ADS_PER_PAGE = 20;
 /** Statuses in which the uploaded file has been verified and may be played back. */
 const VERIFIED_UPLOAD_STATUSES: readonly AdStatus[] = ['PROCESSING', 'READY', 'NEEDS_REVIEW'];
 
-interface AdRow {
-  id: string;
-  title: string;
-  status: AdStatus;
-  duration_milliseconds: number | null;
-  upload_original_file_name: string | null;
-  upload_object_key: string | null;
-  upload_content_type: AdUploadContentType | null;
-  upload_size_bytes: number | null;
-  client_id: string;
-  client_name: string;
-  updated_at_text: string;
-}
 
-const AD_COLUMNS = `
-  ads.id, ads.title, ads.status, ads.duration_milliseconds, ads.upload_original_file_name, ads.upload_object_key,
-  ads.upload_content_type, ads.upload_size_bytes, clients.id AS client_id, clients.name AS client_name,
-  to_char(ads.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_text`;
-const AD_SOURCE = `app.ads JOIN app.clients ON clients.id = ads.client_id AND clients.station_id = ads.station_id`;
 
 /**
  * Ads and their audio uploads. The browser uploads straight to object storage through a presigned URL
@@ -128,9 +111,9 @@ export class AdsService {
    * was already accepted is simply returned. A wrong file is deleted and the ad marked FAILED with the
    * reason, so the station can upload again.
    */
-  async completeUpload(adId: string): Promise<AdSummary> {
-    const ad = await this.stationScopedTransaction.run((database) => this.findAd(database, adId));
-    if (VERIFIED_UPLOAD_STATUSES.includes(ad.status)) return toAdSummary(ad);
+  async completeUpload(adId: string): Promise<AdDetail> {
+    const ad = await this.stationScopedTransaction.run((database) => findAdRecord(database, adId));
+    if (VERIFIED_UPLOAD_STATUSES.includes(ad.status)) return toAdDetail(ad);
     if (ad.status === 'FAILED') {
       throw new AppError('CONFLICT', {
         publicMessage: 'This upload was refused. Please upload the file again.',
@@ -163,7 +146,7 @@ export class AdsService {
           changes: { sizeBytes: storedFacts.sizeBytes, contentType: declaredType },
         });
       }
-      return toAdSummary(await this.findAd(database, adId));
+      return toAdDetail(await findAdRecord(database, adId));
     });
   }
 
@@ -171,14 +154,14 @@ export class AdsService {
     const position = cursor === undefined ? null : parseListCursor(cursor);
     const rows = (await this.stationScopedTransaction.run((database) =>
       database.query(
-        `SELECT ${AD_COLUMNS} FROM ${AD_SOURCE}
+        `${AD_RECORD_SELECT}
           WHERE ads.station_id = app.current_station_id() AND ads.archived_at IS NULL
             AND ($1::timestamptz IS NULL OR (ads.updated_at, ads.id) < ($1::timestamptz, $2::uuid))
           ORDER BY ads.updated_at DESC, ads.id DESC
           LIMIT ${ADS_PER_PAGE + 1}`,
         [position?.updatedAt ?? null, position?.adId ?? null],
       ),
-    )) as AdRow[];
+    )) as AdRecord[];
     const pageRows = rows.slice(0, ADS_PER_PAGE);
     const lastRow = pageRows[pageRows.length - 1];
     return {
@@ -187,12 +170,12 @@ export class AdsService {
     };
   }
 
-  get(adId: string): Promise<AdSummary> {
-    return this.stationScopedTransaction.run(async (database) => toAdSummary(await this.findAd(database, adId)));
+  get(adId: string): Promise<AdDetail> {
+    return this.stationScopedTransaction.run(async (database) => toAdDetail(await findAdRecord(database, adId)));
   }
 
   async playbackUrl(adId: string): Promise<AdPlaybackUrl> {
-    const ad = await this.stationScopedTransaction.run((database) => this.findAd(database, adId));
+    const ad = await this.stationScopedTransaction.run((database) => findAdRecord(database, adId));
     if (!VERIFIED_UPLOAD_STATUSES.includes(ad.status) || !ad.upload_object_key) {
       throw new AppError('CONFLICT', {
         publicMessage: "This ad's audio hasn't been uploaded yet.",
@@ -220,16 +203,10 @@ export class AdsService {
     throw new AppError('UPLOAD_REJECTED', { internalDetail: `upload refused: ${reason}` });
   }
 
-  /** Station-scoped read; another station's ad (or none) is NOT_FOUND. */
-  private async findAd(database: EntityManager, adId: string): Promise<AdRow> {
-    const [ad] = (await database.query(`SELECT ${AD_COLUMNS} FROM ${AD_SOURCE} WHERE ads.id = $1`, [adId])) as AdRow[];
-    if (!ad) throw new AppError('NOT_FOUND', { internalDetail: 'ad not found at this station' });
-    return ad;
-  }
 
-  private async findAdForUpdate(database: EntityManager, adId: string): Promise<AdRow> {
+  private async findAdForUpdate(database: EntityManager, adId: string): Promise<AdRecord> {
     await database.query(`SELECT id FROM app.ads WHERE id = $1 FOR UPDATE`, [adId]);
-    return this.findAd(database, adId);
+    return findAdRecord(database, adId);
   }
 
   /** Server-made object key; the station's file name is kept only, cleaned, for display. */
@@ -260,18 +237,6 @@ export class AdsService {
   }
 }
 
-function toAdSummary(ad: AdRow): AdSummary {
-  return {
-    id: ad.id,
-    title: ad.title,
-    client: { id: ad.client_id, name: ad.client_name },
-    status: ad.status,
-    durationMilliseconds: ad.duration_milliseconds,
-    uploadedFileName: ad.upload_original_file_name,
-    campaign: null,
-    updatedAt: ad.updated_at_text,
-  };
-}
 
 function describeUpload(upload: UploadRequest, displayFileName: string) {
   return { fileName: displayFileName, contentType: upload.contentType, sizeBytes: upload.sizeBytes };

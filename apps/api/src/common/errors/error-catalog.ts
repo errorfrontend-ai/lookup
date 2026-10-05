@@ -15,6 +15,7 @@ export const ERROR_CATALOG = {
   NOT_FOUND: { httpStatus: 404, message: 'Not found.' },
   METHOD_NOT_ALLOWED: { httpStatus: 405, message: 'This action is not allowed here.' },
   CONFLICT: { httpStatus: 409, message: 'This conflicts with something that already exists.' },
+  AD_NOT_READY_TO_PUBLISH: { httpStatus: 409, message: "This ad isn't ready to publish yet." },
   UPLOAD_NOT_RECEIVED: { httpStatus: 409, message: "We haven't received the file yet. Please upload it again." },
   UPLOAD_REJECTED: {
     httpStatus: 400,

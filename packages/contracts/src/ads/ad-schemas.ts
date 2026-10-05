@@ -83,8 +83,10 @@ export interface AdCampaignSummary {
   id: string;
   /** Worked out in the station's time zone: Draft, Scheduled (not started or between windows), Live now, Paused, Ended. */
   displayStatus: CampaignDisplayStatus;
-  startsOn: string | null;
-  endsOn: string | null;
+  /** First and last day it airs, station-local "YYYY-MM-DD". */
+  startsOn: string;
+  endsOn: string;
+  timeWindows: Array<{ daysOfWeek: number[]; localStartTime: string; localEndTime: string }>;
 }
 
 export interface AdSummary {

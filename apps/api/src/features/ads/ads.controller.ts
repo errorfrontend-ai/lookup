@@ -1,13 +1,15 @@
 import {
+  ActionCard,
+  type AdDetail,
   type AdListPage,
   type AdPlaybackUrl,
-  type AdSummary,
   CreateAdInput,
   type CreatedAd,
   RequestUploadUrlInput,
+  ScheduleInput,
   type UploadInstructions,
 } from '@lookup/contracts';
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { RateLimit } from '../../common/rate-limiting/rate-limit.decorator.js';
 import type { RateLimitRule } from '../../common/rate-limiting/rate-limit-rule.js';
@@ -15,6 +17,7 @@ import { UuidOrNotFoundPipe } from '../../common/validation/uuid-or-not-found.pi
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.js';
 import { CHANGE_STATION_CONTENT, StationAccess } from '../stations/station-access.decorator.js';
 import { StationAccessGuard } from '../stations/station-access.guard.js';
+import { AdCampaignsService } from './ad-campaigns.service.js';
 import { AdsService } from './ads.service.js';
 
 /** Every upload URL is a credential for writing to storage; hand them out at a steady rate only. */
@@ -25,7 +28,10 @@ const AdListQuery = z.strictObject({ cursor: z.string().min(1).max(200).optional
 @Controller('stations/:stationId/ads')
 @UseGuards(StationAccessGuard)
 export class AdsController {
-  constructor(private readonly adsService: AdsService) {}
+  constructor(
+    private readonly adsService: AdsService,
+    private readonly adCampaignsService: AdCampaignsService,
+  ) {}
 
   @Get()
   list(@Query(new ZodValidationPipe(AdListQuery)) query: z.infer<typeof AdListQuery>): Promise<AdListPage> {
@@ -40,7 +46,7 @@ export class AdsController {
   }
 
   @Get(':adId')
-  get(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<AdSummary> {
+  get(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<AdDetail> {
     return this.adsService.get(adId);
   }
 
@@ -58,8 +64,34 @@ export class AdsController {
   @Post(':adId/complete')
   @StationAccess(CHANGE_STATION_CONTENT)
   @HttpCode(200)
-  completeUpload(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<AdSummary> {
+  completeUpload(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<AdDetail> {
     return this.adsService.completeUpload(adId);
+  }
+
+  /** The buttons listeners see: saved as a new version each time. */
+  @Put(':adId/card')
+  @StationAccess(CHANGE_STATION_CONTENT)
+  putActionCard(
+    @Param('adId', new UuidOrNotFoundPipe()) adId: string,
+    @Body(new ZodValidationPipe(ActionCard)) actionCard: ActionCard,
+  ): Promise<AdDetail> {
+    return this.adCampaignsService.putActionCard(adId, actionCard);
+  }
+
+  @Put(':adId/schedule')
+  @StationAccess(CHANGE_STATION_CONTENT)
+  putSchedule(
+    @Param('adId', new UuidOrNotFoundPipe()) adId: string,
+    @Body(new ZodValidationPipe(ScheduleInput)) schedule: ScheduleInput,
+  ): Promise<AdDetail> {
+    return this.adCampaignsService.putSchedule(adId, schedule);
+  }
+
+  @Post(':adId/publish')
+  @StationAccess(CHANGE_STATION_CONTENT)
+  @HttpCode(200)
+  publish(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<AdDetail> {
+    return this.adCampaignsService.publish(adId);
   }
 
   @Get(':adId/playback-url')

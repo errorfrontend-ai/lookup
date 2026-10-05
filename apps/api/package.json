@@ -21,6 +21,7 @@
     "database:migrate": "tsx scripts/run-migrations.ts",
     "database:revert-latest": "tsx scripts/run-migrations.ts --revert-latest",
     "object-storage:prepare": "tsx scripts/prepare-object-storage.ts",
+    "database:seed": "tsx scripts/seed-development-data.ts",
     "test": "vitest run"
   },
   "dependencies": {
