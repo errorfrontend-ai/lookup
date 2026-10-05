@@ -10,3 +10,4 @@
 *.m4a binary
 *.wav binary
 *.mp3 binary
+*.gz binary

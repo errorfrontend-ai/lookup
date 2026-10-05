@@ -25,16 +25,31 @@ export class PortalTestUsers {
     private readonly passwordHasher: PasswordHasher,
   ) {}
 
-  async create(options: { password?: string; fullName?: string; role?: 'OWNER' | 'MANAGER' | 'ANALYST' } = {}): Promise<PortalTestUser> {
+  /**
+   * A user who belongs to a station: a new station by default, or `joinStationId` to add a second
+   * member to an existing one. `stationStatus` applies to a new station only.
+   */
+  async create(
+    options: {
+      password?: string;
+      fullName?: string;
+      role?: 'OWNER' | 'MANAGER' | 'ANALYST';
+      joinStationId?: string;
+      stationStatus?: 'ACTIVE' | 'PENDING_REVIEW' | 'SUSPENDED';
+    } = {},
+  ): Promise<PortalTestUser> {
     const runTag = randomUUID().slice(0, 8);
     const password = options.password ?? `quiet river ${runTag} morning tea`;
     const userId = randomUUID();
-    const stationId = randomUUID();
+    const stationId = options.joinStationId ?? randomUUID();
     const email = `portal-${runTag}@example.test`;
-    await this.setupClient.query(
-      `INSERT INTO app.stations (id, name, frequency_label, status) VALUES ($1, $2, '98.1 FM', 'ACTIVE')`,
-      [stationId, `Test Station ${runTag}`],
-    );
+    if (!options.joinStationId) {
+      await this.setupClient.query(
+        `INSERT INTO app.stations (id, name, frequency_label, status) VALUES ($1, $2, '98.1 FM', $3)`,
+        [stationId, `Test Station ${runTag}`, options.stationStatus ?? 'ACTIVE'],
+      );
+      this.createdStationIds.push(stationId);
+    }
     await this.setupClient.query(
       `INSERT INTO app.portal_users (id, email, password_hash, full_name) VALUES ($1, $2, $3, $4)`,
       [userId, email, await this.passwordHasher.hashNewPassword(password), options.fullName ?? 'Pat Tester'],
@@ -45,15 +60,22 @@ export class PortalTestUsers {
       options.role ?? 'OWNER',
     ]);
     this.createdUserIds.push(userId);
-    this.createdStationIds.push(stationId);
     return { userId, email, password, stationId };
   }
 
+  /** Removes everything the tests created at these stations, children first. */
   async cleanUp(): Promise<void> {
-    await this.setupClient.query('DELETE FROM app.station_memberships WHERE station_id = ANY($1)', [this.createdStationIds]);
+    const stationIds = this.createdStationIds;
+    await this.setupClient.query('DELETE FROM app.campaign_time_windows WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('DELETE FROM app.campaigns WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('DELETE FROM app.ads WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('UPDATE app.clients SET default_action_card_id = NULL WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('DELETE FROM app.action_cards WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('DELETE FROM app.clients WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('DELETE FROM app.station_memberships WHERE station_id = ANY($1)', [stationIds]);
     await this.setupClient.query('DELETE FROM app.portal_users WHERE id = ANY($1)', [this.createdUserIds]);
-    await this.setupClient.query('DELETE FROM app.audit_events WHERE station_id = ANY($1)', [this.createdStationIds]);
-    await this.setupClient.query('DELETE FROM app.stations WHERE id = ANY($1)', [this.createdStationIds]);
+    await this.setupClient.query('DELETE FROM app.audit_events WHERE station_id = ANY($1)', [stationIds]);
+    await this.setupClient.query('DELETE FROM app.stations WHERE id = ANY($1)', [stationIds]);
   }
 }
 

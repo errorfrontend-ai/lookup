@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ClsModule } from 'nestjs-cls';
+import { AuditModule } from './common/audit/audit.module.js';
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
 import { RateLimitingModule } from './common/rate-limiting/rate-limiting.module.js';
 import { SecurityModule } from './common/security/security.module.js';
 import { ConfigModule } from './config/config.module.js';
 import { AuthenticationModule } from './features/authentication/authentication.module.js';
+import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
+import { StationsModule } from './features/stations/stations.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
 import { KeyValueStoreModule } from './infrastructure/key-value-store/key-value-store.module.js';
 import { LoggingModule } from './infrastructure/logging/logging.module.js';
@@ -25,9 +28,12 @@ import { LoggingModule } from './infrastructure/logging/logging.module.js';
     KeyValueStoreModule,
     SecurityModule,
     RateLimitingModule,
+    AuditModule,
     // Features. AuthenticationModule also installs the guard that makes every route private by default.
     AuthenticationModule,
     HealthModule,
+    StationsModule,
+    ClientsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })
