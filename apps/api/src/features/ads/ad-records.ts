@@ -1,12 +1,16 @@
-import type {
-  ActionCard,
-  AdCampaignSummary,
-  AdDetail,
-  AdSchedule,
-  AdStatus,
-  AdSummary,
-  AdUploadContentType,
-  CampaignDisplayStatus,
+import {
+  type ActionCard,
+  type AdAttentionReason,
+  type AdCampaignSummary,
+  type AdDetail,
+  type AdSchedule,
+  type AdStatus,
+  type AdSummary,
+  type AdUploadContentType,
+  AD_ATTENTION_REASONS,
+  type CampaignDisplayStatus,
+  ENDING_SOON_DAYS,
+  UNFINISHED_UPLOAD_GRACE_MINUTES,
 } from '@lookup/contracts';
 import type { EntityManager } from 'typeorm';
 import { AppError } from '../../common/errors/app-error.js';
@@ -34,8 +38,16 @@ export interface AdRecord {
   campaign_grace_period_minutes: number | null;
   campaign_engagement_limit: number | null;
   campaign_time_windows: Array<{ daysOfWeek: number[]; localStartTime: string; localEndTime: string }> | null;
+  /** The later of the ad's and its campaign's last change. */
   updated_at_text: string;
   created_at_text: string;
+  uploaded_at_text: string | null;
+  /** The five reasons an ad needs attention, each decided in the database (see AD_ATTENTION_REASONS). */
+  is_upload_refused: boolean;
+  is_needing_review: boolean;
+  is_upload_not_finished: boolean;
+  is_start_date_passed: boolean;
+  is_ending_soon: boolean;
 }
 
 /**
@@ -61,15 +73,27 @@ export const AD_RECORD_SELECT = `
                     'localEndTime', to_char(time_window.local_end_time, 'HH24:MI'))
                   ORDER BY time_window.local_start_time, time_window.days_of_week)
             FROM app.campaign_time_windows AS time_window WHERE time_window.campaign_id = campaign.id) AS campaign_time_windows,
-         to_char(ads.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_text,
-         to_char(ads.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_text
+         to_char(greatest(ads.updated_at, campaign.updated_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_text,
+         to_char(ads.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_text,
+         to_char(ads.uploaded_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS uploaded_at_text,
+         lower(campaign.active_period) AS campaign_starts_at,
+         greatest(ads.updated_at, campaign.updated_at) AS last_changed_at,
+         (ads.status = 'FAILED') AS is_upload_refused,
+         (ads.status = 'NEEDS_REVIEW') AS is_needing_review,
+         coalesce(ads.status = 'AWAITING_UPLOAD'
+            AND ads.upload_expires_at < now() - interval '${UNFINISHED_UPLOAD_GRACE_MINUTES} minutes', false) AS is_upload_not_finished,
+         coalesce(campaign.status = 'DRAFT' AND lower(campaign.active_period) <= now(), false) AS is_start_date_passed,
+         coalesce(campaign.status = 'ACTIVE' AND upper(campaign.active_period) > now()
+            AND ((upper(campaign.active_period) AT TIME ZONE station.time_zone)::date - 1)
+                - (now() AT TIME ZONE station.time_zone)::date BETWEEN 0 AND ${ENDING_SOON_DAYS}, false) AS is_ending_soon
     FROM app.ads
     JOIN app.clients ON clients.id = ads.client_id AND clients.station_id = ads.station_id
     JOIN app.stations AS station ON station.id = ads.station_id
     LEFT JOIN app.action_cards AS current_card
            ON current_card.id = ads.current_action_card_id AND current_card.station_id = ads.station_id
     LEFT JOIN LATERAL (
-      SELECT latest.id, latest.active_period, latest.time_window_grace_period, latest.engagement_limit
+      SELECT latest.id, latest.status, latest.active_period, latest.time_window_grace_period, latest.engagement_limit,
+             latest.updated_at
         FROM app.campaigns AS latest
        WHERE latest.ad_id = ads.id AND latest.station_id = ads.station_id
        ORDER BY latest.created_at DESC
@@ -78,7 +102,7 @@ export const AD_RECORD_SELECT = `
 
 /** The ad with this id at the current station; NOT_FOUND for another station's ad or none. */
 export async function findAdRecord(database: EntityManager, adId: string): Promise<AdRecord> {
-  const [ad] = (await database.query(`${AD_RECORD_SELECT} WHERE ads.id = $1`, [adId])) as AdRecord[];
+  const [ad] = (await database.query(`${AD_RECORD_SELECT} WHERE ads.id = $1 AND ads.archived_at IS NULL`, [adId])) as AdRecord[];
   if (!ad) throw new AppError('NOT_FOUND', { internalDetail: 'ad not found at this station' });
   return ad;
 }
@@ -98,8 +122,22 @@ export function toAdSummary(ad: AdRecord): AdSummary {
     durationMilliseconds: ad.duration_milliseconds,
     uploadedFileName: ad.upload_original_file_name,
     campaign: toCampaignSummary(ad),
+    hasActionCard: ad.current_action_card_id !== null,
+    attentionReasons: attentionReasonsOf(ad),
     updatedAt: ad.updated_at_text,
   };
+}
+
+/** The reasons this ad needs attention, most serious first. */
+function attentionReasonsOf(ad: AdRecord): AdAttentionReason[] {
+  const flags: Record<AdAttentionReason, boolean> = {
+    upload_refused: ad.is_upload_refused,
+    needs_review: ad.is_needing_review,
+    upload_not_finished: ad.is_upload_not_finished,
+    start_date_passed: ad.is_start_date_passed,
+    ending_soon: ad.is_ending_soon,
+  };
+  return AD_ATTENTION_REASONS.filter((reason) => flags[reason]);
 }
 
 export function toAdDetail(ad: AdRecord): AdDetail {
@@ -115,6 +153,7 @@ export function toAdDetail(ad: AdRecord): AdDetail {
   return {
     ...toAdSummary(ad),
     uploadSizeBytes: ad.upload_size_bytes,
+    uploadedAt: ad.uploaded_at_text,
     processingErrorCode: ad.processing_error_code,
     actionCard: ad.action_card_content,
     schedule,

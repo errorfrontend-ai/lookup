@@ -1,4 +1,4 @@
-import { type ClientSummary, CreateClientInput } from '@lookup/contracts';
+import { type ClientListItem, type ClientSummary, CreateClientInput } from '@lookup/contracts';
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.js';
 import { CHANGE_STATION_CONTENT, StationAccess } from '../stations/station-access.decorator.js';
@@ -12,7 +12,7 @@ export class ClientsController {
   constructor(private readonly clientsService: ClientsService) {}
 
   @Get()
-  list(): Promise<ClientSummary[]> {
+  list(): Promise<ClientListItem[]> {
     return this.clientsService.list();
   }
 

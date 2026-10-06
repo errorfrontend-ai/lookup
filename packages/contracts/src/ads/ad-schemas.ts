@@ -96,6 +96,20 @@ export interface AdCampaignSummary {
 export const UPLOAD_REFUSAL_REASONS = ['size_or_type_mismatch', 'not_the_declared_audio_format'] as const;
 export type UploadRefusalReason = (typeof UPLOAD_REFUSAL_REASONS)[number];
 
+/**
+ * Why an ad is under "Needs attention", most serious first. One rule in the database, so the ads
+ * list, the overview and the ad's own page always agree.
+ * - upload_refused: the file was refused and deleted (the ad's processingErrorCode says why);
+ * - needs_review: Look Up is checking the audio by hand (Step 3 sets this);
+ * - upload_not_finished: the upload link expired more than 30 minutes ago with no audio received;
+ * - start_date_passed: a draft schedule whose first day has already begun, so nothing is on air;
+ * - ending_soon: published, and its last day is today or within the next 3 days.
+ */
+export const AD_ATTENTION_REASONS = ['upload_refused', 'needs_review', 'upload_not_finished', 'start_date_passed', 'ending_soon'] as const;
+export type AdAttentionReason = (typeof AD_ATTENTION_REASONS)[number];
+export const UNFINISHED_UPLOAD_GRACE_MINUTES = 30;
+export const ENDING_SOON_DAYS = 3;
+
 export interface AdSummary {
   id: string;
   title: string;
@@ -104,6 +118,10 @@ export interface AdSummary {
   durationMilliseconds: number | null;
   uploadedFileName: string | null;
   campaign: AdCampaignSummary | null;
+  /** Whether buttons have been saved for the ad. */
+  hasActionCard: boolean;
+  attentionReasons: AdAttentionReason[];
+  /** When the ad, its buttons or its schedule last changed. */
   updatedAt: string;
 }
 

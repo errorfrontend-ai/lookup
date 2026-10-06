@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  AdDetail,
-  AdListPage,
-  AdPlaybackUrl,
-  AdStatus,
-  AdUploadContentType,
-  CreateAdInput,
-  CreatedAd,
-  RequestUploadUrlInput,
-  UploadInstructions,
-  UploadRefusalReason,
-  UploadRequest,
+import {
+  ADS_PER_PAGE,
+  type AdDetail,
+  type AdListPage,
+  type AdListQuery,
+  type AdPlaybackUrl,
+  type AdStatus,
+  type AdUploadContentType,
+  type CreateAdInput,
+  type CreatedAd,
+  type RequestUploadUrlInput,
+  type UploadInstructions,
+  type UploadRefusalReason,
+  type UploadRequest,
 } from '@lookup/contracts';
 import { Injectable } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
@@ -19,13 +21,13 @@ import { AuditTrail } from '../../common/audit/audit-trail.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
 import { ObjectStorage } from '../../infrastructure/object-storage/object-storage.js';
-import { AD_RECORD_SELECT, type AdRecord, findAdRecord, toAdDetail, toAdSummary } from './ad-records.js';
+import { type AdListRow, buildAdListQuery, nextAdListCursor } from './ad-list-query.js';
+import { type AdRecord, findAdRecord, toAdDetail, toAdSummary } from './ad-records.js';
 import { AUDIO_SIGNATURE_BYTES_TO_READ, isDeclaredAudioFormat } from './audio-file-signatures.js';
 
 /** Upload URLs live 10 minutes: expiry is checked when the upload starts, so a slow link still finishes. */
 const UPLOAD_URL_LIFETIME_SECONDS = 600;
 const PLAYBACK_URL_LIFETIME_SECONDS = 300;
-const ADS_PER_PAGE = 20;
 /** Statuses in which the uploaded file has been verified and may be played back. */
 const VERIFIED_UPLOAD_STATUSES: readonly AdStatus[] = ['PROCESSING', 'READY', 'NEEDS_REVIEW'];
 
@@ -151,23 +153,12 @@ export class AdsService {
     });
   }
 
-  async list(cursor: string | undefined): Promise<AdListPage> {
-    const position = cursor === undefined ? null : parseListCursor(cursor);
-    const rows = (await this.stationScopedTransaction.run((database) =>
-      database.query(
-        `${AD_RECORD_SELECT}
-          WHERE ads.station_id = app.current_station_id() AND ads.archived_at IS NULL
-            AND ($1::timestamptz IS NULL OR (ads.updated_at, ads.id) < ($1::timestamptz, $2::uuid))
-          ORDER BY ads.updated_at DESC, ads.id DESC
-          LIMIT ${ADS_PER_PAGE + 1}`,
-        [position?.updatedAt ?? null, position?.adId ?? null],
-      ),
-    )) as AdRecord[];
-    const pageRows = rows.slice(0, ADS_PER_PAGE);
-    const lastRow = pageRows[pageRows.length - 1];
+  async list(query: AdListQuery): Promise<AdListPage> {
+    const { sql, parameters } = buildAdListQuery(query);
+    const rows = (await this.stationScopedTransaction.run((database) => database.query(sql, parameters))) as AdListRow[];
     return {
-      ads: pageRows.map(toAdSummary),
-      nextCursor: rows.length > ADS_PER_PAGE && lastRow ? formatListCursor(lastRow.updated_at_text, lastRow.id) : null,
+      ads: rows.slice(0, ADS_PER_PAGE).map(toAdSummary),
+      nextCursor: nextAdListCursor(query.sort, rows),
     };
   }
 
@@ -248,27 +239,4 @@ export function cleanFileNameForDisplay(fileName: string): string {
   const lastSegment = fileName.split(/[\\/]/).pop() ?? '';
   const cleaned = lastSegment.replace(/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g, '').trim();
   return Array.from(cleaned || 'audio').slice(0, 255).join('');
-}
-
-function formatListCursor(updatedAtText: string, adId: string): string {
-  return Buffer.from(JSON.stringify([updatedAtText, adId]), 'utf8').toString('base64url');
-}
-
-function parseListCursor(cursor: string): { updatedAt: string; adId: string } {
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (
-      Array.isArray(parsed) &&
-      parsed.length === 2 &&
-      typeof parsed[0] === 'string' &&
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(parsed[0]) &&
-      typeof parsed[1] === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed[1])
-    ) {
-      return { updatedAt: parsed[0], adId: parsed[1] };
-    }
-  } catch {
-    // Falls through to the refusal below.
-  }
-  throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'cursor', code: 'invalid_cursor' }], internalDetail: 'malformed list cursor' });
 }

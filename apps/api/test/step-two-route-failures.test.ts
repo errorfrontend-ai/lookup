@@ -169,6 +169,8 @@ describe('Step 2 routes when something underneath fails', () => {
     ['list clients', 'get', () => `${stationPath}/clients`],
     ['create a client', 'post', () => `${stationPath}/clients`, () => ({ name: `Brand ${randomUUID().slice(0, 6)}` })],
     ['list ads', 'get', () => `${stationPath}/ads`],
+    ['list ads with a tab, search and sort', 'get', () => `${stationPath}/ads?view=attention&search=a&sort=title`],
+    ['station overview', 'get', () => `${stationPath}/overview`],
     ['create an ad', 'post', () => `${stationPath}/ads`, () => ({ clientId: randomUUID(), title: 'x', upload: uploadRequest.upload })],
     ['get an ad', 'get', () => adPath],
     ['request an upload URL', 'post', () => `${adPath}/upload-url`, () => uploadRequest],

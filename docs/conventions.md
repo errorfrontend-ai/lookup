@@ -46,7 +46,7 @@ apps/api/test/                     one file per behaviour; shared helpers in tes
 
 A new feature is a new folder under `features/` with its own module, imported once in
 `app.module.ts`. A feature may use another feature's building blocks that are meant for sharing
-(the `stations` access guard; the `ads` record helpers in `ad-records.ts`), never its services or
+(the `stations` access guard; the `ads` record and list-query helpers in `ad-records.ts` and `ad-list-query.ts`), never its services or
 private files; rules shared by everything go in `common/`.
 
 ## Names in the database

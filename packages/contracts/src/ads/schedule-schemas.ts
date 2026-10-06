@@ -80,6 +80,8 @@ export interface AdSchedule extends AdCampaignSummary {
 
 export interface AdDetail extends AdSummary {
   uploadSizeBytes: number | null;
+  /** When the audio was received and checked, or null. */
+  uploadedAt: string | null;
   /** Why the upload was refused (an UploadRefusalReason), or null. */
   processingErrorCode: string | null;
   actionCard: ActionCard | null;

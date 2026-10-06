@@ -13,6 +13,7 @@ import { ClientErrorsModule } from './features/client-errors/client-errors.modul
 import { CampaignsModule } from './features/campaigns/campaigns.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
+import { StationOverviewModule } from './features/station-overview/station-overview.module.js';
 import { StationsModule } from './features/stations/stations.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
 import { KeyValueStoreModule } from './infrastructure/key-value-store/key-value-store.module.js';
@@ -43,6 +44,7 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     AdsModule,
     ActionCardsModule,
     CampaignsModule,
+    StationOverviewModule,
     ClientErrorsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],

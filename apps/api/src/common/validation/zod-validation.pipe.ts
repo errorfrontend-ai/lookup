@@ -1,4 +1,4 @@
-import { VALIDATION_REASON_CODES } from '@lookup/contracts';
+import { reasonCodeForIssue } from '@lookup/contracts';
 import type { PipeTransform } from '@nestjs/common';
 import type { z } from 'zod';
 import { AppError } from '../errors/app-error.js';
@@ -26,15 +26,9 @@ export class ZodValidationPipe<Schema extends z.ZodType> implements PipeTransfor
     throw new AppError('VALIDATION_FAILED', {
       fields: issues.slice(0, MAXIMUM_REPORTED_ISSUES).map((issue) => ({
         path: issue.path.map(String).join('.').slice(0, MAXIMUM_PATH_LENGTH),
-        code: reasonCodeFor(issue),
+        code: reasonCodeForIssue(issue),
       })),
       internalDetail: `request validation failed: ${issues.length} issue(s)`,
     });
   }
-}
-
-function reasonCodeFor(issue: z.core.$ZodIssue): string {
-  if (issue.code !== 'custom') return issue.code;
-  const reason = (issue as { params?: { reason?: unknown } }).params?.reason;
-  return typeof reason === 'string' && VALIDATION_REASON_CODES.has(reason) ? reason : 'custom';
 }

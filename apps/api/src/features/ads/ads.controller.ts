@@ -1,4 +1,5 @@
 import {
+  AdListQuery,
   type AdDetail,
   type AdListPage,
   type AdPlaybackUrl,
@@ -8,7 +9,6 @@ import {
   type UploadInstructions,
 } from '@lookup/contracts';
 import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { z } from 'zod';
 import { RateLimit } from '../../common/rate-limiting/rate-limit.decorator.js';
 import type { RateLimitRule } from '../../common/rate-limiting/rate-limit-rule.js';
 import { UuidOrNotFoundPipe } from '../../common/validation/uuid-or-not-found.pipe.js';
@@ -20,16 +20,14 @@ import { AdsService } from './ads.service.js';
 /** Every upload URL is a credential for writing to storage; hand them out at a steady rate only. */
 const UPLOAD_URLS_PER_ADDRESS: RateLimitRule = { counterName: 'ad-upload-urls-per-address', maximumRequests: 120, windowSeconds: 3600 };
 
-const AdListQuery = z.strictObject({ cursor: z.string().min(1).max(200).optional() });
-
 @Controller('stations/:stationId/ads')
 @UseGuards(StationAccessGuard)
 export class AdsController {
   constructor(private readonly adsService: AdsService) {}
 
   @Get()
-  list(@Query(new ZodValidationPipe(AdListQuery)) query: z.infer<typeof AdListQuery>): Promise<AdListPage> {
-    return this.adsService.list(query.cursor);
+  list(@Query(new ZodValidationPipe(AdListQuery)) query: AdListQuery): Promise<AdListPage> {
+    return this.adsService.list(query);
   }
 
   @Post()

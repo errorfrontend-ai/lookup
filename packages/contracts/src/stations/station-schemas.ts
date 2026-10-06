@@ -26,3 +26,9 @@ export interface ClientSummary {
   id: string;
   name: string;
 }
+
+/** A client in the clients list: how many ads the station has for it, and how many are on air right now. */
+export interface ClientListItem extends ClientSummary {
+  adCount: number;
+  liveNowAdCount: number;
+}
