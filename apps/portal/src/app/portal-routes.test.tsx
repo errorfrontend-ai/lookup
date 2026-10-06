@@ -45,7 +45,7 @@ describe('signing in', () => {
     });
   });
 
-  it('lands on the first station’s ads when there was no page to return to', async () => {
+  it('lands on the first station’s overview when there was no page to return to', async () => {
     const user = signedInUserWith();
     installFakeApi({ ...notSignedIn, 'POST /auth/sign-in': () => jsonResponse(200, user) });
 
@@ -54,8 +54,8 @@ describe('signing in', () => {
     await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
     await person.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    expect(await screen.findByRole('heading', { name: 'Ads' })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe(`/stations/${user.stations[0]?.id}/ads`);
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/stations/${user.stations[0]?.id}/overview`);
   });
 
   it('explains a refused sign-in in plain words with a reference code, and never tries a session refresh for it', async () => {
@@ -106,12 +106,12 @@ describe('the station shell', () => {
     expect(await screen.findByRole('heading', { name: "We couldn't find that page" })).toBeInTheDocument();
   });
 
-  it.each([['OWNER'], ['MANAGER'], ['ANALYST']] as const)('shows %s the places an approved station has: Ads, Clients and Station profile', async (role) => {
+  it.each([['OWNER'], ['MANAGER'], ['ANALYST']] as const)('shows %s the places an approved station has: Overview, Ads, Clients and Station profile', async (role) => {
     const user = signedInUserWith([{ role }]);
     installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
     renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
     const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Ads', 'Clients', 'Station profile']);
+    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Overview', 'Ads', 'Clients', 'Station profile']);
   });
 
   it('puts Your account and Sign out under the signed-in name and role at the bottom of the menu', async () => {
@@ -164,7 +164,7 @@ describe('the station shell', () => {
 
     const chooser = (await screen.findAllByRole('combobox', { name: 'Station' }))[0] as HTMLElement;
     await person.selectOptions(chooser, user.stations[1]?.id as string);
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${user.stations[1]?.id}/ads`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${user.stations[1]?.id}/overview`));
   });
 
   it('opens the menu drawer on small screens, and closes it with Escape', async () => {

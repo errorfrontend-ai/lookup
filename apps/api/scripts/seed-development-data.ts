@@ -1,7 +1,8 @@
 /**
- * Development data: one ACTIVE station ("Station A", 98.1 FM), its owner and two clients, so the portal
- * can be used straight away. Safe to run again (it updates rather than duplicates). Refuses to run in
- * production. Self sign-up replaces this for real stations (phase 5a).
+ * Development data: one ACTIVE station ("Station A", 98.1 FM), its owner, two clients and sample ads in
+ * every state (with a short generated jingle as their audio), so the portal can be used and judged
+ * straight away. Safe to run again (it updates rather than duplicates). Refuses to run in production.
+ * Self sign-up replaces this for real stations (phase 5a).
  *
  *   npm run database:seed   (reads SEED_OWNER_EMAIL and SEED_OWNER_PASSWORD from .env)
  */
@@ -10,6 +11,7 @@ import pg from 'pg';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { PasswordPolicy } from '../src/features/authentication/password-policy.js';
 import { loadDatabaseSetupConfig } from './database-setup-config.js';
+import { type SampleStorage, seedSampleAds } from './sample-ads.js';
 
 export interface DevelopmentSeed {
   stationName: string;
@@ -77,23 +79,47 @@ export async function seedDevelopmentData(setupUrl: string, seed: DevelopmentSee
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** The development object storage, from the same settings the API uses; null when they aren't all set. */
+function sampleStorageFromEnvironment(): SampleStorage | null {
+  const { OBJECT_STORAGE_ENDPOINT, OBJECT_STORAGE_REGION, OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY, OBJECT_STORAGE_AD_UPLOADS_BUCKET } = process.env;
+  if (!OBJECT_STORAGE_ENDPOINT || !OBJECT_STORAGE_ACCESS_KEY_ID || !OBJECT_STORAGE_SECRET_ACCESS_KEY || !OBJECT_STORAGE_AD_UPLOADS_BUCKET) return null;
+  return {
+    endpoint: OBJECT_STORAGE_ENDPOINT,
+    region: OBJECT_STORAGE_REGION ?? 'auto',
+    accessKeyId: OBJECT_STORAGE_ACCESS_KEY_ID,
+    secretAccessKey: OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    bucket: OBJECT_STORAGE_AD_UPLOADS_BUCKET,
+  };
+}
+
+async function seedFromEnvironment(): Promise<string> {
   const { setupUrl } = loadDatabaseSetupConfig();
   const ownerEmail = process.env.SEED_OWNER_EMAIL;
   const ownerPassword = process.env.SEED_OWNER_PASSWORD;
-  if (!ownerEmail || !ownerPassword) {
-    console.error('Missing configuration: SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD');
-    process.exit(1);
-  }
-  seedDevelopmentData(setupUrl, {
+  if (!ownerEmail || !ownerPassword) throw new Error('Missing configuration: SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD');
+  const { stationId } = await seedDevelopmentData(setupUrl, {
     stationName: 'Station A',
     frequencyLabel: '98.1 FM',
     ownerEmail,
     ownerPassword,
     ownerFullName: 'Station A Owner',
     clientNames: ['Brand A', 'Brand B'],
-  })
-    .then(({ stationId }) => console.log(`Development data ready: Station A (${stationId}), its owner and two clients.`))
+  });
+  const storage = sampleStorageFromEnvironment();
+  if (!storage) return `Development data ready: Station A (${stationId}), its owner and two clients. Sample ads skipped: object storage settings are not set.`;
+  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-development-seed' });
+  await client.connect();
+  try {
+    const createdCount = await seedSampleAds(client, stationId, storage);
+    return `Development data ready: Station A (${stationId}), its owner, two clients and ${createdCount === 0 ? 'its sample ads (already there)' : `${createdCount} new sample ads`}.`;
+  } finally {
+    await client.end();
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  seedFromEnvironment()
+    .then((message) => console.log(message))
     .catch((error: unknown) => {
       console.error('Could not seed development data:', error instanceof Error ? error.message : 'unknown error');
       process.exit(1);

@@ -2,7 +2,7 @@ import { Link, Outlet } from 'react-router';
 import { ToastProvider } from '../components/toast-region';
 import { NotFoundPage } from '../components/plain-pages';
 import { describeStationStatus } from '../plain-words/station-status-words';
-import { useCurrentStation, useRequiredCurrentStation } from '../features/stations/use-current-station';
+import { StationContext, useCurrentStation, useRequiredCurrentStation } from '../features/stations/use-current-station';
 
 /**
  * Everything under /stations/:stationId. A station the person doesn't belong to is "not found", the
@@ -12,9 +12,11 @@ export function StationScope() {
   const station = useCurrentStation();
   if (!station) return <NotFoundPage />;
   return (
-    <ToastProvider>
-      <Outlet />
-    </ToastProvider>
+    <StationContext.Provider value={station}>
+      <ToastProvider>
+        <Outlet />
+      </ToastProvider>
+    </StationContext.Provider>
   );
 }
 

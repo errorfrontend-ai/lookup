@@ -3,6 +3,7 @@ import { NotFoundPage } from '../components/plain-pages';
 import { ChangePasswordPage } from '../features/account/change-password-page';
 import { AdsListPage } from '../features/ads/ads-list-page';
 import { ClientsPage } from '../features/clients/clients-page';
+import { OverviewPage } from '../features/overview/overview-page';
 import { SignInPage } from '../features/sign-in/sign-in-page';
 import { StationProfilePage } from '../features/stations/station-profile-page';
 import { PortalShell } from './portal-shell';
@@ -30,6 +31,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
                   {
                     element: <ActiveStationOnly />,
                     children: [
+                      { path: 'overview', element: <OverviewPage /> },
                       { path: 'ads', element: <AdsListPage /> },
                       { path: 'clients', element: <ClientsPage /> },
                     ],

@@ -1,4 +1,5 @@
 import type { SignedInPortalUser, StationRole } from '@lookup/contracts';
+import { createContext, useContext } from 'react';
 import { useParams } from 'react-router';
 import { useSignedInUser } from '../session/use-signed-in-user';
 
@@ -21,9 +22,15 @@ export function useCurrentStation(): MemberStation | null {
   return signedInUser.data?.stations.find((station) => station.id === stationId) ?? null;
 }
 
-/** The current station, for screens that only render inside a station (the shell guarantees it). */
+/**
+ * The current station, handed down by StationScope to everything inside it. Screens never look the
+ * station up themselves, so if the session ends the scope steps aside first and they simply go away.
+ */
+export const StationContext = createContext<MemberStation | null>(null);
+
+/** The current station, for screens that only render inside a station. */
 export function useRequiredCurrentStation(): MemberStation {
-  const station = useCurrentStation();
+  const station = useContext(StationContext);
   if (!station) throw new Error('useRequiredCurrentStation used outside a station route');
   return station;
 }

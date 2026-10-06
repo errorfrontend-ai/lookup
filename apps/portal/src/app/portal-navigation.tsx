@@ -5,6 +5,7 @@ import { describeStationRole } from '../plain-words/station-status-words';
 import { useSignOut } from '../features/session/use-sign-out';
 import { useSignedInUser } from '../features/session/use-signed-in-user';
 import { stationHomePath } from '../features/stations/station-home-path';
+import { OnAirIndicator } from './on-air-indicator';
 import type { MemberStation } from '../features/stations/use-current-station';
 
 interface NavigationItem {
@@ -16,6 +17,7 @@ interface NavigationItem {
 }
 
 const NAVIGATION_ITEMS: NavigationItem[] = [
+  { path: 'overview', label: 'Overview', icon: 'overview', needsActiveStation: true },
   { path: 'ads', label: 'Ads', icon: 'ads', needsActiveStation: true },
   { path: 'clients', label: 'Clients', icon: 'clients', needsActiveStation: true },
   { path: 'profile', label: 'Station profile', icon: 'profile', needsActiveStation: false },
@@ -47,6 +49,8 @@ export function PortalNavigation({ station }: { station: MemberStation }) {
       </span>
 
       <FrequencyDial stationName={station.name} frequencyLabel={station.frequencyLabel} />
+
+      {station.status === 'ACTIVE' ? <OnAirIndicator stationId={station.id} /> : null}
 
       {stations.length > 1 ? (
         <label className="flex flex-col gap-1.5">
