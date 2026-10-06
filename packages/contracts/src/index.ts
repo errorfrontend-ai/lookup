@@ -1,3 +1,4 @@
+export * from './ads/ad-history-schemas.js';
 export * from './ads/ad-list-schemas.js';
 export * from './ads/ad-schemas.js';
 export * from './ads/schedule-schemas.js';

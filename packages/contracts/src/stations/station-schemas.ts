@@ -8,6 +8,22 @@ export const CreateClientInput = z.strictObject({
 });
 export type CreateClientInput = z.infer<typeof CreateClientInput>;
 
+/** The ten provinces of Zambia, as the profile offers them. */
+export const ZAMBIAN_PROVINCES = ['Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka', 'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western'] as const;
+export type ZambianProvince = (typeof ZAMBIAN_PROVINCES)[number];
+export const MAXIMUM_CITY_LENGTH = 80;
+
+/**
+ * PUT /stations/{stationId}/profile. Where the station is. The name, frequency and licence go through
+ * review, and the time zone is fixed because changing it would shift every schedule's start and end,
+ * so none of those can be changed here.
+ */
+export const UpdateStationProfileInput = z.strictObject({
+  province: z.enum(ZAMBIAN_PROVINCES).nullable(),
+  city: z.string().trim().min(1).max(MAXIMUM_CITY_LENGTH).nullable(),
+});
+export type UpdateStationProfileInput = z.infer<typeof UpdateStationProfileInput>;
+
 /** GET /stations/{stationId} */
 export interface StationProfile {
   id: string;

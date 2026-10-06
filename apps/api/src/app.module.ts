@@ -7,6 +7,7 @@ import { RateLimitingModule } from './common/rate-limiting/rate-limiting.module.
 import { SecurityModule } from './common/security/security.module.js';
 import { ConfigModule } from './config/config.module.js';
 import { ActionCardsModule } from './features/action-cards/action-cards.module.js';
+import { AdHistoryModule } from './features/ad-history/ad-history.module.js';
 import { AdsModule } from './features/ads/ads.module.js';
 import { AuthenticationModule } from './features/authentication/authentication.module.js';
 import { ClientErrorsModule } from './features/client-errors/client-errors.module.js';
@@ -43,6 +44,7 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     ClientsModule,
     AdsModule,
     ActionCardsModule,
+    AdHistoryModule,
     CampaignsModule,
     StationOverviewModule,
     ClientErrorsModule,

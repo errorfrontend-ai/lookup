@@ -59,6 +59,16 @@ describe('station access, the station profile and clients', () => {
       .send(body);
   };
 
+  const put = async (user: PortalTestUser, path: string, body: object) => {
+    const cookies = await cookiesFor(user);
+    return client()
+      .put(path)
+      .set('Origin', PORTAL_ORIGIN)
+      .set('X-Forwarded-For', newClientAddress())
+      .set('Cookie', cookieHeader(cookies))
+      .send(body);
+  };
+
   /** Fails with the response body in the message, which makes a wrong status easy to diagnose. */
   function expectStatus(response: supertest.Response, httpStatus: number): supertest.Response {
     expect(response.status, JSON.stringify(response.body)).toBe(httpStatus);
@@ -116,6 +126,89 @@ describe('station access, the station profile and clients', () => {
       expectStatus(await get(owner, `/api/v1/stations/${owner.stationId}/clients`), 200);
       await setupClient.query(`UPDATE app.stations SET status = 'SUSPENDED' WHERE id = $1`, [owner.stationId]);
       expect((await get(owner, `/api/v1/stations/${owner.stationId}/clients`)).status).toBe(403);
+    });
+  });
+
+  describe('changing where the station is', () => {
+    it('an owner sets the province and city, and the profile, the audit trail and the next read all agree', async () => {
+      const owner = await testUsers.create();
+      const path = `/api/v1/stations/${owner.stationId}/profile`;
+      const updated = expectStatus(await put(owner, path, { province: 'Copperbelt', city: '  Kitwe  ' }), 200).body;
+      expect(updated).toMatchObject({ id: owner.stationId, province: 'Copperbelt', city: 'Kitwe', yourRole: 'OWNER', frequencyLabel: '98.1 FM' });
+      expect(expectStatus(await get(owner, `/api/v1/stations/${owner.stationId}`), 200).body).toMatchObject({ province: 'Copperbelt', city: 'Kitwe' });
+      const audit = await setupClient.query(
+        `SELECT actor_portal_user_id, entity_type, entity_id, changes, request_id FROM app.audit_events WHERE station_id = $1 AND action = 'station_profile_changed'`,
+        [owner.stationId],
+      );
+      expect(audit.rows).toEqual([
+        {
+          actor_portal_user_id: owner.userId,
+          entity_type: 'station',
+          entity_id: owner.stationId,
+          changes: { previous: { province: null, city: null }, next: { province: 'Copperbelt', city: 'Kitwe' } },
+          request_id: expect.any(String),
+        },
+      ]);
+    });
+
+    it('saving what is already there changes and records nothing, and a place can be cleared', async () => {
+      const owner = await testUsers.create();
+      const path = `/api/v1/stations/${owner.stationId}/profile`;
+      expectStatus(await put(owner, path, { province: 'Lusaka', city: 'Lusaka' }), 200);
+      expectStatus(await put(owner, path, { province: 'Lusaka', city: 'Lusaka' }), 200);
+      const cleared = expectStatus(await put(owner, path, { province: null, city: null }), 200).body;
+      expect(cleared).toMatchObject({ province: null, city: null });
+      const audit = await setupClient.query(`SELECT count(*)::integer AS recorded FROM app.audit_events WHERE station_id = $1 AND action = 'station_profile_changed'`, [owner.stationId]);
+      expect(audit.rows[0].recorded).toBe(2);
+    });
+
+    it('only the ten provinces, a city of 1 to 80 characters, and nothing else about the station', async () => {
+      const owner = await testUsers.create();
+      const path = `/api/v1/stations/${owner.stationId}/profile`;
+      for (const body of [
+        { province: 'Atlantis', city: 'x' },
+        { province: 'Lusaka', city: '   ' },
+        { province: 'Lusaka', city: 'x'.repeat(81) },
+        { province: 'Lusaka' },
+        { city: 'Lusaka' },
+        { province: 'Lusaka', city: 'Lusaka', name: 'Renamed Radio' },
+        { province: 'Lusaka', city: 'Lusaka', timeZone: 'Asia/Tokyo' },
+        { province: 'Lusaka', city: 'Lusaka', frequencyLabel: '1.1 FM' },
+        { province: 'Lusaka', city: 'Lusaka', status: 'ACTIVE' },
+      ]) {
+        const response = await put(owner, path, body);
+        expect(response.status, JSON.stringify(body)).toBe(400);
+        assertNoInternalDetails(response.body);
+      }
+      const unchanged = await setupClient.query(`SELECT name, frequency_label, time_zone, status, province FROM app.stations WHERE id = $1`, [owner.stationId]);
+      expect(unchanged.rows[0]).toMatchObject({ frequency_label: '98.1 FM', time_zone: 'Africa/Lusaka', status: 'ACTIVE', province: null });
+      expect(unchanged.rows[0].name).toMatch(/^Test Station /);
+    });
+
+    it('a manager may, an analyst may not, and people from another station see nothing', async () => {
+      const owner = await testUsers.create();
+      const manager = await testUsers.create({ joinStationId: owner.stationId, role: 'MANAGER' });
+      const analyst = await testUsers.create({ joinStationId: owner.stationId, role: 'ANALYST' });
+      const stranger = await testUsers.create();
+      const path = `/api/v1/stations/${owner.stationId}/profile`;
+      expectStatus(await put(manager, path, { province: 'Eastern', city: 'Chipata' }), 200);
+      expect((await put(analyst, path, { province: 'Eastern', city: 'Elsewhere' })).status).toBe(403);
+      const refused = await put(stranger, path, { province: 'Eastern', city: 'Elsewhere' });
+      expect(refused.status).toBe(404);
+      assertNoInternalDetails(refused.body);
+      expect((await put(owner, `/api/v1/stations/${randomUUID()}/profile`, { province: 'Eastern', city: 'x' })).status).toBe(404);
+      const stored = await setupClient.query(`SELECT province, city FROM app.stations WHERE id = $1`, [owner.stationId]);
+      expect(stored.rows[0]).toEqual({ province: 'Eastern', city: 'Chipata' });
+    });
+
+    it('works while the station is under review, so a new station can say where it is', async () => {
+      const owner = await testUsers.create({ stationStatus: 'PENDING_REVIEW' });
+      expectStatus(await put(owner, `/api/v1/stations/${owner.stationId}/profile`, { province: 'Northern', city: 'Kasama' }), 200);
+    });
+
+    it('needs signing in', async () => {
+      const owner = await testUsers.create();
+      await client().put(`/api/v1/stations/${owner.stationId}/profile`).set('Origin', PORTAL_ORIGIN).send({ province: 'Lusaka', city: 'Lusaka' }).expect(401);
     });
   });
 

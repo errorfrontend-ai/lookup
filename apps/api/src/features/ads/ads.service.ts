@@ -7,8 +7,10 @@ import {
   type AdPlaybackUrl,
   type AdStatus,
   type AdUploadContentType,
+  type CampaignDisplayStatus,
   type CreateAdInput,
   type CreatedAd,
+  type RenameAdInput,
   type RequestUploadUrlInput,
   type UploadInstructions,
   type UploadRefusalReason,
@@ -29,6 +31,9 @@ import { AUDIO_SIGNATURE_BYTES_TO_READ, isDeclaredAudioFormat } from './audio-fi
 const UPLOAD_URL_LIFETIME_SECONDS = 600;
 const PLAYBACK_URL_LIFETIME_SECONDS = 300;
 /** Statuses in which the uploaded file has been verified and may be played back. */
+/** A campaign in any of these is published: listeners can get its buttons now or later. */
+const PUBLISHED_DISPLAY_STATUSES: readonly CampaignDisplayStatus[] = ['SCHEDULED', 'LIVE_NOW', 'PAUSED'];
+
 const VERIFIED_UPLOAD_STATUSES: readonly AdStatus[] = ['PROCESSING', 'READY', 'NEEDS_REVIEW'];
 
 
@@ -76,6 +81,42 @@ export class AdsService {
       return upload;
     });
     return { adId, upload: await this.buildUploadInstructions(prepared.objectKey, input.upload, prepared.expiresAt) };
+  }
+
+  /** Changes the ad's title (what stations see in lists and listeners see above the buttons). Naming it what it is already called changes and records nothing. */
+  rename(adId: string, input: RenameAdInput): Promise<AdDetail> {
+    return this.stationScopedTransaction.run(async (database) => {
+      const ad = await this.findAdForUpdate(database, adId);
+      if (ad.title !== input.title) {
+        await database.query(`UPDATE app.ads SET title = $2 WHERE id = $1`, [adId, input.title]);
+        await this.auditTrail.record(database, {
+          action: 'ad_renamed',
+          entityType: 'ad',
+          entityId: adId,
+          changes: { previousTitle: ad.title, title: input.title },
+        });
+      }
+      return toAdDetail(await findAdRecord(database, adId));
+    });
+  }
+
+  /**
+   * Removes an ad from the station's lists. It is kept (marked archived, never deleted), so its history
+   * and any counts stay intact. An ad that is published can't be removed until its schedule has ended,
+   * so an ad listeners can hear never disappears from under them.
+   */
+  async archive(adId: string): Promise<void> {
+    await this.stationScopedTransaction.run(async (database) => {
+      const ad = await this.findAdForUpdate(database, adId);
+      if (ad.campaign_display_status && PUBLISHED_DISPLAY_STATUSES.includes(ad.campaign_display_status)) {
+        throw new AppError('CONFLICT', {
+          publicMessage: 'This ad is published. It can be removed once its schedule has ended.',
+          internalDetail: `archive refused while ${ad.campaign_display_status}`,
+        });
+      }
+      await database.query(`UPDATE app.ads SET archived_at = now() WHERE id = $1`, [adId]);
+      await this.auditTrail.record(database, { action: 'ad_archived', entityType: 'ad', entityId: adId, changes: { title: ad.title } });
+    });
   }
 
   /** A fresh upload URL: to retry an upload that didn't finish, or to replace a file that was refused. */

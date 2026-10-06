@@ -53,12 +53,19 @@ export const UploadRequest = z.strictObject({
 });
 export type UploadRequest = z.infer<typeof UploadRequest>;
 
+/** An ad's title: what the station sees in its lists and what listeners see above the buttons. */
+export const AdTitle = z.string().trim().min(1).max(MAXIMUM_AD_TITLE_LENGTH);
+
 export const CreateAdInput = z.strictObject({
   clientId: z.uuid(),
-  title: z.string().trim().min(1).max(MAXIMUM_AD_TITLE_LENGTH),
+  title: AdTitle,
   upload: UploadRequest,
 });
 export type CreateAdInput = z.infer<typeof CreateAdInput>;
+
+/** PUT /stations/{stationId}/ads/{adId}/title */
+export const RenameAdInput = z.strictObject({ title: AdTitle });
+export type RenameAdInput = z.infer<typeof RenameAdInput>;
 
 export const RequestUploadUrlInput = z.strictObject({ upload: UploadRequest });
 export type RequestUploadUrlInput = z.infer<typeof RequestUploadUrlInput>;

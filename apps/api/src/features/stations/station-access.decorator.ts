@@ -19,4 +19,7 @@ export const CHANGE_STATION_CONTENT: StationAccessRequirement = { allowedRoles: 
 /** The station's own profile is readable while it is still being reviewed. */
 export const READ_STATION_PROFILE: StationAccessRequirement = { allowedRoles: STATION_ROLES, requiresActiveStation: false };
 
+/** Owners and managers may correct where the station is, even while it is still being reviewed. */
+export const CHANGE_STATION_PROFILE: StationAccessRequirement = { allowedRoles: ['OWNER', 'MANAGER'], requiresActiveStation: false };
+
 export const StationAccess = (requirement: StationAccessRequirement) => SetMetadata(STATION_ACCESS_METADATA, requirement);

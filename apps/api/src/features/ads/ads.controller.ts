@@ -4,11 +4,12 @@ import {
   type AdListPage,
   type AdPlaybackUrl,
   CreateAdInput,
+  RenameAdInput,
   type CreatedAd,
   RequestUploadUrlInput,
   type UploadInstructions,
 } from '@lookup/contracts';
-import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { RateLimit } from '../../common/rate-limiting/rate-limit.decorator.js';
 import type { RateLimitRule } from '../../common/rate-limiting/rate-limit-rule.js';
 import { UuidOrNotFoundPipe } from '../../common/validation/uuid-or-not-found.pipe.js';
@@ -40,6 +41,22 @@ export class AdsController {
   @Get(':adId')
   get(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<AdDetail> {
     return this.adsService.get(adId);
+  }
+
+  @Put(':adId/title')
+  @StationAccess(CHANGE_STATION_CONTENT)
+  rename(
+    @Param('adId', new UuidOrNotFoundPipe()) adId: string,
+    @Body(new ZodValidationPipe(RenameAdInput)) input: RenameAdInput,
+  ): Promise<AdDetail> {
+    return this.adsService.rename(adId, input);
+  }
+
+  @Post(':adId/archive')
+  @StationAccess(CHANGE_STATION_CONTENT)
+  @HttpCode(204)
+  archive(@Param('adId', new UuidOrNotFoundPipe()) adId: string): Promise<void> {
+    return this.adsService.archive(adId);
   }
 
   @Post(':adId/upload-url')
