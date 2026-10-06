@@ -5,9 +5,10 @@ import { stationQueryKeys } from '../stations/station-query-keys';
 import { chooseAdRefreshInterval } from './choose-ad-refresh-interval';
 
 /** One ad in full. It refreshes itself as often as its state warrants (see chooseAdRefreshInterval). */
-export function useAd(stationId: string, adId: string) {
+export function useAd(stationId: string, adId: string, enabled = true) {
   return useQuery({
     queryKey: stationQueryKeys.adDetail(stationId, adId),
+    enabled: enabled && adId !== '',
     queryFn: () => portalApi.get<AdDetail>(`/stations/${stationId}/ads/${adId}`),
     refetchInterval: (query) => (query.state.data ? chooseAdRefreshInterval(query.state.data) : false),
   });

@@ -1,6 +1,6 @@
 import type { AdSummary } from '@lookup/contracts';
 import { Link } from 'react-router';
-import { Button } from '../../components/button';
+import { Button, ButtonLink } from '../../components/button';
 import { ClientAvatar } from '../../components/client-avatar';
 import { ErrorNotice } from '../../components/error-notice';
 import { Icon, type IconName } from '../../components/icons';
@@ -10,7 +10,7 @@ import { OnAirBadge } from '../../components/status-badges';
 import { describeScheduleSummary, formatDateRange, formatStationDate } from '../../formatting/describe-schedule';
 import { describeAttentionReason } from '../../plain-words/ad-status-words';
 import { useClients } from '../clients/use-clients';
-import { useRequiredCurrentStation } from '../stations/use-current-station';
+import { canChangeStationContent, useRequiredCurrentStation } from '../stations/use-current-station';
 import { useStationOverview } from '../stations/use-station-overview';
 
 function CountTile({ label, count, to, icon, isAlert = false }: { label: string; count: number; to: string; icon: IconName; isAlert?: boolean }) {
@@ -62,7 +62,7 @@ function AttentionRow({ ad, stationId }: { ad: AdSummary; stationId: string }) {
   );
 }
 
-function GettingStarted({ stationId, hasClients }: { stationId: string; hasClients: boolean }) {
+function GettingStarted({ stationId, hasClients, canUpload }: { stationId: string; hasClients: boolean; canUpload: boolean }) {
   return (
     <section aria-label="Getting started" className="flex flex-col gap-4 rounded-lg border border-line-soft bg-surface p-5">
       <h2 className="text-heading">Get your first ad on air</h2>
@@ -80,7 +80,16 @@ function GettingStarted({ stationId, hasClients }: { stationId: string; hasClien
         </li>
         <li className="flex items-center gap-3">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-pill bg-ink text-label text-surface">2</span>
-          <span className="text-body">Upload their ad, add its buttons and set when it airs.</span>
+          <span className="text-body">
+            {canUpload ? (
+              <Link to={`/stations/${stationId}/ads/new`} className="text-accent underline underline-offset-4">
+                Upload their ad
+              </Link>
+            ) : (
+              'Upload their ad'
+            )}
+            , add its buttons and set when it airs.
+          </span>
         </li>
       </ol>
     </section>
@@ -92,10 +101,15 @@ export function OverviewPage() {
   const overview = useStationOverview(station.id, true);
   const clients = useClients(station.id);
   const adsPath = `/stations/${station.id}/ads`;
+  const canUpload = canChangeStationContent(station);
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Overview" description="What is on air, and what needs you." />
+      <PageHeader
+        title="Overview"
+        description="What is on air, and what needs you."
+        actions={canUpload ? <ButtonLink to={`/stations/${station.id}/ads/new`}>Upload ad</ButtonLink> : undefined}
+      />
 
       {overview.isPending ? <Skeleton className="h-64 w-full" /> : null}
       {overview.isError ? (
@@ -116,7 +130,7 @@ export function OverviewPage() {
             <CountTile label="Needs attention" count={overview.data.adCounts.attention} to={`${adsPath}?view=attention`} icon="alert" isAlert />
           </section>
 
-          {overview.data.adCounts.all === 0 ? <GettingStarted stationId={station.id} hasClients={(clients.data?.length ?? 0) > 0} /> : null}
+          {overview.data.adCounts.all === 0 ? <GettingStarted stationId={station.id} hasClients={(clients.data?.length ?? 0) > 0} canUpload={canUpload} /> : null}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <section aria-label="On air now" className="flex flex-col gap-2 rounded-lg border border-line-soft bg-surface p-5">

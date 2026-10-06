@@ -1,6 +1,7 @@
 import type { AdSummary } from '@lookup/contracts';
 import { Link } from 'react-router';
 import { AdAudioPlayer } from '../../components/ad-audio-player';
+import { ButtonLink } from '../../components/button';
 import { ClientAvatar } from '../../components/client-avatar';
 import { Icon } from '../../components/icons';
 import { CampaignStatusBadge, FileStatusBadge } from '../../components/status-badges';
@@ -58,13 +59,23 @@ function WhenItAirs({ ad }: { ad: AdSummary }) {
   );
 }
 
+/** For an ad whose audio never arrived or was refused: the way back into setup (owners and managers only). */
+function SetupLink({ ad, stationId, canChange }: { ad: AdSummary; stationId: string; canChange: boolean }) {
+  if (!canChange || (ad.status !== 'AWAITING_UPLOAD' && ad.status !== 'FAILED')) return null;
+  return (
+    <ButtonLink variant="secondary" to={`/stations/${stationId}/ads/${ad.id}/setup?step=audio`} aria-label={`${ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}: ${ad.title}`} className="self-start whitespace-nowrap">
+      {ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}
+    </ButtonLink>
+  );
+}
+
 function PlayControl({ ad, stationId }: { ad: AdSummary; stationId: string }) {
   if (!hasPlayableAudio(ad)) return <span className="size-11 shrink-0" aria-hidden="true" />;
   return <AdAudioPlayer stationId={stationId} adId={ad.id} adTitle={ad.title} />;
 }
 
 /** The ads as a table, for wide screens. */
-export function AdTable({ ads, stationId }: { ads: AdSummary[]; stationId: string }) {
+export function AdTable({ ads, stationId, canChange }: { ads: AdSummary[]; stationId: string; canChange: boolean }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-line-soft bg-surface">
       <table className="w-full border-collapse text-left text-label">
@@ -91,7 +102,10 @@ export function AdTable({ ads, stationId }: { ads: AdSummary[]; stationId: strin
                 <CampaignStatusBadge status={ad.campaign?.displayStatus ?? null} />
               </td>
               <td className="px-3 py-3">
-                <FileStatusBadge status={ad.status} />
+                <div className="flex flex-col items-start gap-2">
+                  <FileStatusBadge status={ad.status} />
+                  <SetupLink ad={ad} stationId={stationId} canChange={canChange} />
+                </div>
               </td>
               <td className="px-3 py-3">
                 <WhenItAirs ad={ad} />
@@ -109,7 +123,7 @@ export function AdTable({ ads, stationId }: { ads: AdSummary[]; stationId: strin
 }
 
 /** The ads as cards, for phones. */
-export function AdCards({ ads, stationId }: { ads: AdSummary[]; stationId: string }) {
+export function AdCards({ ads, stationId, canChange }: { ads: AdSummary[]; stationId: string; canChange: boolean }) {
   return (
     <ul className="flex flex-col gap-3">
       {ads.map((ad) => (
@@ -123,6 +137,7 @@ export function AdCards({ ads, stationId }: { ads: AdSummary[]; stationId: strin
               <CampaignStatusBadge status={ad.campaign?.displayStatus ?? null} />
               <FileStatusBadge status={ad.status} />
             </div>
+            <SetupLink ad={ad} stationId={stationId} canChange={canChange} />
             <div className="flex flex-col gap-0.5 text-label text-ink">
               <WhenItAirs ad={ad} />
               <span className="text-caption text-muted">Changed {formatRelativeTime(ad.updatedAt)}</span>

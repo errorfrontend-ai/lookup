@@ -33,9 +33,10 @@ export function waveformHeights(seed: string, count: number): number[] {
 }
 
 /** The waveform picture; the part already played is drawn in the accent colour. Hidden from screen readers. */
-export function WaveformBars({ seed, progress = 0, count = 48 }: { seed: string; progress?: number; count?: number }) {
-  const heights = waveformHeights(seed, count);
-  const playedBars = Math.round(progress * count);
+export function WaveformBars({ seed, progress = 0, count = 48, heights: realHeights }: { seed: string; progress?: number; count?: number; heights?: number[] | null }) {
+  // Bars from the audio itself when we have them (a file just chosen), otherwise the ad's own made-up shape.
+  const heights = realHeights && realHeights.length > 0 ? realHeights : waveformHeights(seed, count);
+  const playedBars = Math.round(progress * heights.length);
   return (
     <div aria-hidden="true" className="flex h-10 flex-1 items-center gap-[3px]">
       {heights.map((height, index) => (

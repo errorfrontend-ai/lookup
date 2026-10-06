@@ -1,6 +1,6 @@
 import { AD_LIST_VIEWS, type AdListView } from '@lookup/contracts';
 import { type ChangeEvent, useEffect, useState } from 'react';
-import { Button } from '../../components/button';
+import { Button, ButtonLink } from '../../components/button';
 import { EmptyState } from '../../components/empty-state';
 import { ErrorNotice } from '../../components/error-notice';
 import { Icon } from '../../components/icons';
@@ -76,7 +76,11 @@ export function AdsListPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Ads" description="Upload ads for your clients, add their buttons and set when each one airs." />
+      <PageHeader
+        title="Ads"
+        description="Upload ads for your clients, add their buttons and set when each one airs."
+        actions={canChange ? <ButtonLink to={`/stations/${station.id}/ads/new`}>Upload ad</ButtonLink> : undefined}
+      />
 
       <LinkTabs label="Ad status" tabs={tabs} />
 
@@ -150,7 +154,11 @@ export function AdsListPage() {
             Nothing{filters.search ? ` matches “${filters.search}”` : ''} here. Try a different word, client or tab.
           </EmptyState>
         ) : (
-          <EmptyState icon="ads" title={EMPTY_TAB_MESSAGES[filters.view]}>
+          <EmptyState
+            icon="ads"
+            title={EMPTY_TAB_MESSAGES[filters.view]}
+            action={canChange && filters.view === 'all' ? <ButtonLink to={`/stations/${station.id}/ads/new`}>Upload your first ad</ButtonLink> : undefined}
+          >
             {filters.view === 'all'
               ? canChange
                 ? 'Ads you upload for your clients appear here, with their buttons and schedule.'
@@ -162,7 +170,7 @@ export function AdsListPage() {
 
       {ads.isSuccess && loadedAds.length > 0 ? (
         <>
-          {isWideScreen ? <AdTable ads={loadedAds} stationId={station.id} /> : <AdCards ads={loadedAds} stationId={station.id} />}
+          {isWideScreen ? <AdTable ads={loadedAds} stationId={station.id} canChange={canChange} /> : <AdCards ads={loadedAds} stationId={station.id} canChange={canChange} />}
           <div className="flex flex-col items-center gap-3 text-label text-muted">
             <span>{loadedAds.length === 1 ? 'Showing 1 ad' : `Showing ${loadedAds.length} ads`}</span>
             {ads.hasNextPage ? (

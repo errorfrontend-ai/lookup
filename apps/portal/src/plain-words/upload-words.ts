@@ -9,3 +9,23 @@ export function describeUploadRefusal(reason: string | null): string {
       return "This file couldn't be used. Choose a different file.";
   }
 }
+
+/** Why an upload did not finish, and what to do, in words. `refused` is explained by the reason the API recorded instead. */
+export function describeUploadFailure(failure: 'network' | 'link_expired' | 'storage_refused' | 'not_received' | 'refused' | 'check_failed' | 'cancelled'): string {
+  switch (failure) {
+    case 'network':
+      return 'The connection dropped during the upload. Try again.';
+    case 'link_expired':
+      return "The upload link expired before the file finished. Try again — we'll make a new link.";
+    case 'storage_refused':
+      return "The upload didn't finish. Try again.";
+    case 'not_received':
+      return "The file didn't reach us. Try the upload again.";
+    case 'refused':
+      return "This file couldn't be used.";
+    case 'check_failed':
+      return "We couldn't check the file just now. Try again.";
+    case 'cancelled':
+      return 'You stopped the upload.';
+  }
+}
