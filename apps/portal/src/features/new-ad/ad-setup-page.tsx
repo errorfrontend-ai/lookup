@@ -7,6 +7,8 @@ import { ErrorNotice } from '../../components/error-notice';
 import { ConfirmDialog } from '../../components/modal-dialog';
 import { Skeleton } from '../../components/skeleton';
 import { useToast } from '../../components/toast-region';
+import { ButtonsStep } from '../ad-buttons/buttons-step';
+import { useButtonsDraft } from '../ad-buttons/use-buttons-draft';
 import { useAd } from '../ads/use-ad-detail';
 import { useClients } from '../clients/use-clients';
 import { useRequiredCurrentStation } from '../stations/use-current-station';
@@ -18,8 +20,7 @@ import { useCreateAd } from './use-create-ad';
 import { type SaveStatus, WizardLayout } from './wizard-layout';
 import { firstIncompleteStep, isWizardStepId, type WizardStepId } from './wizard-steps';
 
-/** Steps that exist so far. The buttons, schedule and review steps are added next; until then the wizard stops after the audio. */
-const BUILT_STEPS: ReadonlySet<WizardStepId> = new Set(['client', 'audio']);
+type LeaveWarning = 'nothing-saved' | 'unsaved-changes';
 
 function createFailureWords(error: unknown): string {
   if (error instanceof ApiError && error.fields.some((field) => field.path === 'clientId' && field.code === 'unknown_client')) return 'This client no longer exists. Go back and choose another.';
@@ -27,9 +28,9 @@ function createFailureWords(error: unknown): string {
 }
 
 /**
- * Setting up an ad: who it is for, then its audio. The ad does not exist until "Upload ad" is pressed
- * (nothing is saved before that, and the screen says so); from then on it is a draft that can be left
- * and come back to.
+ * Setting up an ad: who it is for, its audio, then its buttons. The ad does not exist until "Upload ad"
+ * is pressed (nothing is saved before that, and the screen says so); from then on it is a draft that
+ * can be left and come back to. The same screen changes the buttons of an ad that is already published.
  */
 export function AdSetupPage() {
   const station = useRequiredCurrentStation();
@@ -46,12 +47,15 @@ export function AdSetupPage() {
 
   const [clientId, setClientId] = useState<string | null>(null);
   const [step, setStep] = useState<'client' | 'audio'>('client');
-  const [isLeaving, setIsLeaving] = useState(false);
+  const [leaveWarning, setLeaveWarning] = useState<LeaveWarning | null>(null);
 
   const adsPath = `/stations/${station.id}/ads`;
   const detail: AdDetail | undefined = ad.data;
+  const buttons = useButtonsDraft(station.id, adId, detail);
   const chosenClientId = detail?.client.id ?? clientId;
   const clientName = detail?.client.name ?? clients.data?.find((client) => client.id === chosenClientId)?.name ?? null;
+  /** An ad that is already published is being changed, not set up. */
+  const isEditing = Boolean(detail?.campaign && detail.campaign.displayStatus !== 'DRAFT');
 
   const requestedStep = searchParameters.get('step');
   const stepInAddress = isWizardStepId(requestedStep) ? requestedStep : null;
@@ -69,10 +73,16 @@ export function AdSetupPage() {
     void navigate({ search: `?step=${resume}` }, { replace: true });
   }, [mustPinStep, detail, upload, navigate]);
 
-  const saveStatus: SaveStatus = createAd.isPending ? 'saving' : adId ? 'saved' : 'nothing-saved';
+  const saveStatus: SaveStatus = createAd.isPending || buttons.isSaving ? 'saving' : !adId ? 'nothing-saved' : buttons.isDirty ? 'unsaved' : 'saved';
   const titleProblem = chosen.title.trim() === '' ? 'Give the ad a title.' : null;
   const canUpload = Boolean(chosenClientId && chosen.file && chosen.check?.isAcceptable && !titleProblem);
   const isUploadRunning = upload?.phase === 'uploading' || upload?.phase === 'checking';
+  const audioHasArrived = Boolean(detail) && firstIncompleteStep(detail ?? null, upload) !== 'audio';
+
+  const completedSteps = new Set<WizardStepId>();
+  if (chosenClientId) completedSteps.add('client');
+  if (audioHasArrived) completedSteps.add('audio');
+  if (detail?.actionCard) completedSteps.add('buttons');
 
   const uploadAd = () => {
     const { file, check } = chosen;
@@ -88,18 +98,39 @@ export function AdSetupPage() {
     );
   };
 
-  const leave = () => {
-    if (adId) {
-      showToast(isUploadRunning ? 'Draft saved. The upload carries on — keep this tab open until it finishes.' : 'Draft saved. Continue setup from Drafts any time.');
-      void navigate(`${adsPath}?view=drafts`);
-    } else {
+  const goToStep = (target: WizardStepId) => void navigate({ search: `?step=${target}` });
+
+  /** Leaves setup: a draft goes back to Drafts, a published ad back to its own page. `savedMessage` says what was saved, when something was. */
+  const leave = (savedMessage?: string) => {
+    if (!adId) {
       void navigate(adsPath);
+      return;
     }
+    if (isEditing) {
+      showToast(savedMessage ?? 'Saved.');
+      void navigate(`${adsPath}/${adId}${currentStep === 'buttons' ? '?tab=buttons' : ''}`);
+      return;
+    }
+    showToast(savedMessage ?? (isUploadRunning ? 'Draft saved. The upload carries on — keep this tab open until it finishes.' : 'Draft saved. Continue setup from Drafts any time.'));
+    void navigate(`${adsPath}?view=drafts`);
   };
 
   const askToLeave = () => {
-    if (!adId && (chosen.file || clientId)) setIsLeaving(true);
+    if (!adId && (chosen.file || clientId)) setLeaveWarning('nothing-saved');
+    else if (buttons.isDirty) setLeaveWarning('unsaved-changes');
     else leave();
+  };
+
+  const saveButtonsAndClose = async () => {
+    if (buttons.isDirty || !buttons.hasSavedCard) {
+      const isSaved = await buttons.save();
+      if (!isSaved) {
+        // Take the person to the first thing to fix, once the problems have been drawn.
+        window.setTimeout(() => document.querySelector<HTMLElement>('main [aria-invalid="true"]')?.focus(), 0);
+        return;
+      }
+    }
+    leave(isEditing ? 'Buttons saved.' : 'Buttons saved. Continue setup from Drafts any time.');
   };
 
   const adIsMissing = ad.error instanceof ApiError && ad.error.httpStatus === 404;
@@ -155,8 +186,12 @@ export function AdSetupPage() {
     );
     footer = adId ? (
       <>
-        <span />
-        <Button onClick={leave}>Save and close</Button>
+        <Button variant="secondary" onClick={askToLeave}>
+          Save and close
+        </Button>
+        <Button disabled={!audioHasArrived} onClick={() => goToStep('buttons')}>
+          Next: Buttons
+        </Button>
       </>
     ) : (
       <>
@@ -168,11 +203,35 @@ export function AdSetupPage() {
         </Button>
       </>
     );
+  } else if (currentStep === 'buttons' && detail) {
+    body = !buttons.canEdit ? (
+      <div className="mx-auto flex max-w-xl flex-col gap-3">
+        <h1 className="text-display">These buttons can't be changed here</h1>
+        <p className="text-body text-muted">They were saved in a newer form than this page understands, and changing them here could lose some. Ask Look Up support for help.</p>
+      </div>
+    ) : !buttons.isReady ? (
+      <Skeleton className="h-64 w-full" />
+    ) : (
+      <div className="flex flex-col gap-4">
+        <ButtonsStep ad={detail} station={station} drafts={buttons.drafts} onChange={buttons.changeDrafts} validation={buttons.validation} apiProblems={buttons.apiProblems} showAllProblems={buttons.showAllProblems} />
+        {buttons.saveError ? <ErrorNotice error={buttons.saveError} title="We couldn't save the buttons" /> : null}
+      </div>
+    );
+    footer = (
+      <>
+        <Button variant="secondary" onClick={() => goToStep('audio')}>
+          Back
+        </Button>
+        <Button disabled={!buttons.canEdit || !buttons.isReady} isBusy={buttons.isSaving} busyLabel="Saving…" onClick={() => void saveButtonsAndClose()}>
+          Save and close
+        </Button>
+      </>
+    );
   } else {
     body = (
       <div className="mx-auto flex max-w-xl flex-col gap-3">
         <h1 className="text-display">This step is coming next</h1>
-        <p className="text-body text-muted">Adding the buttons and the schedule here is the next thing we are building. Your draft is saved.</p>
+        <p className="text-body text-muted">Setting when the ad airs, and publishing it, are the next things we are building. Your draft is saved.</p>
         <Link to={adsPath} className="text-label text-accent underline underline-offset-4">
           Go to your ads
         </Link>
@@ -186,17 +245,31 @@ export function AdSetupPage() {
       <WizardLayout
         title={detail ? detail.title : chosen.title.trim() || 'Untitled ad'}
         clientName={clientName}
-        currentStep={BUILT_STEPS.has(currentStep) ? currentStep : 'audio'}
-        completedSteps={new Set<WizardStepId>(chosenClientId ? ['client'] : [])}
+        isEditing={isEditing}
+        currentStep={currentStep}
+        completedSteps={completedSteps}
         saveStatus={saveStatus}
         onExit={askToLeave}
         footer={footer}
       >
         {body}
       </WizardLayout>
-      {isLeaving ? (
-        <ConfirmDialog title="Leave without saving?" confirmLabel="Leave" cancelLabel="Keep working" onConfirm={() => void navigate(adsPath)} onClose={() => setIsLeaving(false)}>
-          <p className="text-body text-muted">Nothing is saved until you upload the ad. If you leave now, you will need to choose the client and the file again.</p>
+      {leaveWarning ? (
+        <ConfirmDialog
+          title={leaveWarning === 'unsaved-changes' ? 'Leave without saving your changes?' : 'Leave without saving?'}
+          confirmLabel="Leave"
+          cancelLabel="Keep working"
+          onConfirm={() => {
+            setLeaveWarning(null);
+            void navigate(isEditing && adId ? `${adsPath}/${adId}` : adId ? `${adsPath}?view=drafts` : adsPath);
+          }}
+          onClose={() => setLeaveWarning(null)}
+        >
+          <p className="text-body text-muted">
+            {leaveWarning === 'unsaved-changes'
+              ? "The changes you made to the buttons haven't been saved. If you leave now, they will be lost."
+              : 'Nothing is saved until you upload the ad. If you leave now, you will need to choose the client and the file again.'}
+          </p>
         </ConfirmDialog>
       ) : null}
     </>

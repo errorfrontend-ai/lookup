@@ -2,12 +2,13 @@ import type { ReactNode } from 'react';
 import { Icon } from '../../components/icons';
 import { WIZARD_STEPS, type WizardStepId } from './wizard-steps';
 
-export type SaveStatus = 'nothing-saved' | 'saving' | 'saved';
+export type SaveStatus = 'nothing-saved' | 'saving' | 'saved' | 'unsaved';
 
 const SAVE_STATUS_WORDS: Record<SaveStatus, string> = {
   'nothing-saved': 'Nothing saved yet',
   saving: 'Saving…',
   saved: 'Draft saved',
+  unsaved: 'Changes not saved yet',
 };
 
 /**
@@ -18,6 +19,7 @@ const SAVE_STATUS_WORDS: Record<SaveStatus, string> = {
 export function WizardLayout({
   title,
   clientName,
+  isEditing = false,
   currentStep,
   completedSteps,
   saveStatus,
@@ -27,6 +29,8 @@ export function WizardLayout({
 }: {
   title: string;
   clientName: string | null;
+  /** An ad that is already published is being changed, not set up. */
+  isEditing?: boolean;
   currentStep: WizardStepId;
   completedSteps: ReadonlySet<WizardStepId>;
   saveStatus: SaveStatus;
@@ -45,7 +49,7 @@ export function WizardLayout({
             <Icon name="close" size={22} />
           </button>
           <div className="flex min-w-0 flex-col">
-            <span className="truncate text-caption text-muted">New ad{clientName ? ` · ${clientName}` : ''}</span>
+            <span className="truncate text-caption text-muted">{isEditing ? 'Edit ad' : 'New ad'}{clientName ? ` · ${clientName}` : ''}</span>
             <span className="truncate font-display text-heading">{title}</span>
           </div>
           <ol aria-label="Steps" className="mx-auto hidden list-none items-center gap-1.5 p-0 text-label md:flex">
@@ -63,7 +67,7 @@ export function WizardLayout({
               );
             })}
           </ol>
-          <span role="status" className={`ml-auto shrink-0 text-caption font-bold ${saveStatus === 'saved' ? 'text-success' : 'text-muted'}`}>
+          <span role="status" className={`ml-auto shrink-0 text-caption font-bold ${saveStatus === 'saved' ? 'text-success' : saveStatus === 'unsaved' ? 'text-warning' : 'text-muted'}`}>
             {SAVE_STATUS_WORDS[saveStatus]}
           </span>
         </div>

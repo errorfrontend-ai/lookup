@@ -97,6 +97,22 @@ describe('the way into setting up an ad', () => {
       expect(link).toHaveTextContent('Upload again');
     });
 
+    it('goes to the buttons for an ad whose audio is in but has none yet', async () => {
+      const noButtons = adSummary({ title: 'No buttons', status: 'PROCESSING', hasActionCard: false, campaign: null });
+      const stationId = installStation(owner, [noButtons]);
+      renderPortalAt(`/stations/${stationId}/ads`);
+      const link = await screen.findByRole('link', { name: 'Continue setup: No buttons' });
+      expect(link).toHaveAttribute('href', `/stations/${stationId}/ads/${noButtons.id}/setup?step=buttons`);
+    });
+
+    it('is not shown for a step that does not exist yet, so nothing leads to a dead end', async () => {
+      const needsSchedule = adSummary({ title: 'Needs a schedule', status: 'PROCESSING', hasActionCard: true, campaign: null });
+      const stationId = installStation(owner, [needsSchedule]);
+      renderPortalAt(`/stations/${stationId}/ads`);
+      await screen.findByText('Needs a schedule');
+      expect(screen.queryByRole('link', { name: /Continue setup/ })).not.toBeInTheDocument();
+    });
+
     it('is not shown to an analyst', async () => {
       const stationId = installStation(analyst, [unfinished, refused]);
       renderPortalAt(`/stations/${stationId}/ads`);

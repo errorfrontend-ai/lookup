@@ -1,13 +1,14 @@
 import { buildActionUri, formatPhoneNumberForDisplay, type ReadAction, readActionCard } from '@lookup/contracts';
 import { useState } from 'react';
 import type { AdDetail } from '@lookup/contracts';
+import { ButtonLink } from '../../../components/button';
 import { Icon, type IconName } from '../../../components/icons';
 import { ListenerCardPreview } from '../../../components/listener-card-preview';
-import type { MemberStation } from '../../stations/use-current-station';
+import { PhoneWidthToggle, type PhoneWidth } from '../../../components/phone-width-toggle';
+import { canChangeStationContent, type MemberStation } from '../../stations/use-current-station';
 
 const TYPE_WORDS: Record<ReadAction['type'], string> = { CALL: 'Call', WHATSAPP: 'WhatsApp', MAP: 'Directions', LINK: 'Website' };
 const TYPE_ICONS: Record<ReadAction['type'], IconName> = { CALL: 'phone', WHATSAPP: 'chat', MAP: 'pin', LINK: 'link' };
-const PHONE_WIDTHS = [320, 411] as const;
 
 /** Where a button takes the listener, written out for the station to check. */
 function describeDestination(action: ReadAction): string {
@@ -25,12 +26,19 @@ function describeDestination(action: ReadAction): string {
 
 /** The buttons: a picture of what listeners see at two phone widths, and each button written out with a way to try it. */
 export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: MemberStation }) {
-  const [phoneWidth, setPhoneWidth] = useState<(typeof PHONE_WIDTHS)[number]>(320);
+  const [phoneWidth, setPhoneWidth] = useState<PhoneWidth>(320);
+  const editPath = `/stations/${station.id}/ads/${ad.id}/setup?step=buttons`;
+  const canEdit = canChangeStationContent(station);
   if (!ad.actionCard) {
     return (
       <section className="rounded-lg border border-line-soft bg-surface p-5">
         <h2 className="text-heading">No buttons yet</h2>
         <p className="mt-1 text-body text-muted">Listeners who identify this ad see nothing to tap until it has buttons.</p>
+        {canEdit ? (
+          <ButtonLink to={editPath} className="mt-3">
+            Add buttons
+          </ButtonLink>
+        ) : null}
       </section>
     );
   }
@@ -40,7 +48,14 @@ export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: MemberSta
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_26rem]">
       <section aria-label="Buttons" className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5">
-        <h2 className="text-heading">Buttons</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-heading">Buttons</h2>
+          {canEdit ? (
+            <ButtonLink to={editPath} variant="secondary">
+              Edit buttons
+            </ButtonLink>
+          ) : null}
+        </div>
         <p className="text-caption text-muted">
           {actions.length === 1 ? '1 button' : `${actions.length} buttons`} · the first is the main one
         </p>
@@ -77,19 +92,7 @@ export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: MemberSta
       <section aria-label="What listeners see" className="flex h-fit flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-heading">What listeners see</h2>
-          <div role="group" aria-label="Preview width" className="flex overflow-hidden rounded-md border border-line">
-            {PHONE_WIDTHS.map((width) => (
-              <button
-                key={width}
-                type="button"
-                aria-pressed={phoneWidth === width}
-                onClick={() => setPhoneWidth(width)}
-                className={`min-h-11 px-3 text-label ${phoneWidth === width ? 'bg-ink text-surface' : 'bg-surface text-ink'}`}
-              >
-                {width === 320 ? 'Small phone · 320' : 'Large phone · 411'}
-              </button>
-            ))}
-          </div>
+          <PhoneWidthToggle value={phoneWidth} onChange={setPhoneWidth} />
         </div>
         <ListenerCardPreview card={ad.actionCard} adTitle={ad.title} clientName={ad.client.name} stationName={station.name} frequencyLabel={station.frequencyLabel} phoneWidth={phoneWidth} />
       </section>

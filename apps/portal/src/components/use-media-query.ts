@@ -15,3 +15,5 @@ export function useMediaQuery(query: string): boolean {
 
 /** md and wider (the portal's "table" layout); below it, cards. */
 export const WIDE_SCREEN_QUERY = '(min-width: 768px)';
+/** lg and wider: room for a form and its live preview side by side. */
+export const LARGE_SCREEN_QUERY = '(min-width: 1024px)';

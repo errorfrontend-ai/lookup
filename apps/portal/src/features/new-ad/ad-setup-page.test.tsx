@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/portal-api';
-import { adDetail, overviewFor } from '../../test/ad-fixtures';
+import { actionCardFixture, adDetail, overviewFor } from '../../test/ad-fixtures';
 import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
 import { clearAllUploads, replaceStorageTransport } from './ad-upload-store';
@@ -344,11 +344,19 @@ describe('Setting up an ad', () => {
       await waitFor(() => expect(router.state.location.search).toBe('?step=audio'));
     });
 
-    it('stops after the audio for now, with an honest note, when the ad is ready for its buttons', async () => {
+    it('resumes at the buttons once the audio is in and there are none yet', async () => {
       installSetup({ draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString() }) });
       const { router } = renderPortalAt(`/stations/${stationId}/ads/${adId}/setup`);
-      expect(await screen.findByRole('heading', { name: 'This step is coming next' })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { level: 1, name: 'Add the buttons' })).toBeInTheDocument();
       await waitFor(() => expect(router.state.location.search).toBe('?step=buttons'));
+    });
+
+    it('stops before the schedule for now, with an honest note, when the buttons are done', async () => {
+      installSetup({ draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString(), actionCard: actionCardFixture() }) });
+      const { router } = renderPortalAt(`/stations/${stationId}/ads/${adId}/setup`);
+      expect(await screen.findByRole('heading', { name: 'This step is coming next' })).toBeInTheDocument();
+      expect(screen.getByText('Step 4 of 5 · Schedule')).toBeInTheDocument();
+      await waitFor(() => expect(router.state.location.search).toBe('?step=schedule'));
     });
   });
 

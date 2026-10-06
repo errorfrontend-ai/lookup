@@ -8,6 +8,7 @@ import { CampaignStatusBadge, FileStatusBadge } from '../../components/status-ba
 import { describeScheduleSummary, formatDateRange, formatStationDate } from '../../formatting/describe-schedule';
 import { formatRelativeTime } from '../../formatting/format-relative-time';
 import { describeAttentionReason } from '../../plain-words/ad-status-words';
+import { BUILT_WIZARD_STEPS, setupStepForSummary } from '../new-ad/wizard-steps';
 
 /** Whether this ad has audio to play: only once its upload has arrived. */
 function hasPlayableAudio(ad: AdSummary): boolean {
@@ -59,11 +60,12 @@ function WhenItAirs({ ad }: { ad: AdSummary }) {
   );
 }
 
-/** For an ad whose audio never arrived or was refused: the way back into setup (owners and managers only). */
+/** For an ad that is not finished: the way back into setup, at the step it needs (owners and managers only, and only to steps that exist). */
 function SetupLink({ ad, stationId, canChange }: { ad: AdSummary; stationId: string; canChange: boolean }) {
-  if (!canChange || (ad.status !== 'AWAITING_UPLOAD' && ad.status !== 'FAILED')) return null;
+  const step = setupStepForSummary(ad);
+  if (!canChange || !step || !BUILT_WIZARD_STEPS.has(step)) return null;
   return (
-    <ButtonLink variant="secondary" to={`/stations/${stationId}/ads/${ad.id}/setup?step=audio`} aria-label={`${ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}: ${ad.title}`} className="self-start whitespace-nowrap">
+    <ButtonLink variant="secondary" to={`/stations/${stationId}/ads/${ad.id}/setup?step=${step}`} aria-label={`${ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}: ${ad.title}`} className="self-start whitespace-nowrap">
       {ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}
     </ButtonLink>
   );

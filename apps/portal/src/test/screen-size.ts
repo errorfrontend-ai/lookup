@@ -7,8 +7,13 @@ const originalMatchMedia = window.matchMedia;
  * choose a layout with useMediaQuery. Restored after every test.
  */
 export function setWideScreen(isWide: boolean): void {
+  setScreenWidth(isWide ? 768 : 0);
+}
+
+/** Makes the test browser behave like a window this many pixels wide: every "(min-width: Npx)" query matches when N is not more. */
+export function setScreenWidth(widthInPixels: number): void {
   window.matchMedia = ((query: string) => ({
-    matches: query.includes('min-width: 768px') ? isWide : false,
+    matches: Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? Number.POSITIVE_INFINITY) <= widthInPixels,
     media: query,
     onchange: null,
     addEventListener: () => undefined,

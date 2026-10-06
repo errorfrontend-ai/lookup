@@ -185,10 +185,31 @@ describe('Ad page', () => {
       expect(within(preview).getByRole('button', { name: 'Large phone · 411' })).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('says when there are no buttons', async () => {
-      const { adPath } = installAdPage({ ad: adDetail({ actionCard: null }) });
+    it('says when there are no buttons, and offers to add them', async () => {
+      const { adPath, ad } = installAdPage({ ad: adDetail({ actionCard: null }) });
       renderPortalAt(`${adPath}?tab=buttons`);
       expect(await screen.findByRole('heading', { name: 'No buttons yet' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Add buttons' })).toHaveAttribute('href', `/stations/${stationId}/ads/${ad.id}/setup?step=buttons`);
+    });
+
+    it('offers to edit the buttons that are there, in the same editor as setup', async () => {
+      const { adPath, ad } = installAdPage();
+      renderPortalAt(`${adPath}?tab=buttons`);
+      expect(await screen.findByRole('link', { name: 'Edit buttons' })).toHaveAttribute('href', `/stations/${stationId}/ads/${ad.id}/setup?step=buttons`);
+    });
+
+    it('offers neither to an analyst, who can only look', async () => {
+      const analyst = signedInUserWith([{ role: 'ANALYST' }]);
+      const withButtons = installAdPage({ user: analyst });
+      const { unmount } = renderPortalAt(`${withButtons.adPath}?tab=buttons`);
+      await screen.findByRole('heading', { name: 'Buttons' });
+      expect(screen.queryByRole('link', { name: 'Edit buttons' })).not.toBeInTheDocument();
+      unmount();
+
+      const withoutButtons = installAdPage({ user: analyst, ad: adDetail({ actionCard: null }) });
+      renderPortalAt(`${withoutButtons.adPath}?tab=buttons`);
+      await screen.findByRole('heading', { name: 'No buttons yet' });
+      expect(screen.queryByRole('link', { name: 'Add buttons' })).not.toBeInTheDocument();
     });
   });
 

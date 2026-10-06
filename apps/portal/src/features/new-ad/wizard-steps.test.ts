@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { actionCardFixture, adDetail, scheduleFixture } from '../../test/ad-fixtures';
-import { firstIncompleteStep, isWizardStepId } from './wizard-steps';
+import { actionCardFixture, adDetail, adSummary, campaignSummary, scheduleFixture } from '../../test/ad-fixtures';
+import { BUILT_WIZARD_STEPS, firstIncompleteStep, isWizardStepId, setupStepForSummary } from './wizard-steps';
 
 describe('where setup resumes', () => {
   it('starts at the client when there is no ad yet', () => {
@@ -30,5 +30,30 @@ describe('where setup resumes', () => {
     expect(isWizardStepId('audio')).toBe(true);
     expect(isWizardStepId('publish')).toBe(false);
     expect(isWizardStepId(null)).toBe(false);
+  });
+});
+
+describe('where an unfinished ad in the list resumes', () => {
+  it('goes to the audio while the file has not arrived or was refused', () => {
+    expect(setupStepForSummary(adSummary({ status: 'AWAITING_UPLOAD', hasActionCard: false, campaign: null }))).toBe('audio');
+    expect(setupStepForSummary(adSummary({ status: 'FAILED', hasActionCard: true, campaign: campaignSummary() }))).toBe('audio');
+  });
+
+  it('then the buttons, then the schedule, then the review', () => {
+    expect(setupStepForSummary(adSummary({ status: 'PROCESSING', hasActionCard: false, campaign: null }))).toBe('buttons');
+    expect(setupStepForSummary(adSummary({ status: 'PROCESSING', hasActionCard: true, campaign: null }))).toBe('schedule');
+    expect(setupStepForSummary(adSummary({ status: 'PROCESSING', hasActionCard: true, campaign: campaignSummary({ displayStatus: 'DRAFT' }) }))).toBe('review');
+  });
+
+  it('says there is nothing left to set up once the ad is published', () => {
+    for (const displayStatus of ['SCHEDULED', 'LIVE_NOW', 'PAUSED', 'ENDED'] as const) {
+      expect(setupStepForSummary(adSummary({ status: 'PROCESSING', hasActionCard: true, campaign: campaignSummary({ displayStatus }) }))).toBeNull();
+    }
+  });
+});
+
+describe('the steps that exist so far', () => {
+  it('are the client, audio and buttons, so nothing links to a step that is not built', () => {
+    expect([...BUILT_WIZARD_STEPS]).toEqual(['client', 'audio', 'buttons']);
   });
 });
