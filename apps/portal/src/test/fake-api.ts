@@ -7,7 +7,12 @@ export interface RecordedCall {
   body: unknown;
 }
 
-type Handler = (body: unknown) => Response | Promise<Response>;
+/** What a handler can see of the request besides its body. */
+export interface FakeRequestInfo {
+  searchParams: URLSearchParams;
+}
+
+type Handler = (body: unknown, request: FakeRequestInfo) => Response | Promise<Response>;
 
 export function jsonResponse(status: number, body: unknown, requestId = 'request-id-from-server'): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
@@ -32,8 +37,10 @@ export function installFakeApi(handlers: Record<string, Handler>) {
     const path = url.replace(/^\/api\/v1/, '');
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
     calls.push({ method, path, body });
-    const handler = handlers[`${method} ${path}`];
-    return handler ? handler(body) : errorResponse(404, 'NOT_FOUND', 'We could not find that.');
+    // A handler is found by its exact path (with any query), else by the path alone.
+    const [pathWithoutQuery = path, query = ''] = path.split('?');
+    const handler = handlers[`${method} ${path}`] ?? handlers[`${method} ${pathWithoutQuery}`];
+    return handler ? handler(body, { searchParams: new URLSearchParams(query) }) : errorResponse(404, 'NOT_FOUND', 'We could not find that.');
   });
   vi.stubGlobal('fetch', fetchFake);
   return { calls, fetchFake };

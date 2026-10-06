@@ -7,6 +7,7 @@
   --lookup-color-ink: #1C1917;
   --lookup-color-muted: #57534E;
   --lookup-color-line: #D6D3D1;
+  --lookup-color-line-soft: #E7E2DC;
   --lookup-color-accent: #A8431A;
   --lookup-color-accent-hover: #7C2F10;
   --lookup-color-on-accent: #FFFFFF;
@@ -30,6 +31,7 @@
     --lookup-color-ink: #F5F2EE;
     --lookup-color-muted: #B8B1AA;
     --lookup-color-line: #3A3431;
+    --lookup-color-line-soft: #2C2724;
     --lookup-color-accent: #E07A4F;
     --lookup-color-accent-hover: #EC9670;
     --lookup-color-on-accent: #1C1917;
@@ -58,6 +60,7 @@
   --color-ink: var(--lookup-color-ink);
   --color-muted: var(--lookup-color-muted);
   --color-line: var(--lookup-color-line);
+  --color-line-soft: var(--lookup-color-line-soft);
   --color-accent: var(--lookup-color-accent);
   --color-accent-hover: var(--lookup-color-accent-hover);
   --color-on-accent: var(--lookup-color-on-accent);

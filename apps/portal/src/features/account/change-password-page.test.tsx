@@ -32,7 +32,7 @@ describe('changing a password', () => {
 
     await submitPasswordChange('amber kettle rainy harbour', 'copper lantern quiet meadow');
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Your password has been changed.');
+    expect(await screen.findByText(/Your password has been changed\./)).toBeInTheDocument();
     expect(screen.getByLabelText('Current password')).toHaveValue('');
     expect(screen.getByLabelText('New password')).toHaveValue('');
     expect(fakeApi.calls.find((call) => call.path === '/auth/change-password')?.body).toEqual({

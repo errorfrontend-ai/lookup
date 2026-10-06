@@ -106,30 +106,55 @@ describe('the station shell', () => {
     expect(await screen.findByRole('heading', { name: "We couldn't find that page" })).toBeInTheDocument();
   });
 
-  it('offers New ad to owners and managers but not to analysts', async () => {
-    const owner = signedInUserWith([{ role: 'OWNER' }]);
-    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, owner) });
-    const first = renderPortalAt(`/stations/${owner.stations[0]?.id}/ads`);
-    const ownerNavigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    expect(within(ownerNavigation).getByRole('link', { name: 'New ad' })).toBeInTheDocument();
-    first.unmount();
-    queryClient.clear();
-
-    const analyst = signedInUserWith([{ role: 'ANALYST' }]);
-    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, analyst) });
-    renderPortalAt(`/stations/${analyst.stations[0]?.id}/ads`);
-    const analystNavigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    expect(within(analystNavigation).getByRole('link', { name: 'Ads' })).toBeInTheDocument();
-    expect(within(analystNavigation).queryByRole('link', { name: 'New ad' })).not.toBeInTheDocument();
+  it.each([['OWNER'], ['MANAGER'], ['ANALYST']] as const)('shows %s the places an approved station has: Ads, Clients and Station profile', async (role) => {
+    const user = signedInUserWith([{ role }]);
+    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
+    renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
+    const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
+    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Ads', 'Clients', 'Station profile']);
   });
 
-  it('tells a station under review why it cannot add ads yet', async () => {
+  it('puts Your account and Sign out under the signed-in name and role at the bottom of the menu', async () => {
+    const user = signedInUserWith([{ role: 'MANAGER' }]);
+    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
+    renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
+    expect((await screen.findAllByText('Chanda Mwale'))[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Manager')[0]).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Your account' })[0]).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Sign out' })[0]).toBeInTheDocument();
+  });
+
+  it('draws the station like a radio dial: its name and frequency, and the needle', async () => {
+    const user = signedInUserWith([{ name: 'Radio Phoenix', frequencyLabel: '89.5 FM' }]);
+    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
+    renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
+    expect((await screen.findAllByText('Radio Phoenix'))[0]).toBeInTheDocument();
+    expect(screen.getAllByText('89.5')[0]).toBeInTheDocument();
+  });
+
+  it('tells a station under review why it cannot add ads yet, and offers only its profile', async () => {
     const user = signedInUserWith([{ status: 'PENDING_REVIEW' }]);
     installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
     renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
-    expect(await screen.findByText(/checking this station's licence/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Not available yet' })).toBeInTheDocument();
+    expect(screen.getAllByText(/checking this station's licence/).length).toBeGreaterThan(0);
     const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    expect(within(navigation).queryByRole('link', { name: 'New ad' })).not.toBeInTheDocument();
+    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Station profile']);
+  });
+
+  it('after sign-in a station under review lands on its profile, not on a page it cannot use', async () => {
+    const user = signedInUserWith([{ status: 'PENDING_REVIEW' }]);
+    installFakeApi({
+      'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-in': () => jsonResponse(200, user),
+      [`GET /stations/${user.stations[0]?.id}`]: () => jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'x', request_id: 'x' } }),
+    });
+    const { router } = renderPortalAt('/sign-in');
+    await person.type(await screen.findByLabelText('Email'), 'chanda@example.test');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${user.stations[0]?.id}/profile`));
   });
 
   it('switches station from the station chooser when the person belongs to more than one', async () => {
@@ -168,7 +193,8 @@ describe('the station shell', () => {
     const { router } = renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
 
     const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    await person.click(within(navigation).getByRole('button', { name: 'Sign out' }));
+    void navigation;
+    await person.click(screen.getAllByRole('button', { name: 'Sign out' })[0] as HTMLElement);
 
     expect(await screen.findByRole('heading', { name: 'Sign in to your station' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/sign-in');

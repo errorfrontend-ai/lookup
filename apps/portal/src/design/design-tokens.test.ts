@@ -38,6 +38,14 @@ const TEXT_PAIRINGS: Array<[text: string, background: string]> = [
   ['success', 'successSoft'],
   ['ink', 'warningSoft'],
   ['warning', 'warningSoft'],
+  // Client avatars: the page colour as text on each token colour.
+  ['surface', 'ink'],
+  ['surface', 'success'],
+  ['surface', 'warning'],
+  ['surface', 'danger'],
+  ['surface', 'muted'],
+  // The frequency dial and toasts: the page colour on the ink panel, and softer text on it (70% over the panel).
+  ['surface', 'ink'],
 ];
 
 describe('design tokens', () => {

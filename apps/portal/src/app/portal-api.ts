@@ -1,14 +1,15 @@
 import { QueryClient } from '@tanstack/react-query';
 import { ApiError, createApiClient } from '../api/api-client';
 
-/** Shared query cache. Errors a person caused (4xx) are not retried; network blips are retried twice. */
+/** Errors a person caused (4xx) are not retried; server and network trouble is retried twice. */
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  const isCausedByThePerson = error instanceof ApiError && error.httpStatus >= 400 && error.httpStatus < 500;
+  return !isCausedByThePerson && failureCount < 2;
+}
+
+/** Shared query cache. */
 export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: (failureCount, error) => !(error instanceof ApiError && error.httpStatus >= 400 && error.httpStatus < 500) && failureCount < 2,
-      refetchOnWindowFocus: false,
-    },
-  },
+  defaultOptions: { queries: { retry: shouldRetryQuery, refetchOnWindowFocus: false } },
 });
 
 export const SIGNED_IN_USER_QUERY_KEY = ['signed-in-user'] as const;

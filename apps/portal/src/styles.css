@@ -26,3 +26,20 @@
     font-family: var(--font-display);
   }
 }
+
+/* The ON AIR dot: a slow pulse that stops for people who ask their device for less motion. */
+@theme {
+  --animate-on-air: on-air-pulse 1.8s ease-in-out infinite;
+
+  @keyframes on-air-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.45;
+      transform: scale(0.8);
+    }
+  }
+}

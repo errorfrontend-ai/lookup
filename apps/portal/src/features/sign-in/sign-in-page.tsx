@@ -5,11 +5,12 @@ import { Navigate, useLocation, useNavigate } from 'react-router';
 import { portalApi, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
 import { ErrorNotice } from '../../components/error-notice';
 import { useSignedInUser } from '../session/use-signed-in-user';
+import { stationHomePath } from '../stations/station-home-path';
 
 /** Where a signed-in person lands: their first station's ads. */
 export function homePathFor(signedInUser: SignedInPortalUser): string {
   const firstStation = signedInUser.stations[0];
-  return firstStation ? `/stations/${firstStation.id}/ads` : '/';
+  return firstStation ? stationHomePath(firstStation) : '/';
 }
 
 /**
