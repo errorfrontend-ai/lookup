@@ -1,4 +1,4 @@
-import type { AdCampaignSummary, AdListViewCounts, AdSummary, StationOverview } from '@lookup/contracts';
+import type { ActionCard, AdCampaignSummary, AdDetail, AdHistoryEvent, AdListViewCounts, AdSchedule, AdSummary, StationOverview } from '@lookup/contracts';
 
 let adCounter = 0;
 
@@ -52,4 +52,45 @@ export function overviewFor(ads: AdSummary[]): StationOverview {
     liveNowAds: live,
     attentionAds: attention,
   };
+}
+
+/** A valid card with a call, a WhatsApp and a directions button. */
+export function actionCardFixture(): ActionCard {
+  return {
+    schema_version: 1,
+    layout: 'VERTICAL_STACK',
+    actions: [
+      { type: 'CALL', id: '0190f1a2-0000-7000-8000-0000000000e1', label: 'Call Brand A', style: 'PRIMARY', phone_number_e164: '+260977123456' },
+      { type: 'WHATSAPP', id: '0190f1a2-0000-7000-8000-0000000000e2', label: 'Chat on WhatsApp', style: 'SECONDARY', phone_number_e164: '+260966000111', prefilled_text: 'Hello there' },
+      { type: 'MAP', id: '0190f1a2-0000-7000-8000-0000000000e3', label: 'Get directions', style: 'OUTLINE', latitude: -15.4167, longitude: 28.2833, place_name: 'Cairo Road, Lusaka' },
+    ],
+  } as ActionCard;
+}
+
+export function scheduleFixture(overrides: Partial<AdSchedule> = {}): AdSchedule {
+  return { ...campaignSummary(), gracePeriodMinutes: 10, engagementLimit: null, stationTimeZone: 'Africa/Lusaka', ...overrides };
+}
+
+/** An ad as its own page shows it: the summary plus its buttons, schedule and upload facts. */
+export function adDetail(overrides: Partial<AdDetail> = {}): AdDetail {
+  const summary = adSummary();
+  return {
+    ...summary,
+    uploadSizeBytes: 96_044,
+    uploadedAt: new Date(Date.now() - 38 * 60 * 1000).toISOString(),
+    processingErrorCode: null,
+    actionCard: actionCardFixture(),
+    schedule: scheduleFixture({ id: summary.campaign?.id ?? 'campaign' }),
+    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    ...overrides,
+  };
+}
+
+let eventCounter = 0;
+/** `Omit` for each member of a union, so every kind of event keeps its own fields. */
+type DistributiveOmit<Type, Keys extends PropertyKey> = Type extends unknown ? Omit<Type, Keys> : never;
+
+/** One history event, newest-first order is up to the test. */
+export function historyEvent(event: DistributiveOmit<AdHistoryEvent, 'id' | 'occurredAt' | 'actorName'> & Partial<Pick<AdHistoryEvent, 'id' | 'occurredAt' | 'actorName'>>): AdHistoryEvent {
+  return { id: String(1000 - ++eventCounter), occurredAt: new Date(Date.now() - eventCounter * 60 * 60 * 1000).toISOString(), actorName: 'Chanda Mwale', ...event } as AdHistoryEvent;
 }

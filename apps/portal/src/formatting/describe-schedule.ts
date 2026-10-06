@@ -97,3 +97,8 @@ export function formatDateRange(startsOn: string, endsOn: string): string {
   }
   return `${formatStationDate(startsOn)} – ${formatStationDate(endsOn)}`;
 }
+
+/** The grace period as a sentence part: "None", or "10 minutes after each slot". */
+export function describeGracePeriod(minutes: number): string {
+  return minutes === 0 ? 'None' : `${minutes} minutes after each slot`;
+}

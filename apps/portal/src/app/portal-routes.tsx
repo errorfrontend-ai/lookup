@@ -1,6 +1,7 @@
 import type { RouteObject } from 'react-router';
 import { NotFoundPage } from '../components/plain-pages';
 import { ChangePasswordPage } from '../features/account/change-password-page';
+import { AdDetailPage } from '../features/ads/ad-detail-page';
 import { AdsListPage } from '../features/ads/ads-list-page';
 import { ClientsPage } from '../features/clients/clients-page';
 import { OverviewPage } from '../features/overview/overview-page';
@@ -33,6 +34,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
                     children: [
                       { path: 'overview', element: <OverviewPage /> },
                       { path: 'ads', element: <AdsListPage /> },
+                      { path: 'ads/:adId', element: <AdDetailPage /> },
                       { path: 'clients', element: <ClientsPage /> },
                     ],
                   },

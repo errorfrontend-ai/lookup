@@ -8,6 +8,11 @@ export type MemberStation = SignedInPortalUser['stations'][number];
 /** Roles that may change a station's content (the API's CHANGE_STATION_CONTENT rule). */
 const ROLES_THAT_CHANGE_CONTENT: ReadonlySet<StationRole> = new Set(['OWNER', 'MANAGER']);
 
+/** Owners and managers may correct where the station is, even while it is still being reviewed. */
+export function canChangeStationProfile(station: MemberStation): boolean {
+  return ROLES_THAT_CHANGE_CONTENT.has(station.role);
+}
+
 export function canChangeStationContent(station: MemberStation): boolean {
   return ROLES_THAT_CHANGE_CONTENT.has(station.role) && station.status === 'ACTIVE';
 }

@@ -1,12 +1,17 @@
-import type { ReactNode } from 'react';
+import { MAXIMUM_CITY_LENGTH, type StationProfile, type UpdateStationProfileInput, ZAMBIAN_PROVINCES } from '@lookup/contracts';
+import { type FormEvent, type ReactNode, useState } from 'react';
+import { ApiError } from '../../api/api-client';
 import { Badge } from '../../components/badge';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { PageHeader } from '../../components/page-header';
+import { SelectField } from '../../components/select-field';
 import { Skeleton } from '../../components/skeleton';
+import { TextField } from '../../components/text-field';
+import { useToast } from '../../components/toast-region';
 import { describeStationRole, describeStationStatus } from '../../plain-words/station-status-words';
-import { useRequiredCurrentStation } from './use-current-station';
-import { useStationProfile } from './use-station-profile';
+import { canChangeStationProfile, useRequiredCurrentStation } from './use-current-station';
+import { useStationProfile, useUpdateStationProfile } from './use-station-profile';
 
 function ProfileRow({ label, children, note }: { label: string; children: ReactNode; note?: string }) {
   return (
@@ -20,14 +25,78 @@ function ProfileRow({ label, children, note }: { label: string; children: ReactN
   );
 }
 
-/** The station's own details. Province and city become editable in a later step; the rest is checked by Look Up. */
+/** Where the station is: province and city. Owners and managers can change them; the rest is checked by Look Up. */
+function WhereYouAreForm({ stationId, profile, onDone }: { stationId: string; profile: StationProfile; onDone: () => void }) {
+  const [province, setProvince] = useState(profile.province ?? '');
+  const [city, setCity] = useState(profile.city ?? '');
+  const update = useUpdateStationProfile(stationId);
+  const showToast = useToast();
+  const hasFieldProblem = update.error instanceof ApiError && update.error.code === 'VALIDATION_FAILED';
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    update.mutate(
+      { province: (province || null) as UpdateStationProfileInput['province'], city: city.trim() || null },
+      {
+        onSuccess: () => {
+          showToast('Station details saved');
+          onDone();
+        },
+      },
+    );
+  };
+
+  return (
+    <form onSubmit={submit} noValidate className="flex flex-col gap-4 py-4">
+      <SelectField label="Province" value={province} onChange={(event) => setProvince(event.target.value)}>
+        <option value="">Not set</option>
+        {ZAMBIAN_PROVINCES.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </SelectField>
+      <TextField
+        label="City or town"
+        value={city}
+        onChange={(event) => setCity(event.target.value)}
+        maxLength={MAXIMUM_CITY_LENGTH}
+        counter={`${[...city].length} / ${MAXIMUM_CITY_LENGTH}`}
+        error={hasFieldProblem ? `Enter a city or town of up to ${MAXIMUM_CITY_LENGTH} characters, or leave it empty.` : null}
+        autoComplete="off"
+      />
+      {update.isError && !hasFieldProblem ? <ErrorNotice error={update.error} /> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" isBusy={update.isPending} busyLabel="Saving…">
+          Save
+        </Button>
+        <Button variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export function StationProfilePage() {
   const station = useRequiredCurrentStation();
   const profile = useStationProfile(station.id);
+  const [isEditing, setIsEditing] = useState(false);
+  const canEdit = canChangeStationProfile(station);
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
-      <PageHeader title="Station profile" description="How your station appears in Look Up." />
+      <PageHeader
+        title="Station profile"
+        description="How your station appears in Look Up."
+        actions={
+          canEdit && profile.isSuccess && !isEditing ? (
+            <Button variant="secondary" onClick={() => setIsEditing(true)}>
+              Edit where you are
+            </Button>
+          ) : undefined
+        }
+      />
 
       {profile.isPending ? <Skeleton className="h-72 w-full" /> : null}
       {profile.isError ? (
@@ -43,8 +112,14 @@ export function StationProfilePage() {
           <dl className="m-0 divide-y divide-line-soft">
             <ProfileRow label="Name">{profile.data.name}</ProfileRow>
             <ProfileRow label="Frequency">{profile.data.frequencyLabel}</ProfileRow>
-            <ProfileRow label="Province">{profile.data.province ?? <span className="text-muted">Not set</span>}</ProfileRow>
-            <ProfileRow label="City or town">{profile.data.city ?? <span className="text-muted">Not set</span>}</ProfileRow>
+            {isEditing ? (
+              <WhereYouAreForm stationId={station.id} profile={profile.data} onDone={() => setIsEditing(false)} />
+            ) : (
+              <>
+                <ProfileRow label="Province">{profile.data.province ?? <span className="text-muted">Not set</span>}</ProfileRow>
+                <ProfileRow label="City or town">{profile.data.city ?? <span className="text-muted">Not set</span>}</ProfileRow>
+              </>
+            )}
             <ProfileRow label="Time zone" note="Every date and time in the portal, and every ad schedule, is in this time zone.">
               {profile.data.timeZone}
             </ProfileRow>

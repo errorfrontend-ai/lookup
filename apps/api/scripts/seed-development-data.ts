@@ -97,7 +97,7 @@ async function seedFromEnvironment(): Promise<string> {
   const ownerEmail = process.env.SEED_OWNER_EMAIL;
   const ownerPassword = process.env.SEED_OWNER_PASSWORD;
   if (!ownerEmail || !ownerPassword) throw new Error('Missing configuration: SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD');
-  const { stationId } = await seedDevelopmentData(setupUrl, {
+  const { stationId, ownerId } = await seedDevelopmentData(setupUrl, {
     stationName: 'Station A',
     frequencyLabel: '98.1 FM',
     ownerEmail,
@@ -110,7 +110,7 @@ async function seedFromEnvironment(): Promise<string> {
   const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-development-seed' });
   await client.connect();
   try {
-    const createdCount = await seedSampleAds(client, stationId, storage);
+    const createdCount = await seedSampleAds(client, stationId, storage, ownerId);
     return `Development data ready: Station A (${stationId}), its owner, two clients and ${createdCount === 0 ? 'its sample ads (already there)' : `${createdCount} new sample ads`}.`;
   } finally {
     await client.end();

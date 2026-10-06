@@ -42,19 +42,22 @@ function LiveNowRow({ ad }: { ad: AdSummary }) {
   );
 }
 
-function AttentionRow({ ad }: { ad: AdSummary }) {
+function AttentionRow({ ad, stationId }: { ad: AdSummary; stationId: string }) {
   const reason = ad.attentionReasons[0];
   if (!reason) return null;
   const words = describeAttentionReason(reason, ad.client.name, ad.campaign ? formatStationDate(ad.campaign.endsOn) : null);
   return (
     <li className="flex items-start gap-3 py-2">
       <Icon name="alert" size={18} className="mt-0.5 shrink-0 text-danger" />
-      <div className="flex min-w-0 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <span className="text-label">{words.title}</span>
         <span className="text-caption text-muted">
           {ad.title} · {words.detail}
         </span>
       </div>
+      <Link to={`/stations/${stationId}/ads/${ad.id}`} aria-label={`View ${ad.title}`} className="ml-auto flex min-h-11 shrink-0 items-center rounded-md px-3 text-label text-accent hover:bg-accent-soft">
+        View ad
+      </Link>
     </li>
   );
 }
@@ -115,7 +118,7 @@ export function OverviewPage() {
 
           {overview.data.adCounts.all === 0 ? <GettingStarted stationId={station.id} hasClients={(clients.data?.length ?? 0) > 0} /> : null}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <section aria-label="On air now" className="flex flex-col gap-2 rounded-lg border border-line-soft bg-surface p-5">
               <h2 className="text-heading">On air now</h2>
               {overview.data.liveNowAds.length > 0 ? (
@@ -135,7 +138,7 @@ export function OverviewPage() {
                 <>
                   <ul className="divide-y divide-line-soft">
                     {overview.data.attentionAds.map((ad) => (
-                      <AttentionRow key={ad.id} ad={ad} />
+                      <AttentionRow key={ad.id} ad={ad} stationId={station.id} />
                     ))}
                   </ul>
                   <Link to={`${adsPath}?view=attention`} className="self-start text-label text-accent underline underline-offset-4">

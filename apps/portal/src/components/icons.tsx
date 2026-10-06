@@ -52,6 +52,12 @@ const ICON_DRAWINGS = {
       <path d="M20 20l-4-4" />
     </>
   ),
+  edit: (
+    <>
+      <path d="M4 20h4L19 9l-4-4L4 16z" />
+      <path d="M13 7l4 4" />
+    </>
+  ),
   plus: <path d="M12 5v14M5 12h14" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,

@@ -57,6 +57,41 @@ function buttonsFor(clientName: string): ActionCard {
   });
 }
 
+
+/**
+ * The audit rows the API would have written as each sample ad was made, so an ad's history reads like a
+ * real one: created, audio checked, buttons added, schedule set, published. Spread over the days since
+ * the ad was last changed, oldest first.
+ */
+async function recordSampleHistory(client: pg.Client, stationId: string, ownerId: string, adId: string, sample: SampleAd, cardId: string | null, audioBytes: number): Promise<void> {
+  const record = async (minutesAfterCreation: number, action: string, entityType: string, entityId: string, changes: Record<string, unknown>) =>
+    client.query(
+      `INSERT INTO app.audit_events (station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'development-seed', now() - $7 * interval '1 hour' + $8 * interval '1 minute')`,
+      [stationId, ownerId, action, entityType, entityId, JSON.stringify(changes), sample.changedHoursAgo + 1, minutesAfterCreation],
+    );
+  await record(0, 'ad_created', 'ad', adId, { title: sample.title, upload: { fileName: `${sample.title}.wav`, contentType: 'audio/wav', sizeBytes: audioBytes } });
+  if (sample.uploadState === 'refused') {
+    await record(1, 'ad_upload_refused', 'ad', adId, { reason: 'not_the_declared_audio_format' });
+    return;
+  }
+  await record(1, 'ad_upload_verified', 'ad', adId, { sizeBytes: audioBytes, contentType: 'audio/wav' });
+  if (cardId) {
+    const savedCard = (await client.query(`SELECT content FROM app.action_cards WHERE id = $1`, [cardId])).rows[0].content as ActionCard;
+    const actionIds = savedCard.actions.map((action) => action.id);
+    await record(5, 'action_card_saved', 'action_card', cardId, {
+      adId,
+      previousActionCardId: null,
+      changedFields: [{ path: 'schema_version', change: 'added' }, { path: 'layout', change: 'added' }, ...actionIds.map((actionId) => ({ path: `actions.${actionId}`, change: 'added' }))],
+    });
+  }
+  const campaign = (await client.query(`SELECT id FROM app.campaigns WHERE ad_id = $1`, [adId])).rows[0] as { id: string } | undefined;
+  if (campaign && sample.campaign) {
+    await record(10, 'campaign_schedule_saved', 'campaign', campaign.id, { adId, previousSchedule: null, schedule: { windows: sample.campaign.windows.length } });
+    if (sample.campaign.status !== 'DRAFT') await record(12, 'campaign_published', 'campaign', campaign.id, { adId, previousStatus: 'DRAFT', previousActionCardId: null, actionCardId: cardId });
+  }
+}
+
 /**
  * Adds the sample ads to the station if they are not there yet (matched by title, so running it again
  * adds nothing). Audio goes to the development object storage; the ads then look uploaded and checked.
@@ -66,6 +101,7 @@ export async function seedSampleAds(
   client: pg.Client,
   stationId: string,
   storage: SampleStorage,
+  ownerId: string,
 ): Promise<number> {
   const clientIds = new Map<string, string>(
     (await client.query(`SELECT id, name FROM app.clients WHERE station_id = $1`, [stationId])).rows.map((row) => [row.name as string, row.id as string]),
@@ -131,6 +167,7 @@ export async function seedSampleAds(
           );
         }
       }
+      await recordSampleHistory(client, stationId, ownerId, adId, sample, cardId, jingle.length);
       createdCount += 1;
     }
   } finally {

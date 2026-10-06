@@ -1,4 +1,5 @@
 import type { AdSummary } from '@lookup/contracts';
+import { Link } from 'react-router';
 import { AdAudioPlayer } from '../../components/ad-audio-player';
 import { ClientAvatar } from '../../components/client-avatar';
 import { Icon } from '../../components/icons';
@@ -19,13 +20,15 @@ function attentionSentence(ad: AdSummary): string | null {
   return describeAttentionReason(reason, ad.client.name, ad.campaign ? formatStationDate(ad.campaign.endsOn) : null).detail;
 }
 
-function AdIdentity({ ad }: { ad: AdSummary }) {
+function AdIdentity({ ad, stationId }: { ad: AdSummary; stationId: string }) {
   const attention = attentionSentence(ad);
   return (
     <div className="flex min-w-0 items-center gap-3">
       <ClientAvatar clientId={ad.client.id} name={ad.client.name} />
       <div className="flex min-w-0 flex-col">
-        <span className="truncate text-heading">{ad.title}</span>
+        <Link to={`/stations/${stationId}/ads/${ad.id}`} className="truncate text-heading text-ink no-underline hover:text-accent hover:underline">
+          {ad.title}
+        </Link>
         <span className="truncate text-caption text-muted">{ad.client.name}</span>
         {attention ? (
           <span className="mt-1 flex items-start gap-1.5 text-caption font-bold text-danger">
@@ -82,7 +85,7 @@ export function AdTable({ ads, stationId }: { ads: AdSummary[]; stationId: strin
           {ads.map((ad) => (
             <tr key={ad.id} className="border-t border-line-soft align-middle">
               <th scope="row" className="max-w-xs px-4 py-3 text-left font-normal">
-                <AdIdentity ad={ad} />
+                <AdIdentity ad={ad} stationId={stationId} />
               </th>
               <td className="px-3 py-3">
                 <CampaignStatusBadge status={ad.campaign?.displayStatus ?? null} />
@@ -113,7 +116,7 @@ export function AdCards({ ads, stationId }: { ads: AdSummary[]; stationId: strin
         <li key={ad.id}>
           <article className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-4">
             <div className="flex items-start justify-between gap-3">
-              <AdIdentity ad={ad} />
+              <AdIdentity ad={ad} stationId={stationId} />
               <PlayControl ad={ad} stationId={stationId} />
             </div>
             <div className="flex flex-wrap gap-2">
