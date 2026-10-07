@@ -1,0 +1,7 @@
+{
+  "description": "Fingerprinted and stored: the ad is ready",
+  "result": {
+    "outcome": "READY",
+    "is_linked_to_existing_audio": false
+  }
+}

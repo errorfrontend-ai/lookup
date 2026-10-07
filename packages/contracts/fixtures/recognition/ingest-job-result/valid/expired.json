@@ -1,0 +1,7 @@
+{
+  "description": "The job's deadline had passed",
+  "result": {
+    "outcome": "EXPIRED",
+    "is_linked_to_existing_audio": false
+  }
+}

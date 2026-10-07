@@ -30,6 +30,7 @@ async function expectActionBarInReach(page: Page): Promise<void> {
  * set when it airs, listen back and review, publish, then find the ad in the list with its history. On
  * a phone the times are chosen as a list and the page never scrolls sideways; on a desktop the hour grid
  * is used. Throughout, the portal talks only to itself (the API is behind it) and to the file storage.
+ * The fingerprint workers must be running (npm run workers): the uploaded ad becomes Ready on its own.
  */
 test('a station puts an ad on air: client, audio, buttons, schedule, review, publish', async ({ page }, testInfo) => {
   const isPhone = testInfo.project.name === 'phone';
@@ -62,6 +63,8 @@ test('a station puts an ad on air: client, audio, buttons, schedule, review, pub
     await expect(progress.getByText('Uploaded')).toBeVisible();
     await expect(progress.getByText('Checked')).toBeVisible();
     await expect(page.getByText('Draft saved')).toBeVisible();
+    // The ingest worker (npm run workers) prepares it for recognition: Processing becomes Ready.
+    await expect(progress.getByText('Ready for listeners')).toBeVisible({ timeout: 60_000 });
     await page.getByRole('button', { name: 'Next: Buttons' }).click();
   });
 

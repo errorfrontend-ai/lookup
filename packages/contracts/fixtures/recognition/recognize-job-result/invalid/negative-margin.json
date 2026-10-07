@@ -1,0 +1,10 @@
+{
+  "description": "A margin is best over second best: never below zero",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_margin": -1.0,
+    "match_offset_milliseconds": 6016
+  }
+}

@@ -92,6 +92,8 @@ let eventCounter = 0;
 type DistributiveOmit<Type, Keys extends PropertyKey> = Type extends unknown ? Omit<Type, Keys> : never;
 
 /** One history event, newest-first order is up to the test. */
-export function historyEvent(event: DistributiveOmit<AdHistoryEvent, 'id' | 'occurredAt' | 'actorName'> & Partial<Pick<AdHistoryEvent, 'id' | 'occurredAt' | 'actorName'>>): AdHistoryEvent {
-  return { id: String(1000 - ++eventCounter), occurredAt: new Date(Date.now() - eventCounter * 60 * 60 * 1000).toISOString(), actorName: 'Chanda Mwale', ...event } as AdHistoryEvent;
+export function historyEvent(
+  event: DistributiveOmit<AdHistoryEvent, 'id' | 'occurredAt' | 'actorName' | 'isByLookUp'> & Partial<Pick<AdHistoryEvent, 'id' | 'occurredAt' | 'actorName' | 'isByLookUp'>>,
+): AdHistoryEvent {
+  return { id: String(1000 - ++eventCounter), occurredAt: new Date(Date.now() - eventCounter * 60 * 60 * 1000).toISOString(), actorName: 'Chanda Mwale', isByLookUp: false, ...event } as AdHistoryEvent;
 }

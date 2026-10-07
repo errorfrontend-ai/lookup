@@ -1,12 +1,15 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { Queue } from 'bullmq';
+import { Redis } from 'ioredis';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { APP_CONFIG, type AppConfig } from '../src/config/app-config.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
+import { IngestQueue } from '../src/infrastructure/job-queues/ingest-queue.js';
 import { ObjectStorage } from '../src/infrastructure/object-storage/object-storage.js';
-import { UPLOAD_REFUSAL_REASONS } from '@lookup/contracts';
+import { INGEST_QUEUE_NAME, UPLOAD_REFUSAL_REASONS } from '@lookup/contracts';
 import { m4aBytes, mp3Bytes, notAudioBytes, wavBytes } from './support/audio-fixtures.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { assertNoInternalDetails } from './support/internal-detail-patterns.js';
@@ -20,7 +23,11 @@ describe('ads and direct audio uploads', () => {
   let setupClient: pg.Client;
   let testUsers: PortalTestUsers;
   let objectStorage: ObjectStorage;
+  /** This file's own ingest queue (no worker takes from it), to see what each completion added. */
+  let ingestQueue: Queue;
   const client = () => supertest(testApplication.application.getHttpServer());
+  const ingestJobsFor = async (adId: string) =>
+    (await ingestQueue.getJobs(['waiting', 'delayed', 'active', 'prioritized'])).filter((job) => job.data?.ad_id === adId);
   const sessions = new Map<string, Record<string, string>>();
 
   beforeAll(async () => {
@@ -29,8 +36,11 @@ describe('ads and direct audio uploads', () => {
     await setupClient.connect();
     testUsers = new PortalTestUsers(setupClient, testApplication.application.get(PasswordHasher));
     objectStorage = testApplication.application.get(ObjectStorage);
+    ingestQueue = new Queue(INGEST_QUEUE_NAME, { connection: new Redis(process.env.KEY_VALUE_STORE_URL as string, { maxRetriesPerRequest: null }), prefix: process.env.QUEUE_KEY_PREFIX });
   });
   afterAll(async () => {
+    await ingestQueue.obliterate({ force: true });
+    await ingestQueue.close();
     await testUsers.cleanUp();
     await setupClient.end();
     await testApplication.close();
@@ -203,7 +213,12 @@ describe('ads and direct audio uploads', () => {
       const completed = expectStatus(await post(owner, `${adsPath}/${created.adId}/complete`), 200);
       expect(completed.body).toMatchObject({ id: created.adId, status: 'PROCESSING', client: { id: clientId, name: 'Brand A' } });
       expect((await adRow(created.adId)).upload_entity_tag).toMatch(/^"?[0-9a-f]{32}"?$/);
+      // S2-ADS-07, S2-LOGGING-04: one ingest job for the ad, carrying the completion's request id.
+      const [job] = await ingestJobsFor(created.adId);
+      expect(job?.id).toBe(IngestQueue.jobIdFor(created.adId));
+      expect(job?.data).toMatchObject({ ad_id: created.adId, request_id: completed.headers['x-request-id'] });
       expectStatus(await post(owner, `${adsPath}/${created.adId}/complete`), 200);
+      expect(await ingestJobsFor(created.adId)).toHaveLength(1);
       const verifiedAudits = await setupClient.query(
         `SELECT 1 FROM app.audit_events WHERE entity_id = $1 AND action = 'ad_upload_verified'`,
         [created.adId],
@@ -223,6 +238,8 @@ describe('ads and direct audio uploads', () => {
       expect(JSON.stringify(refused.body)).not.toMatch(/S3|Bucket|x-amz|versity/i);
       expect(await adRow(created.adId)).toMatchObject({ status: 'FAILED', processing_error_code: 'not_the_declared_audio_format' });
       expect(await objectStorage.describeObject(objectKey)).toBeNull();
+      // S2-UPLOADS-11: a refused file is never queued for fingerprinting.
+      expect(await ingestJobsFor(created.adId)).toEqual([]);
       // S2-ADS-10: the station sees why, as one of the shared contract's codes.
       const detail = expectStatus(await get(owner, `${adsPath}/${created.adId}`), 200).body;
       expect(detail).toMatchObject({ status: 'FAILED', processingErrorCode: 'not_the_declared_audio_format' });

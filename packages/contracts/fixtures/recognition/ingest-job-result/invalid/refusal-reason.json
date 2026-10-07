@@ -1,0 +1,8 @@
+{
+  "description": "The refusal reason is recorded with the ad, not returned",
+  "result": {
+    "outcome": "REFUSED",
+    "is_linked_to_existing_audio": false,
+    "refusal_reason": "audio_too_short"
+  }
+}

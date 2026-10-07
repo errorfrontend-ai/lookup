@@ -1,0 +1,10 @@
+{
+  "description": "A failure is the job's failure code, never a result status",
+  "result": {
+    "status": "ERROR",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_margin": 3.5,
+    "match_offset_milliseconds": 6016
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "description": "A request id is at most 64 characters",
+  "job": {
+    "request_id": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+    "audio_base64": "AAAAHGZ0eXBNNEEgAAAAAE00QSBpc29tbXA0MgAAAAhmcmVl",
+    "codec": "aac",
+    "deadline_epoch_milliseconds": 1791361802500,
+    "fingerprint_version": 1
+  }
+}

@@ -59,13 +59,53 @@ const AppConfigSchema = z
     ALLOWED_BROWSER_ORIGINS: BrowserOrigins.default(['http://localhost:5180']),
     /** Proxies in front of the API. Too high a number lets clients fake their address and dodge rate limits. */
     TRUSTED_PROXY_COUNT: z.coerce.number().int().min(0).max(5).default(1),
-    /** Baseline requests per client address per minute, on every route. */
+    /** Baseline requests per client address per minute, on every route except the listener app's. */
     RATE_LIMIT_REQUESTS_PER_MINUTE: z.coerce.number().int().min(10).max(100_000).default(300),
+
+    // ---- the listener app and recognition (Step 3, docs/design/step-3-engine-hookup.md) -------------
+    /** Prefix of every BullMQ key in Valkey; the workers must use the same one. */
+    QUEUE_KEY_PREFIX: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).default('lookup'),
+    /** The fingerprint settings the workers run (ADR-001); jobs for another version are refused. */
+    FINGERPRINT_VERSION: z.coerce.number().int().min(1).max(32_767).default(1),
+    /** How often ads left waiting for fingerprints get their ingest job again; 0 switches the sweep off. */
+    INGEST_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(3_600).default(60),
+    /** How long a live recognition waits for its worker before answering 503 RECOGNITION_TIMEOUT. */
+    RECOGNITION_WAIT_MILLISECONDS: z.coerce.number().int().min(500).max(10_000).default(2_500),
+    /** Clips waiting in the recognize queue past which new ones are refused at once (503 RECOGNITION_BUSY). */
+    RECOGNITION_QUEUE_DEPTH_LIMIT: z.coerce.number().int().min(1).max(100_000).default(50),
+    /** Per install (not per address: many listeners share one mobile-network address). */
+    RECOGNITIONS_PER_INSTALL_PER_MINUTE: z.coerce.number().int().min(1).max(1_000).default(6),
+    RECOGNITIONS_PER_INSTALL_PER_DAY: z.coerce.number().int().min(1).max(100_000).default(60),
+    /** Installs registered from one address per hour: registration is once per phone, so this is strict. */
+    LISTENER_REGISTRATIONS_PER_CLIENT_ADDRESS_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(60),
+    /** Clips from one address per minute, whatever install sends them: installs cost nothing to make, so this stops one sender filling the queue. */
+    RECOGNITIONS_PER_CLIENT_ADDRESS_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(300),
+    /** Recognitions this API instance works on at once (reading the clip included): past it, 503 at once. Bounds the memory clips can hold. */
+    RECOGNITIONS_IN_FLIGHT_LIMIT: z.coerce.number().int().min(1).max(10_000).default(32),
+    /** How long a clip may take to arrive once its request has started. */
+    RECOGNIZE_BODY_READ_MILLISECONDS: z.coerce.number().int().min(500).max(55_000).default(20_000),
+    /** The only per-address limit on the listener routes: a high ceiling, many installs' worth. */
+    LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE: z.coerce.number().int().min(10).max(1_000_000).default(600),
+    /** Signs install tokens. 32+ random bytes, base64url. Changing it makes every app register again. */
+    LISTENER_INSTALL_TOKEN_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
+    /** Keys the hash of an app's install id, so the raw id is never stored. 32+ random bytes, base64url. */
+    LISTENER_INSTALL_ID_PEPPER: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
   })
   .superRefine((config, context) => {
     // The template's placeholder has the right shape, so refuse it by name in every environment.
-    if (config.AUTHENTICATION_SECRET.includes('CHANGE_ME')) {
-      context.addIssue({ code: 'custom', path: ['AUTHENTICATION_SECRET'], message: 'must be replaced with a random value' });
+    for (const secretName of ['AUTHENTICATION_SECRET', 'LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER'] as const) {
+      if (config[secretName].includes('CHANGE_ME')) {
+        context.addIssue({ code: 'custom', path: [secretName], message: 'must be replaced with a random value' });
+      }
+    }
+    if (new Set([config.AUTHENTICATION_SECRET, config.LISTENER_INSTALL_TOKEN_SECRET, config.LISTENER_INSTALL_ID_PEPPER]).size < 3) {
+      context.addIssue({ code: 'custom', path: ['LISTENER_INSTALL_TOKEN_SECRET'], message: 'the three secrets must all be different' });
+    }
+    if (config.RECOGNITIONS_PER_INSTALL_PER_DAY < config.RECOGNITIONS_PER_INSTALL_PER_MINUTE) {
+      context.addIssue({ code: 'custom', path: ['RECOGNITIONS_PER_INSTALL_PER_DAY'], message: 'must be at least the per-minute limit' });
+    }
+    if (config.LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE < 10 * config.RECOGNITIONS_PER_INSTALL_PER_MINUTE) {
+      context.addIssue({ code: 'custom', path: ['LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE'], message: "must be at least ten installs' worth" });
     }
     if (config.NODE_ENV !== 'production') return;
     if (config.DATABASE_TLS_MODE === 'disable') {

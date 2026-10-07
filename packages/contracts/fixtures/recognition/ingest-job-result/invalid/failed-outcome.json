@@ -1,0 +1,7 @@
+{
+  "description": "An unusable file is REFUSED; FAILED is the ad's status, not a job outcome",
+  "result": {
+    "outcome": "FAILED",
+    "is_linked_to_existing_audio": false
+  }
+}

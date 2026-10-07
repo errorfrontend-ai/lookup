@@ -12,4 +12,7 @@ export * from './errors/error-envelope-schema.js';
 export * from './stations/station-overview-schemas.js';
 export * from './stations/station-schemas.js';
 export * from './phone-numbers/zambian-phone-numbers.js';
+export * from './recognition/fingerprint-job-schemas.js';
+export * from './recognition/listener-install-schemas.js';
+export * from './recognition/recognize-schemas.js';
 export * from './validation-reason-codes.js';

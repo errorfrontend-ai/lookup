@@ -1,0 +1,11 @@
+{
+  "description": "The worker knows nothing about stations",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_margin": 3.5,
+    "match_offset_milliseconds": 6016,
+    "station_id": "0192a6c4-1111-4000-8000-000000000001"
+  }
+}

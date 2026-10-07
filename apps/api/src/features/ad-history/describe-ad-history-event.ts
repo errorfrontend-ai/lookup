@@ -1,4 +1,4 @@
-import type { ActionCard, AdHistoryEvent, ButtonChange, ScheduleChangedPart } from '@lookup/contracts';
+import { type ActionCard, type AdHistoryEvent, type ButtonChange, INGEST_REFUSAL_REASONS, type ScheduleChangedPart } from '@lookup/contracts';
 
 /** The audit actions an ad's history is made of, and the only ones the history query asks for. */
 export const AD_HISTORY_ACTIONS = [
@@ -7,6 +7,7 @@ export const AD_HISTORY_ACTIONS = [
   'ad_upload_restarted',
   'ad_upload_verified',
   'ad_upload_refused',
+  'ad_audio_ready',
   'action_card_saved',
   'campaign_schedule_saved',
   'campaign_published',
@@ -51,8 +52,10 @@ interface FieldChange {
  * saved card versions here on the server, and the response carries only those and field names.
  */
 export function describeAdHistoryEvent(row: AdHistoryAuditRow): AdHistoryEvent | null {
-  const base = { id: row.id, occurredAt: row.occurred_at_text, actorName: row.actor_full_name };
   const changes = row.changes ?? {};
+  // The ingest worker records with no actor: Look Up prepared the audio, or refused a file it could not use.
+  const isByLookUp = row.action === 'ad_audio_ready' || (row.action === 'ad_upload_refused' && (INGEST_REFUSAL_REASONS as readonly unknown[]).includes(changes.reason));
+  const base = { id: row.id, occurredAt: row.occurred_at_text, actorName: isByLookUp ? null : row.actor_full_name, isByLookUp };
   switch (row.action) {
     case 'ad_created':
       return { ...base, kind: 'ad_created', fileName: readUploadFileName(changes) };
@@ -64,6 +67,8 @@ export function describeAdHistoryEvent(row: AdHistoryAuditRow): AdHistoryEvent |
       return { ...base, kind: 'audio_upload_checked' };
     case 'ad_upload_refused':
       return { ...base, kind: 'audio_upload_refused', refusalReason: String(changes.reason ?? '') };
+    case 'ad_audio_ready':
+      return { ...base, kind: 'audio_ready' };
     case 'action_card_saved':
       return {
         ...base,

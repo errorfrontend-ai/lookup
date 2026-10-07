@@ -1,0 +1,10 @@
+{
+  "description": "Recording numbers start at 1",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 0,
+    "aligned_hash_count": 42,
+    "match_margin": 3.5,
+    "match_offset_milliseconds": 6016
+  }
+}

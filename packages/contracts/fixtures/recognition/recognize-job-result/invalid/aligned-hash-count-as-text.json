@@ -1,0 +1,10 @@
+{
+  "description": "A count is a number, not text",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": "42",
+    "match_margin": 3.5,
+    "match_offset_milliseconds": 6016
+  }
+}

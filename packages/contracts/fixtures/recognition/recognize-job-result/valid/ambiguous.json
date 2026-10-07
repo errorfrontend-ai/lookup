@@ -1,0 +1,10 @@
+{
+  "description": "Two recordings are too close to call",
+  "result": {
+    "status": "AMBIGUOUS",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 30,
+    "match_margin": 1.2,
+    "match_offset_milliseconds": 4032
+  }
+}

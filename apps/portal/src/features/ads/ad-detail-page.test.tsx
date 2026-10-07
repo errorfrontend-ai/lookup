@@ -50,7 +50,7 @@ describe('Ad page', () => {
 
       const audio = screen.getByRole('region', { name: 'Audio' });
       expect(within(audio).getByRole('button', { name: 'Play Summer service offer' })).toBeInTheDocument();
-      expect(within(audio).getByText('Audio checked')).toBeInTheDocument();
+      expect(within(audio).getByText('Preparing for recognition')).toBeInTheDocument();
       expect(within(audio).getByText(/offer\.mp3 · 94 KB · uploaded 38 min ago/)).toBeInTheDocument();
 
       const airs = screen.getByRole('region', { name: 'When it airs' });
@@ -437,7 +437,7 @@ describe('Ad page', () => {
         expect(await screen.findAllByText('Waiting for the audio')).not.toHaveLength(0);
         await vi.advanceTimersByTimeAsync(5_100);
         await vi.advanceTimersByTimeAsync(5_100);
-        await waitFor(() => expect(screen.getAllByText('Audio checked').length).toBeGreaterThan(0));
+        await waitFor(() => expect(screen.getAllByText('Preparing for recognition').length).toBeGreaterThan(0));
         expect(polls).toBeGreaterThanOrEqual(3);
       } finally {
         vi.useRealTimers();
@@ -459,7 +459,7 @@ describe('Ad page', () => {
           },
         });
         renderPortalAt(adPath);
-        expect(await screen.findAllByText('Audio checked')).not.toHaveLength(0);
+        expect(await screen.findAllByText('Preparing for recognition')).not.toHaveLength(0);
         await vi.advanceTimersByTimeAsync(5_100);
         await waitFor(() => expect(screen.getAllByText('Ready for listeners').length).toBeGreaterThan(0));
 

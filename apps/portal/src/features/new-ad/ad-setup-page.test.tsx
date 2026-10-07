@@ -195,8 +195,8 @@ describe('Setting up an ad', () => {
       const progress = await screen.findByRole('list', { name: 'Upload progress' });
       await waitFor(() => expect(within(progress).getByText('Uploaded')).toBeInTheDocument());
       expect(within(progress).getByText('Checked')).toBeInTheDocument();
-      expect(within(progress).getByText('Not prepared for recognition yet')).toBeInTheDocument();
-      expect(within(progress).getByText(/once Look Up's recognition service is switched on/)).toBeInTheDocument();
+      expect(within(progress).getByText('Preparing it for recognition…').closest('li')).toHaveAttribute('aria-current', 'step');
+      expect(within(progress).getByText(/This usually takes a minute/)).toBeInTheDocument();
       expect(screen.getByText('Draft saved')).toBeInTheDocument();
       expect(calls.filter((call) => call.path.endsWith('/complete'))).toHaveLength(1);
     });

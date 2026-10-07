@@ -29,6 +29,32 @@ ALLOWED_FORMATS = frozenset({
 })
 
 
+def demuxer_for(first_bytes: bytes) -> str | None:
+    """The one demuxer a file's own first bytes allow, or None. ffmpeg is never left to guess the
+    format: a guessed demuxer would run its header code (some can open other resources) before the
+    allow-list could refuse it, and a file could pass a signature check as one format and be read as
+    another (an ID3 tag in front of something that is not MP3, say)."""
+    if first_bytes[4:8] == b"ftyp":
+        return "mov"
+    if first_bytes.startswith(b"OggS"):
+        return "ogg"
+    if first_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+        return "matroska"
+    if first_bytes.startswith(b"RIFF") and first_bytes[8:12] == b"WAVE":
+        return "wav"
+    if first_bytes.startswith(b"fLaC"):
+        return "flac"
+    if first_bytes.startswith(b"ID3"):
+        return "mp3"
+    if len(first_bytes) >= 2 and first_bytes[0] == 0xFF and first_bytes[1] & 0xE0 == 0xE0:
+        # MPEG audio frame sync: layer bits 00 is ADTS AAC, anything else is MP3.
+        return "aac" if first_bytes[1] & 0x06 == 0 else "mp3"
+    return None
+
+
+ALLOWED_DEMUXERS = frozenset(name.split(",")[0] for name in ALLOWED_FORMATS)
+
+
 class DecodeError(Exception):
     def __init__(self, code: str, detail: str = "") -> None:
         super().__init__(code)
@@ -48,16 +74,22 @@ def decode_audio(
     if isinstance(source, (bytes, bytearray)):
         if len(source) > maximum_bytes:
             raise DecodeError("AUDIO_TOO_LARGE", f"{len(source)} bytes")
+        first_bytes = bytes(source[:16])
         handle: object = io.BytesIO(source)
     else:
         path = Path(source)
         size_bytes = path.stat().st_size
         if size_bytes > maximum_bytes:
             raise DecodeError("AUDIO_TOO_LARGE", f"{size_bytes} bytes")
+        with path.open("rb") as file:
+            first_bytes = file.read(16)
         handle = str(path)
 
+    demuxer = demuxer_for(first_bytes)
+    if demuxer is None:
+        raise DecodeError("UNSUPPORTED_FORMAT", "no known audio signature")
     try:
-        container = av.open(handle, mode="r")
+        container = av.open(handle, mode="r", format=demuxer)
     except av.error.FFmpegError as error:
         raise DecodeError("DECODE_FAILED", type(error).__name__) from error
 
@@ -65,7 +97,9 @@ def decode_audio(
     total_samples = 0
     maximum_samples = int(maximum_seconds * sample_rate)
     with container:
-        if container.format.name not in ALLOWED_FORMATS:
+        # A second guard: whatever ffmpeg opened must be one of ours (named by its first alias when
+        # opened by name, by its full alias list when guessed).
+        if container.format.name not in ALLOWED_FORMATS and container.format.name.split(",")[0] not in ALLOWED_DEMUXERS:
             raise DecodeError("UNSUPPORTED_FORMAT", container.format.name)
         if not container.streams.audio:
             raise DecodeError("NO_AUDIO_STREAM")

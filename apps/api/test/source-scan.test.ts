@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -26,6 +27,20 @@ function readSourceFiles(folder: string, extensions = /\.(ts|tsx)$/): SourceFile
 function filesMatching(files: SourceFile[], pattern: RegExp, allowed: (path: string) => boolean = () => false): string[] {
   return files.filter((file) => !allowed(file.path) && pattern.test(file.text)).map((file) => `${file.path}: ${file.text.match(pattern)?.[0]}`);
 }
+
+/**
+ * The SHA-256 of each migration as released (pushed), with Windows line endings evened out. A released
+ * migration has run on some database; changing it would leave that database different from a new one.
+ */
+const RELEASED_MIGRATION_DIGESTS: Record<string, string> = {
+  '1790960000000-Foundation.ts': '38b41f4d4af4af94668d84e7c2af02da71bec2bcde04c685ba987c1db4338bd4',
+  '1791100000000-StationPortal.ts': '5d5eb68f03202ae1ac5e715ba304f27eedeb31f797eb1170177d6428d72c8fa2',
+  '1791150000000-UploadRefusalReasons.ts': '998c857d0cad765950b3a39617965533ad2cf4e48726bdd60b6bc188e8d015a2',
+  '1791200000000-AdCardsAndSchedules.ts': '066aa880fb2581bebf21ba6410e2a15213393f5caaae7c2103121e201cf19a31',
+  '1791300000000-DatabaseHardening.ts': '885fe8747059a6dc325960dded1563d4099bb0fc49d649364cd5fa951761a711',
+  '1791400000000-AdHistoryIndexes.ts': 'b99a0d25333d8b520a4bc60b374a0f49750160c8e2b912c681b132af4bf95857',
+  '1791500000000-EngineHookup.ts': 'd3ef959bea88ef4891dacd49d6ea387804b2a6052c3e467fc49a227b8027c3a5',
+};
 
 const apiFiles = readSourceFiles('apps/api/src');
 const productionFiles = PRODUCTION_SOURCE_FOLDERS.flatMap((folder) => readSourceFiles(folder));
@@ -97,6 +112,56 @@ describe('source scan', () => {
     ];
     const swallowsFailure = /\|\|\s*(true|echo|exit 0|:)\b|--passWithNoTests|continue-on-error\s*:\s*true/;
     expect(filesMatching(configurationFiles, swallowsFailure)).toEqual([]);
+  });
+
+  it('S3-ARCHITECTURE-03: the API decodes no audio and computes no fingerprints: it only queues clips for the workers', () => {
+    const manifest = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, 'apps/api/package.json'), 'utf8')) as Record<string, Record<string, string>>;
+    const packages = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
+    expect(packages.length).toBeGreaterThan(10);
+    expect(packages.filter((name) => /ffmpeg|audio|wav|mp3|aac|opus|ogg|fft|dsp|meyda|essentia|chromaprint|fingerprint|sox/i.test(name))).toEqual([]);
+    expect(filesMatching(apiFiles, /\bfft\b|spectrogram|\bstft\b|decodeAudio|AudioContext|node:child_process|from 'child_process'/i)).toEqual([]);
+  });
+
+  it('S3-STACK-02, S3-STACK-04: the queue, circuit-breaker and multipart libraries are pinned exactly, in the manifest and the lock file', () => {
+    const manifest = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, 'apps/api/package.json'), 'utf8')) as { dependencies: Record<string, string> };
+    const lock = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, 'package-lock.json'), 'utf8')) as { packages: Record<string, { version?: string }> };
+    for (const [name, version] of [['bullmq', '6.3.11'], ['opossum', '10.0.0'], ['busboy', '1.6.0']]) {
+      expect(manifest.dependencies[name as string], name).toBe(version);
+      const locked = Object.entries(lock.packages).filter(([path]) => path.endsWith(`node_modules/${name}`)).map(([, entry]) => entry.version);
+      expect(locked, name).toEqual([version]);
+    }
+  });
+
+  it('S3-ENGINE-16: ADR-001 records the hash column type and the benchmark figure it rests on', () => {
+    const decision = readFileSync(resolve(REPOSITORY_ROOT, 'docs/adr/ADR-001-fingerprint-engine.md'), 'utf8');
+    expect(decision).toMatch(/\*\*Hashes\*\* are exact packed integers[^]*?`bigint` column[^]*?largest hash these settings can produce is about\s+5\.3 × 10\^7/);
+  });
+
+  it('S3-PRIVACY-01: nothing on the listener path can write a file or store a clip: no file system or object storage in the recognition, installs and queue code', () => {
+    const listenerPath = apiFiles.filter((file) => /^apps\/api\/src\/(features\/recognition|features\/listener-installs|common\/listener-authentication|infrastructure\/job-queues)\//.test(file.path));
+    expect(listenerPath.length).toBeGreaterThan(10);
+    // The ingest queue signs an ad's download address with object storage: that is the station's upload, not a clip.
+    const isAdIngest = (path: string) => path.endsWith('/job-queues/ingest-queue.ts');
+    expect(filesMatching(listenerPath, /from '(?:node:)?fs(?:\/promises)?'|tmpdir|createWriteStream|writeFile|object-storage/, isAdIngest)).toEqual([]);
+  });
+
+  it('S3-STRUCTURE-01: none of the plan’s short names survive in the API, the portal, the contracts or the workers', () => {
+    const pythonFiles = ['services/fingerprinter/workers', 'services/fingerprinter/lookup_fingerprint'].flatMap((folder) => readSourceFiles(folder, /\.py$/));
+    const schemaFiles = readSourceFiles('packages/contracts/schemas', /\.json$/);
+    const everyFile = [...productionFiles, ...pythonFiles, ...schemaFiles];
+    expect(pythonFiles.length).toBeGreaterThan(10);
+    const shortNames = /\b(?:recog|fp|asset_key|fp_key|clip_ms|offset_ms|latency_ms|t_off|fp_version|fpVersion|audioB64|deadlineAt|assetKey)\b|\brecog\.|\bfp\.|["'](?:w|h)["']\s*:/;
+    expect(filesMatching(everyFile, shortNames)).toEqual([]);
+  });
+
+  it('S3-DATABASE-08: a released migration never changes; new schema goes in a new migration', () => {
+    // Line endings are evened out first, so a checkout on Windows reads the same.
+    const released = RELEASED_MIGRATION_DIGESTS;
+    const folder = resolve(API_SOURCE, 'infrastructure', 'database', 'migrations');
+    const digests = Object.fromEntries(
+      Object.keys(released).map((fileName) => [fileName, createHash('sha256').update(readFileSync(resolve(folder, fileName), 'utf8').replace(/\r\n/g, '\n')).digest('hex')]),
+    );
+    expect(digests).toEqual(released);
   });
 
   it('no unit or API test is skipped or singled out, so a green run means every test ran', () => {

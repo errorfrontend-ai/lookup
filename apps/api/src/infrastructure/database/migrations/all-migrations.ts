@@ -4,6 +4,7 @@ import { UploadRefusalReasons1791150000000 } from './1791150000000-UploadRefusal
 import { AdCardsAndSchedules1791200000000 } from './1791200000000-AdCardsAndSchedules.js';
 import { DatabaseHardening1791300000000 } from './1791300000000-DatabaseHardening.js';
 import { AdHistoryIndexes1791400000000 } from './1791400000000-AdHistoryIndexes.js';
+import { EngineHookup1791500000000 } from './1791500000000-EngineHookup.js';
 
 /** Every migration, oldest first. The migration script runs these; the API never does. */
 export const ALL_MIGRATIONS = [
@@ -13,4 +14,5 @@ export const ALL_MIGRATIONS = [
   AdCardsAndSchedules1791200000000,
   DatabaseHardening1791300000000,
   AdHistoryIndexes1791400000000,
+  EngineHookup1791500000000,
 ];

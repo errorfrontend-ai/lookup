@@ -1,0 +1,34 @@
+{
+  "$id": "https://contracts.lookup.invalid/register-install-input/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/RegisterInstallInput",
+  "$defs": {
+    "RegisterInstallInput": {
+      "type": "object",
+      "properties": {
+        "install_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "ANDROID",
+            "IOS"
+          ]
+        },
+        "app_version": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$"
+        }
+      },
+      "required": [
+        "install_id",
+        "platform",
+        "app_version"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

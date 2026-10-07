@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ClsModule } from 'nestjs-cls';
 import { AuditModule } from './common/audit/audit.module.js';
+import { ListenerAuthenticationModule } from './common/listener-authentication/listener-authentication.module.js';
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter.js';
 import { RateLimitingModule } from './common/rate-limiting/rate-limiting.module.js';
 import { SecurityModule } from './common/security/security.module.js';
@@ -14,9 +15,12 @@ import { ClientErrorsModule } from './features/client-errors/client-errors.modul
 import { CampaignsModule } from './features/campaigns/campaigns.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
+import { ListenerInstallsModule } from './features/listener-installs/listener-installs.module.js';
+import { RecognitionModule } from './features/recognition/recognition.module.js';
 import { StationOverviewModule } from './features/station-overview/station-overview.module.js';
 import { StationsModule } from './features/stations/stations.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
+import { JobQueuesModule } from './infrastructure/job-queues/job-queues.module.js';
 import { KeyValueStoreModule } from './infrastructure/key-value-store/key-value-store.module.js';
 import { LoggingModule } from './infrastructure/logging/logging.module.js';
 import { ObjectStorageModule } from './infrastructure/object-storage/object-storage.module.js';
@@ -34,9 +38,11 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     DatabaseModule,
     KeyValueStoreModule,
     ObjectStorageModule,
+    JobQueuesModule,
     SecurityModule,
     RateLimitingModule,
     AuditModule,
+    ListenerAuthenticationModule,
     // Features. AuthenticationModule also installs the guard that makes every route private by default.
     AuthenticationModule,
     HealthModule,
@@ -48,6 +54,9 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     CampaignsModule,
     StationOverviewModule,
     ClientErrorsModule,
+    // The listener app (Step 3).
+    ListenerInstallsModule,
+    RecognitionModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

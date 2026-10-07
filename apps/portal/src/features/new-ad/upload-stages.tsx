@@ -13,9 +13,8 @@ interface Stage {
 }
 
 /**
- * The three things that happen to the audio, in plain words: it goes up, it is checked, and (once the
- * recognition service is switched on) it is prepared so listeners' phones can recognise it. In this
- * version preparing never finishes by itself, so the last stage says so honestly.
+ * The three things that happen to the audio, in plain words: it goes up, it is checked, and it is
+ * prepared so listeners' phones can recognise it (the fingerprint worker, usually within a minute).
  */
 function stagesFor(ad: AdDetail | undefined, upload: UploadState | undefined): Stage[] {
   const isVerified = ad?.status === 'PROCESSING' || ad?.status === 'READY' || ad?.status === 'NEEDS_REVIEW';
@@ -33,12 +32,14 @@ function stagesFor(ad: AdDetail | undefined, upload: UploadState | undefined): S
     state: hasChecked ? 'done' : phase === 'checking' ? 'current' : 'todo',
     label: hasChecked ? 'Checked' : phase === 'checking' ? 'Checking the file…' : 'Check the file',
   };
-  const preparing: Stage = {
-    id: 'prepare',
-    state: ad?.status === 'READY' ? 'done' : isVerified ? 'waiting' : 'todo',
-    label: ad?.status === 'READY' ? 'Ready for listeners' : isVerified ? 'Not prepared for recognition yet' : 'Ready for listeners',
-    note: isVerified && ad?.status !== 'READY' ? "This happens once Look Up's recognition service is switched on. You don't need to wait for it." : undefined,
-  };
+  const preparing: Stage =
+    ad?.status === 'READY'
+      ? { id: 'prepare', state: 'done', label: 'Ready for listeners' }
+      : ad?.status === 'NEEDS_REVIEW'
+        ? { id: 'prepare', state: 'waiting', label: 'Being checked by Look Up', note: "We'll let you know here once it's ready." }
+        : isVerified
+          ? { id: 'prepare', state: 'current', label: 'Preparing it for recognition…', note: "This usually takes a minute. You don't need to wait for it." }
+          : { id: 'prepare', state: 'todo', label: 'Ready for listeners' };
   return [uploading, checking, preparing];
 }
 

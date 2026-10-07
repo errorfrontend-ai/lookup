@@ -1,0 +1,9 @@
+{
+  "description": "Every field is present; an absent margin is null, not missing",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_offset_milliseconds": 6016
+  }
+}

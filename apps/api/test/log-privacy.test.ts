@@ -75,7 +75,8 @@ describe('logged errors never carry personal values', () => {
     expectNoPersonalValues(lines);
     expect(lines.find((line) => line.level === 50)?.err).toMatchObject({
       code: '23514',
-      constraint: 'listener_installs_platform_check',
+      // The row breaks two checks (platform and app version); Postgres reports the app version's first.
+      constraint: 'listener_installs_app_version_check',
       table: 'listener_installs',
       schema: 'app',
     });

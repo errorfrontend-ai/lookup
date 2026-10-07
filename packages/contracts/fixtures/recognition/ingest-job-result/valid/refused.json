@@ -1,0 +1,7 @@
+{
+  "description": "The file cannot be used; the reason is recorded with the ad",
+  "result": {
+    "outcome": "REFUSED",
+    "is_linked_to_existing_audio": false
+  }
+}

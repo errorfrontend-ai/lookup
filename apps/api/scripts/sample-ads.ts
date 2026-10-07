@@ -32,12 +32,17 @@ interface SampleAd {
 }
 
 const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
+// On air at any hour, so the sample ads meant to be live now are live whenever the seed or its test runs.
+const ALL_DAY_EVERY_DAY = [
+  { days: EVERY_DAY, from: '00:00', to: '12:00' },
+  { days: EVERY_DAY, from: '12:00', to: '00:00' },
+];
 const SAMPLE_PHONE = '+260977123456';
 
 /** Ads in every state the portal shows, so a developer sees each badge, tab and warning at once. */
 const SAMPLE_ADS: SampleAd[] = [
-  { title: 'Summer service offer', clientName: 'Brand A', changedHoursAgo: 2, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: -10, endsInDays: 20, windows: [{ days: EVERY_DAY, from: '05:00', to: '23:00' }] } },
-  { title: 'Harvest festival', clientName: 'Brand B', changedHoursAgo: 5, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: -20, endsInDays: 1, windows: [{ days: EVERY_DAY, from: '05:00', to: '23:00' }] } },
+  { title: 'Summer service offer', clientName: 'Brand A', changedHoursAgo: 2, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: -10, endsInDays: 20, windows: ALL_DAY_EVERY_DAY } },
+  { title: 'Harvest festival', clientName: 'Brand B', changedHoursAgo: 5, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: -20, endsInDays: 1, windows: ALL_DAY_EVERY_DAY } },
   { title: 'Weekend sale', clientName: 'Brand B', changedHoursAgo: 26, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: 3, endsInDays: 28, windows: [{ days: [6, 7], from: '10:00', to: '14:00' }] } },
   { title: 'New menu launch', clientName: 'Brand A', changedHoursAgo: 30, uploadState: 'checked', hasButtons: true, campaign: { status: 'DRAFT', startsInDays: -2, endsInDays: 20, windows: [{ days: [1, 2, 3, 4, 5], from: '07:00', to: '09:00' }, { days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
   { title: 'Back to school offer', clientName: 'Brand A', changedHoursAgo: 50, uploadState: 'checked', hasButtons: false },

@@ -24,6 +24,14 @@ export const ERROR_CATALOG = {
   PAYLOAD_TOO_LARGE: { httpStatus: 413, message: 'The upload is too large.' },
   UNSUPPORTED_MEDIA_TYPE: { httpStatus: 415, message: 'This file type is not supported.' },
   RATE_LIMITED: { httpStatus: 429, message: 'Too many requests. Please wait a moment and try again.' },
+  // The listener app (Step 3). The app turns each into a screen: update, try again, or no match.
+  INSTALL_TOKEN_INVALID: { httpStatus: 401, message: 'This app needs to register again.' },
+  INVALID_AUDIO: { httpStatus: 400, message: "That recording couldn't be used. Please try again." },
+  RECOGNITION_IN_PROGRESS: { httpStatus: 409, message: 'This recording is still being identified.' },
+  CAPTURE_EXPIRED: { httpStatus: 422, message: 'This recording is too old to identify.' },
+  CAPTURE_TIME_INVALID: { httpStatus: 422, message: "This recording's time is not valid." },
+  RECOGNITION_BUSY: { httpStatus: 503, message: 'Look Up is busy right now. Please try again in a moment.' },
+  RECOGNITION_TIMEOUT: { httpStatus: 503, message: 'That took too long. Please try again.' },
   INTERNAL: { httpStatus: 500, message: 'Something went wrong on our side. Please try again.' },
   SERVICE_UNAVAILABLE: { httpStatus: 503, message: 'The service is temporarily unavailable. Please try again shortly.' },
 } as const satisfies Record<string, { httpStatus: number; message: string }>;

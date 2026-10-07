@@ -1,0 +1,63 @@
+{
+  "description": "Match scores stay on the server",
+  "response": {
+    "status": "MATCH",
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "is_deferred": false,
+    "captured_at": "2026-10-07T06:30:00Z",
+    "result": {
+      "kind": "CAMPAIGN",
+      "station": {
+        "id": "0192a6c4-1111-4000-8000-000000000001",
+        "name": "Station A",
+        "frequency_label": "98.1 FM",
+        "logo": null
+      },
+      "client": {
+        "name": "Brand A",
+        "logo": null
+      },
+      "title": "Summer service offer",
+      "card": {
+        "schema_version": 1,
+        "layout": "VERTICAL_STACK",
+        "header_image": null,
+        "actions": [
+          {
+            "type": "CALL",
+            "id": "0192a6c4-0000-4000-8000-000000000001",
+            "label": "Call us",
+            "style": "PRIMARY",
+            "phone_number_e164": "+260977123456"
+          },
+          {
+            "type": "WHATSAPP",
+            "id": "0192a6c4-0000-4000-8000-000000000002",
+            "label": "WhatsApp us",
+            "style": "SECONDARY",
+            "phone_number_e164": "+260966123456",
+            "prefilled_text": "Hi, I heard your ad on 98.1 FM.\nPlease send prices."
+          },
+          {
+            "type": "MAP",
+            "id": "0192a6c4-0000-4000-8000-000000000003",
+            "label": "Find our shop",
+            "style": "OUTLINE",
+            "latitude": -15.4167,
+            "longitude": 28.2833,
+            "place_name": "Cairo Road, Lusaka"
+          },
+          {
+            "type": "LINK",
+            "id": "0192a6c4-0000-4000-8000-000000000004",
+            "label": "See the menu",
+            "style": "OUTLINE",
+            "url": "https://example.co.zm/menu?utm_source=lookup"
+          }
+        ]
+      }
+    },
+    "match_margin": 3.5
+  }
+}

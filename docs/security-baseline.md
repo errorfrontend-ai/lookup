@@ -19,7 +19,7 @@ Test files are in `apps/api/test/` unless another folder is given.
 | The super-admin role reads every station through explicit policies, changes only statuses on users, ads, campaigns and installs, and never reads password hashes | migrations | `station-isolation-matrix.test.ts`, `database-catalogue.test.ts` | Built |
 | The fingerprint worker can use only the `fingerprints` schema; neither API role has any privilege there | migrations | `station-isolation-matrix.test.ts`, `database-catalogue.test.ts` | Built |
 | Append-only audit trail for every login role; action cards are immutable versions | migrations | `database-privileges.test.ts`, `station-isolation-matrix.test.ts` | Built |
-| Refresh tokens and recognition idempotency keys are out of the API role's reach; only narrow SECURITY DEFINER functions touch them | migrations | `database-privileges.test.ts`, `station-isolation-matrix.test.ts`, `portal-sessions-database.test.ts` | Built (recognition functions: step 3) |
+| Refresh tokens and recognition idempotency keys are out of the API role's reach; only narrow SECURITY DEFINER functions touch them | migrations (`recognition.claim_recognition`, `finish_recognition`) | `database-privileges.test.ts`, `station-isolation-matrix.test.ts`, `portal-sessions-database.test.ts`, `engine-hookup-database.test.ts` | Built |
 | Nothing for PUBLIC: no connect, no temporary tables, no `public` schema, no function execution unless granted | `create-database-roles.ts`, migration default privileges | `database-privileges.test.ts` | Built |
 | Server-side statement, lock-wait and idle-transaction timeouts and a fixed search path per role | `create-database-roles.ts` | `database-catalogue.test.ts`, `database-privileges.test.ts` | Built |
 | Partitions are reachable only through the parent table and its policies; future months are created at start-up and daily | Foundation migration, `recognition-event-partitions.ts` | `database-scaling.test.ts` | Built |
@@ -41,6 +41,7 @@ Test files are in `apps/api/test/` unless another folder is given.
 | Input validation with strict schemas; unknown fields rejected; errors name fields and reasons, never values | `common/validation/zod-validation.pipe.ts` | `request-security.test.ts`, `action-card-fixtures.test.ts` | Built |
 | Body size limit (100 KB JSON); parser failures answered in the envelope | `configure-http-application.ts`, `map-body-parser-errors.ts` | `error-responses.test.ts` | Built |
 | Slow-client protection: header, request and keep-alive timeouts | `configure-http-application.ts` | `request-security.test.ts` | Built |
+| Anonymous listener routes: registrations limited per address (60 an hour) and recognitions per address (300 a minute), counted before the body is read; at most 32 recognitions at once per API instance, reading the clip included (503 at once past it); a clip must arrive within 20 seconds (400); the listener routes' general per-address ceiling (600 a minute) sits above these, so one carrier address can serve many listeners while one sender with many installs cannot fill the queue or hold the API's memory | `features/listener-installs/`, `features/recognition/recognition.service.ts`, `read-recognize-request.ts`, `common/rate-limiting/` | `listener-installs.test.ts`, `recognize-route.test.ts` | Built |
 | Client address taken from exactly `TRUSTED_PROXY_COUNT` proxies | `app-config.ts` | deploy check | Built (verify on Render) |
 
 ## 3. Sign-in and sessions
@@ -55,7 +56,7 @@ Test files are in `apps/api/test/` unless another folder is given.
 | Sign-out and password change revoke sessions at once; every sign-in, refresh, sign-out, reuse and password change goes to the audit trail | StationPortal and DatabaseHardening migrations | `authentication.test.ts`, `portal-sessions-database.test.ts` | Built |
 | Role checks per station (owner, manager, analyst) on top of row-level security; another station's ids answer 404; a station that is not active cannot change content | `features/stations/station-access.guard.ts` | `stations-and-clients.test.ts`, `ads-and-uploads.test.ts`, `cards-schedules-publishing.test.ts` | Built |
 | Two-factor sign-in (TOTP) for super admins | — | — | Planned (phase 5a) |
-| Listener app: install token issued at registration; per-install rate limits | — | — | Planned (step 3) |
+| Listener app: an anonymous install registers once (only a keyed hash of its id is stored) and gets a 30-day install token, its own HS256 key; every listener route needs it (401 `INSTALL_TOKEN_INVALID` before any other work); recognitions are limited per install (6 a minute, 60 a day); a listener token opens no portal route, whether sent as a bearer token or as the portal's session cookie. Installs cost nothing to make, so until the app sends an integrity verdict (Step 4) the per-install limits keep listeners fair to each other but are not an abuse control: the per-address limits in §2 are | `common/listener-authentication/`, `features/listener-installs/`, `features/recognition/` | `listener-installs.test.ts`, `recognize-route.test.ts`, `startup-checks.test.ts` | Built |
 
 ## 4. Uploads and audio
 
@@ -65,8 +66,8 @@ Test files are in `apps/api/test/` unless another folder is given.
 | Uploaded audio is checked by its first bytes (not its name or declared type) and its size before it is accepted; refused files are deleted | `audio-file-signatures.ts`, `ads.service.ts` | `ads-and-uploads.test.ts` | Built |
 | Storage failures answer with the generic envelope; bucket names and keys never reach a caller | `ads.service.ts` | `step-two-route-failures.test.ts` | Built |
 | The portal sends the file from the browser straight to the signed address with only the signed `Content-Type` header and no cookies; the bucket accepts cross-origin `PUT` with that header from the portal's origin only (design S2-D32) | `apps/portal/src/features/new-ad/send-file-to-storage.ts`; bucket CORS rule | `ad-upload-store.test.ts`, `apps/portal/e2e/new-ad-journey.spec.ts` (real upload in Chrome) | Built (local storage); production bucket at first deploy |
-| The worker holds no storage credentials: each job carries a short-lived download URL | — | — | Planned (step 3) |
-| Audio decoding runs with time and size caps; listener clips are deleted after matching and never logged | — | — | Planned (step 3) |
+| The worker holds no storage credentials: each ingest job carries a 30-minute download URL signed for the internal endpoint; a worker given any storage setting refuses to start | `infrastructure/job-queues/ingest-queue.ts`, `services/fingerprinter/workers/settings.py` | `services/fingerprinter/tests/test_workers.py`, `fingerprint-workers.test.ts` | Built |
+| Audio decoding runs with size caps (clips: 256 KiB, 16 s decoded; ads: 20 MiB, 121 s) and a decode deadline checked frame by frame (clips 1 s, ads 30 s), in pool processes that are abandoned and replaced at a hard cap on the whole task (clips 2.5 s, ads 45 s); the clip body is limited while it is read (413), checked by its first bytes (415), kept in memory only, never written to disk by the API or the workers, stored or logged, and removed from Valkey with its job, including when the API stops waiting for a job no worker took. While a job exists its clip is in Valkey's memory and in its append-only file, which keeps it until Valkey next rewrites that file (deploy check 5) | `features/recognition/read-recognize-request.ts`, `clip-checks.ts`; `services/fingerprinter/workers/engine_pool.py`, `engine_process.py` | `recognize-route.test.ts`, `fingerprint-workers.test.ts`, `services/fingerprinter/tests/test_workers.py`, `test_engine_rules.py` | Built |
 
 ## 5. What listeners see
 
@@ -75,7 +76,8 @@ Test files are in `apps/api/test/` unless another folder is given.
 | Action cards validated against one shared schema: no unknown fields, links https only and never shorteners, phone numbers in E.164, at most 6 actions, labels at most 32 characters | `packages/contracts` | `packages/contracts/test/action-card-schema.test.ts`, `action-card-fixtures.test.ts` | Built |
 | The app builds call, WhatsApp and map links itself from validated fields, so a card can never carry `javascript:` or another scheme | `packages/contracts/src/action-card/action-uris.ts` (rules); listener app | `packages/contracts/test/` (rules) | Built (rules); Planned (app, step 4) |
 | The portal turns what a station types into the card's own forms before saving and refuses what the card refuses, each with a plain reason: `http://`, link shorteners, a login in an address, number addresses, ports, spaces, `javascript:` and other schemes; locations from a pasted Google Maps link or coordinates, never 0, 0; the card's contract rules check the result, and the API checks again. Links the portal itself shows ("Try it", "Check on Google Maps") are built only from the checked values. Typed text never reaches a problem message (design S2-D30, S2-D31, S2-D34) | `apps/portal/src/features/ad-buttons/` | `read-web-address.test.ts`, `parse-map-location.test.ts`, `validate-button-drafts.test.ts`, `buttons-step.test.tsx` (mutation-checked) | Built |
-| New stations go live only after super-admin approval; a suspended station's cards are never shown; "Report this" on every card | — | — | Planned (phase 5a) |
+| Only an ACTIVE station ever answers a listener: a station pending verification or review, rejected or suspended never has its cards shown | `recognition.find_stations_for_audio` (migration EngineHookup) | `engine-hookup-database.test.ts`, `recognize-route.test.ts` | Built |
+| New stations go live only after super-admin approval; "Report this" on every card | — | — | Planned (phase 5a) |
 
 ## 6. Secrets and configuration
 
@@ -103,9 +105,12 @@ Test files are in `apps/api/test/` unless another folder is given.
 
 | Control | Where | Proven by | Status |
 |---|---|---|---|
-| Jobs carry the request id into worker logs; failures return a code, never exception text | — | — | Planned (step 3) |
-| Jobs carry a deadline; finished jobs and their audio are removed from the queue store | — | — | Planned (step 3) |
-| The fingerprint worker can reach only the `fingerprints` schema and one status function | migrations | `station-isolation-matrix.test.ts` | Built (grants); Planned (function, step 3) |
+| Jobs carry the request id into worker logs (structlog JSON, with the stack on errors); a failed job's reason is a code only, never exception text, and the API turns it into a catalogue error (an unknown code is a plain 500) | `services/fingerprinter/workers/queue_runner.py`, `job_failure.py`; `infrastructure/job-queues/recognize-queue.ts` | `services/fingerprinter/tests/test_workers.py`, `recognize-route.test.ts`, `fingerprint-workers.test.ts` | Built |
+| Jobs carry a deadline (a recognize job past it is dropped undecoded); recognize jobs are tried once and removed when done or failed; ingest jobs are removed after their last try, with their download URL | `infrastructure/job-queues/` | `recognize-route.test.ts`, `fingerprint-workers.test.ts` | Built |
+| The ingest sweep re-adds an ad that waited with no job at most once every 15 minutes and at most 50 a run, with a fresh short-lived download address, and logs an error for an ad that keeps failing; ads that keep failing never crowd out the rest | `features/ads/ingest-sweep.ts` | `ingest-sweep.test.ts` | Built |
+| The fingerprint worker can reach only the `fingerprints` schema and one status function (`fingerprints.record_ad_ingest_result`), and cannot read or change station data | migrations | `station-isolation-matrix.test.ts`, `engine-hookup-database.test.ts`, `services/fingerprinter/tests/test_ingest_store.py` | Built |
+| Recognition reads across stations only through `recognition.find_stations_for_audio`, which returns what a listener may see (station, client, title, card) and never limits, counters or other internals; answers are checked against the shared response contract before they leave | migrations; `features/recognition/recognition.service.ts` | `engine-hookup-database.test.ts`, `recognize-route.test.ts`, `packages/contracts/test/recognition-schemas.test.ts` | Built |
+| Admission control: a circuit breaker, the queue depth, the workers' heartbeat and the number of recognitions in progress on the instance refuse clips at once with 503 and Retry-After, naming no queue, worker or store | `features/recognition/recognition.service.ts`, `recognition-breaker.ts`, `infrastructure/job-queues/recognize-queue.ts` | `recognize-route.test.ts`, `recognition-rules.test.ts`, `fingerprint-workers.test.ts` | Built |
 
 ## 9. Infrastructure and supply chain
 
@@ -123,3 +128,6 @@ Test files are in `apps/api/test/` unless another folder is given.
 2. The number of proxy hops in front of the API, so `TRUSTED_PROXY_COUNT` is exact.
 3. TLS on the internal database connection (`DATABASE_TLS_MODE`), and authentication on the Key Value store.
 4. The R2 bucket for ad uploads allows cross-origin `PUT` with a `Content-Type` header from the portal's production origin, and from no other origin (design S2-D32); without it every upload from the portal fails.
+5. The Key Value store rewrites its append-only file regularly (automatic rewrite on, or a scheduled
+   `BGREWRITEAOF`), so listener clips from finished recognize jobs do not stay on its disk; and it runs
+   with `noeviction`, so a job is never dropped silently.

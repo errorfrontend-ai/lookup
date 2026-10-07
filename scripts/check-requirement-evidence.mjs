@@ -1,6 +1,7 @@
 // Checks that every ticked requirement points at evidence that exists: each "path :: suite > test name"
 // after *Evidence:* must name a file in the repository, and the last part of the name must appear in that
-// file or in the shared fixtures (tests named after fixture cases). A tick with no evidence fails too.
+// file or in the shared fixtures (tests named after fixture cases). A tick with no evidence, or with
+// evidence that names no test, fails too.
 //   node scripts/check-requirement-evidence.mjs          (exits 1 when anything is missing)
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -85,10 +86,12 @@ for (const checklist of filesUnder(requirementsFolder).filter((path) => path.end
       problems.push(`${item}: ticked with no *Evidence:*`);
       continue;
     }
+    let itemReferences = 0;
     for (const part of evidence.split(/\s;\s/)) {
       const reference = /([\w./-]+\.(?:ts|tsx|py|dart|js|mjs))\s*::\s*(.+)/.exec(part.trim().replace(/\.$/, ''));
       if (!reference) continue;
       references += 1;
+      itemReferences += 1;
       const [, path, name] = reference;
       const fullPath = join(repositoryRoot, path);
       if (!existsSync(fullPath)) {
@@ -101,6 +104,8 @@ for (const checklist of filesUnder(requirementsFolder).filter((path) => path.end
       if (!testName) continue;
       if (!testNameIsPresent(testName, textOf(fullPath))) problems.push(`${item}: test not found: ${path} :: ${testName}`);
     }
+    // Evidence must name at least one test: prose alone ("reviewed", "see the design") is not proof.
+    if (itemReferences === 0) problems.push(`${item}: ticked, but its evidence names no test (path :: test name)`);
   }
 }
 

@@ -1,0 +1,45 @@
+{
+  "$id": "https://contracts.lookup.invalid/ingest-job-data/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/IngestJobData",
+  "$defs": {
+    "IngestJobData": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ad_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "download_address": {
+          "type": "string",
+          "maxLength": 4096,
+          "format": "uri"
+        },
+        "deadline_epoch_milliseconds": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "fingerprint_version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "request_id",
+        "ad_id",
+        "download_address",
+        "deadline_epoch_milliseconds",
+        "fingerprint_version"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "description": "The ad no longer waited for this file",
+  "result": {
+    "outcome": "SKIPPED",
+    "is_linked_to_existing_audio": false
+  }
+}

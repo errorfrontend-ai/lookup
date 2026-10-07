@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -125,6 +125,33 @@ describe('station isolation and role privileges, table by table', () => {
       );
       expect(visible.rows.length).toBeGreaterThan(0);
       expect(visible.rows.every((row) => row.station_id === stationIds.A)).toBe(true);
+    });
+
+    it('S3-SHAREDAUDIO-03: two stations whose ads share one recording each see only their own ad, buttons, campaign and recognitions', async () => {
+      const assetId = randomUUID();
+      await setupClient.query(
+        `INSERT INTO fingerprints.audio_assets (id, content_sha256, duration_milliseconds, fingerprint_version, hash_count) VALUES ($1, $2, 30000, 1, 500)`,
+        [assetId, randomBytes(32)],
+      );
+      const bothAds = [data.A.ad, data.B.ad];
+      try {
+        await setupClient.query('UPDATE app.ads SET audio_asset_id = $1 WHERE id = ANY($2)', [assetId, bothAds]);
+        for (const station of ['A', 'B'] as const) {
+          const seen = await asLookupApi(apiClient, { stationId: stationIds[station], userId: data[station].owner }, async (client) => {
+            const ids = async (sql: string, parameters: unknown[]) => (await client.query(sql, parameters)).rows.map((row) => row.id as string);
+            return {
+              ads: await ids('SELECT id FROM app.ads WHERE audio_asset_id = $1', [assetId]),
+              cards: await ids('SELECT id FROM app.action_cards WHERE id = ANY($1)', [[data.A.card, data.B.card]]),
+              campaigns: await ids('SELECT id FROM app.campaigns WHERE ad_id = ANY($1)', [bothAds]),
+              recognitions: await ids('SELECT id FROM app.recognition_events WHERE id = ANY($1)', [[data.A.recognition, data.B.recognition]]),
+            };
+          });
+          expect(seen, station).toEqual({ ads: [data[station].ad], cards: [data[station].card], campaigns: [data[station].campaign], recognitions: [data[station].recognition] });
+        }
+      } finally {
+        await setupClient.query('UPDATE app.ads SET audio_asset_id = NULL WHERE id = ANY($1)', [bothAds]);
+        await setupClient.query('DELETE FROM fingerprints.audio_assets WHERE id = $1', [assetId]);
+      }
     });
 
     it('S1-ISOLATION-16: unresolved recognition events (no station) are visible to no station', async () => {

@@ -10,6 +10,14 @@ export function lookupApiClient(): pg.Client {
   return new pg.Client({ connectionString: process.env.DATABASE_URL, application_name: 'lookup-tests-api' });
 }
 
+/** A connection as lookup_fingerprint_worker, the role the Python workers use. */
+export function fingerprintWorkerClient(): pg.Client {
+  const address = new URL(process.env.DATABASE_URL as string);
+  address.username = 'lookup_fingerprint_worker';
+  address.password = encodeURIComponent(process.env.LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD ?? '');
+  return new pg.Client({ connectionString: address.toString(), application_name: 'lookup-tests-fingerprint-worker' });
+}
+
 /**
  * Run statements as lookup_api inside a transaction that always rolls back, with the station and
  * user context set the same way StationScopedTransaction sets it.

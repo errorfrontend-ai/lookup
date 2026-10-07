@@ -2,7 +2,7 @@ import type { AdHistoryEvent } from '@lookup/contracts';
 import { describe, expect, it } from 'vitest';
 import { describeHistoryActor, describeHistoryEvent } from './ad-history-words';
 
-const base = { id: '1', occurredAt: '2026-10-06T08:00:00Z', actorName: 'Chanda Mwale' };
+const base = { id: '1', occurredAt: '2026-10-06T08:00:00Z', actorName: 'Chanda Mwale', isByLookUp: false };
 const event = (rest: object) => ({ ...base, ...rest }) as AdHistoryEvent;
 
 describe('describeHistoryEvent', () => {
@@ -12,6 +12,8 @@ describe('describeHistoryEvent', () => {
     [{ kind: 'ad_renamed', previousTitle: 'Summer', title: 'Summer service offer' }, ['renamed the ad from “Summer” to “Summer service offer”']],
     [{ kind: 'audio_upload_restarted', fileName: 'again.mp3' }, ['started a new upload (again.mp3)']],
     [{ kind: 'audio_upload_checked' }, ['uploaded the audio']],
+    [{ kind: 'audio_ready' }, ['prepared the audio, so listeners can identify the ad']],
+    [{ kind: 'audio_upload_refused', refusalReason: 'audio_too_short' }, ['had the audio refused: This audio is shorter than 5 seconds. Upload the full ad.']],
     [{ kind: 'audio_upload_refused', refusalReason: 'not_the_declared_audio_format' }, ["had the audio refused: This file isn't a valid MP3, WAV or M4A audio file. Choose a different file."]],
     [{ kind: 'audio_upload_refused', refusalReason: 'something_new' }, ["had the audio refused: This file couldn't be used. Choose a different file."]],
     [{ kind: 'ad_published', isRepublish: false }, ['published the ad']],
@@ -60,5 +62,14 @@ describe('describeHistoryActor', () => {
   it('uses the person\'s name, or says a former team member did it', () => {
     expect(describeHistoryActor(event({ kind: 'audio_upload_checked' }))).toBe('Chanda Mwale');
     expect(describeHistoryActor(event({ kind: 'audio_upload_checked', actorName: null }))).toBe('A former team member');
+  });
+});
+
+describe('who did it', () => {
+  it('credits Look Up, not a person, for preparing the audio and for refusing a file it could not use', () => {
+    expect(describeHistoryActor(event({ kind: 'audio_ready', actorName: null, isByLookUp: true }))).toBe('Look Up');
+    expect(describeHistoryActor(event({ kind: 'audio_upload_refused', refusalReason: 'audio_unreadable', actorName: null, isByLookUp: true }))).toBe('Look Up');
+    expect(describeHistoryActor(event({ kind: 'audio_upload_checked', actorName: null }))).toBe('A former team member');
+    expect(describeHistoryActor(event({ kind: 'audio_upload_checked' }))).toBe('Chanda Mwale');
   });
 });

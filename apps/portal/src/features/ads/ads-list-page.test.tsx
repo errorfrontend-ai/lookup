@@ -60,7 +60,7 @@ describe('Ads list', () => {
       const [summerRow, weekendRow] = within(table).getAllByRole('row').slice(1) as HTMLElement[];
       expect(within(summerRow as HTMLElement).getByRole('rowheader')).toHaveTextContent('Summer service offerBrand A');
       expect(within(summerRow as HTMLElement).getByText('On air now')).toBeInTheDocument();
-      expect(within(summerRow as HTMLElement).getByText('Audio checked')).toBeInTheDocument();
+      expect(within(summerRow as HTMLElement).getByText('Preparing for recognition')).toBeInTheDocument();
       expect(within(summerRow as HTMLElement).getByText('Mon–Fri · 07:00–09:00')).toBeInTheDocument();
       expect(within(summerRow as HTMLElement).getByText('1 – 31 Oct')).toBeInTheDocument();
       expect(within(summerRow as HTMLElement).getByText('2 hours ago')).toBeInTheDocument();
@@ -83,7 +83,7 @@ describe('Ads list', () => {
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
       expect(within(card).getByText('Brand A')).toBeInTheDocument();
       expect(within(card).getByText('On air now')).toBeInTheDocument();
-      expect(within(card).getByText('Audio checked')).toBeInTheDocument();
+      expect(within(card).getByText('Preparing for recognition')).toBeInTheDocument();
       expect(within(card).getByText('Mon–Fri · 07:00–09:00')).toBeInTheDocument();
       expect(within(card).getByText('Changed 2 hours ago')).toBeInTheDocument();
       expect(within(card).getByRole('button', { name: 'Play Summer service offer' })).toBeInTheDocument();

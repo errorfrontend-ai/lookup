@@ -1,0 +1,29 @@
+{
+  "$id": "https://contracts.lookup.invalid/ingest-job-result/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/IngestJobResult",
+  "$defs": {
+    "IngestJobResult": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "READY",
+            "REFUSED",
+            "SKIPPED",
+            "EXPIRED"
+          ]
+        },
+        "is_linked_to_existing_audio": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "outcome",
+        "is_linked_to_existing_audio"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

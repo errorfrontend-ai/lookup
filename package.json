@@ -18,6 +18,7 @@
     "build:contracts": "npm run build -w @lookup/contracts",
     "test": "npm test --workspaces",
     "typecheck": "npm run typecheck --workspaces",
-    "check:requirements": "node scripts/check-requirement-evidence.mjs"
+    "check:requirements": "node scripts/check-requirement-evidence.mjs",
+    "workers": "node scripts/run-fingerprint-workers.mjs"
   }
 }

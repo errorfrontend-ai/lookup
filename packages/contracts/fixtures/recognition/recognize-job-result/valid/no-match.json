@@ -1,0 +1,10 @@
+{
+  "description": "Nothing matched well enough: no recording is named",
+  "result": {
+    "status": "NO_MATCH",
+    "audio_asset_number": null,
+    "aligned_hash_count": 3,
+    "match_margin": 1.5,
+    "match_offset_milliseconds": null
+  }
+}

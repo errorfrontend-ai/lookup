@@ -1,0 +1,11 @@
+{
+  "description": "The worker names the recording by its number, never an ad",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_margin": 3.5,
+    "match_offset_milliseconds": 6016,
+    "ad_id": "0192a6c4-0000-4000-8000-0000000000aa"
+  }
+}

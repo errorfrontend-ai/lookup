@@ -84,6 +84,18 @@ describe('database catalogue', () => {
       );
       expect(offenders).toEqual([]);
     });
+
+    it('S3-STRUCTURE-02: every yes-or-no column and function output is named as a question (is_ or has_)', async () => {
+      const booleans = await rows<{ name: string }>(
+        `SELECT table_schema || '.' || table_name || '.' || column_name AS name FROM information_schema.columns
+          WHERE table_schema IN ('app', 'fingerprints', 'recognition') AND data_type = 'boolean'
+         UNION ALL
+         SELECT specific_schema || '.' || specific_name || '.' || parameter_name FROM information_schema.parameters
+          WHERE specific_schema IN ('app', 'fingerprints', 'recognition') AND data_type = 'boolean' AND parameter_mode IN ('OUT', 'INOUT')`,
+      );
+      expect(booleans.length).toBeGreaterThan(2);
+      expect(booleans.filter((boolean) => !/\.(is|has)_[a-z_]+$/.test(boolean.name))).toEqual([]);
+    });
   });
 
   describe('roles', () => {
@@ -195,6 +207,24 @@ describe('database catalogue', () => {
         );
         expect(column?.attnotnull, tableName).toBe(true);
       }
+    });
+
+    it('S3-PRIVACY-01: no table can hold a clip: the only binary columns are keyed hashes and checksums', async () => {
+      const binaryColumns = await rows<{ name: string }>(
+        `SELECT table_schema || '.' || table_name || '.' || column_name AS name FROM information_schema.columns
+          WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND data_type = 'bytea' ORDER BY 1`,
+      );
+      expect(binaryColumns.map((column) => column.name)).toEqual([
+        'app.ads.upload_content_sha256', 'app.listener_installs.install_id_hash', 'app.refresh_tokens.token_hash', 'fingerprints.audio_assets.content_sha256',
+      ]);
+    });
+
+    it('S3-SHAREDAUDIO-02: a recording names no station: no column of the fingerprints tables refers to a station, client, ad or campaign', async () => {
+      const columns = await rows<{ table_name: string; column_name: string }>(
+        `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'fingerprints' ORDER BY table_name, ordinal_position`,
+      );
+      expect(columns.map((column) => column.table_name)).toEqual(expect.arrayContaining(['audio_assets', 'hashes_version_1']));
+      expect(columns.filter((column) => /station|client|campaign|ad_id|owner/.test(column.column_name))).toEqual([]);
     });
 
     it('S1-PRIVILEGES-11: the API roles hold no privilege of any kind on the fingerprints schema or its tables', async () => {

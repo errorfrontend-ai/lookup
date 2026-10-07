@@ -38,6 +38,13 @@ class MatchResult:
             return float("inf")
         return self.best.aligned_landmarks / self.runner_up.aligned_landmarks
 
+    @property
+    def margin_over_runner_up(self) -> float | None:
+        """The margin as a plain number, or None when nothing came second. (JSON cannot carry the
+        infinite margin of an uncontested match, and the worker's result travels as JSON.)"""
+        margin = self.margin
+        return None if margin == float("inf") else margin
+
 
 def rank_candidates(matches: Matches, limit: int = 2) -> list[Candidate]:
     """Best offset per asset, assets ordered by aligned landmark count (desc)."""

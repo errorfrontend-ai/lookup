@@ -35,6 +35,7 @@ describe('describeAdHistoryEvent', () => {
       id: '42',
       occurredAt: '2026-10-06T08:15:00.000000Z',
       actorName: 'Chanda Mwale',
+      isByLookUp: false,
       kind: 'audio_upload_checked',
     });
     expect(describeAdHistoryEvent(row({ action: 'ad_upload_verified', actor_full_name: null }))?.actorName).toBeNull();
@@ -45,6 +46,19 @@ describe('describeAdHistoryEvent', () => {
     expect(describeAdHistoryEvent(row({ action: 'ad_created', changes: { title: 'x', upload } }))).toMatchObject({ kind: 'ad_created', fileName: 'offer.mp3' });
     expect(describeAdHistoryEvent(row({ action: 'ad_upload_restarted', changes: { upload } }))).toMatchObject({ kind: 'audio_upload_restarted', fileName: 'offer.mp3' });
     expect(describeAdHistoryEvent(row({ action: 'ad_created', changes: null }))).toMatchObject({ fileName: null });
+  });
+
+  it('credits Look Up with preparing the audio and with refusing a file the worker could not use, never a person', () => {
+    expect(describeAdHistoryEvent(row({ action: 'ad_audio_ready', actor_full_name: null, changes: { durationMilliseconds: 30000 } }))).toEqual({
+      id: '42',
+      occurredAt: '2026-10-06T08:15:00.000000Z',
+      actorName: null,
+      isByLookUp: true,
+      kind: 'audio_ready',
+    });
+    expect(describeAdHistoryEvent(row({ action: 'ad_upload_refused', actor_full_name: null, changes: { reason: 'audio_too_short' } }))).toMatchObject({ isByLookUp: true, refusalReason: 'audio_too_short' });
+    // A refusal the API made when the upload was completed was a person's action.
+    expect(describeAdHistoryEvent(row({ action: 'ad_upload_refused', changes: { reason: 'size_or_type_mismatch' } }))).toMatchObject({ isByLookUp: false, actorName: 'Chanda Mwale' });
   });
 
   it('reads a refused upload and a rename', () => {

@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from bench.make_test_audio import write_test_audio
 from bench.manifest import ManifestError, load_manifest
 from bench.run import main
 from bench.synthetic_audio import generate_corpus
+from lookup_fingerprint import FingerprintParameters, MatchThresholds, Matcher, MemoryIndex, decode_audio, fingerprint
 
 
 @pytest.fixture(scope="module")
@@ -30,6 +32,11 @@ def test_gate_passes_on_clean_corpus(corpus, tmp_path):
     assert report["rates"]["accuracy_8_second_clips"] == 1.0
     assert report["rates"]["false_positive_rate"] == 0.0
     assert report["deduplication"]["separable"] is True
+    # Every stage's time is reported, as p50 and p95, in the JSON and in the readable report.
+    assert set(report["latency_milliseconds"]) >= {"decode", "fingerprint", "lookup", "align", "total"}
+    assert all({"p50", "p95"} <= set(stage) for stage in report["latency_milliseconds"].values())
+    readable = sorted(tmp_path.glob("*/report.md"))[-1].read_text(encoding="utf-8")
+    assert "## Latency (ms)" in readable and "| decode |" in readable and "| total |" in readable
 
 
 def test_gate_can_fail(corpus, tmp_path):
@@ -68,3 +75,24 @@ def test_manifest_reports_every_problem(tmp_path):
     message = str(exception_information.value)
     for fragment in ("2 references", "file not found", "'ad9' has no reference", "role 'bogus'"):
         assert fragment in message
+
+
+def test_each_end_to_end_clip_matches_its_own_ad_and_the_unrelated_clip_matches_neither(tmp_path):
+    """The files the API's end-to-end tests send (S3-TESTS-15), with both ads indexed and the production
+    thresholds: clip.m4a is ad.wav from second 6, second-clip.m4a is second-ad.wav from second 2 (and not
+    ad.wav), and unrelated.m4a is neither."""
+    write_test_audio(tmp_path)
+    parameters = FingerprintParameters()
+    index = MemoryIndex()
+    for audio_asset_number, file_name in ((1, "ad.wav"), (2, "second-ad.wav")):
+        samples = decode_audio((tmp_path / file_name).read_bytes(), parameters.sample_rate)
+        index.add(audio_asset_number, fingerprint(samples, parameters))
+    matcher = Matcher(index, parameters, MatchThresholds())
+
+    outcomes = {}
+    for file_name in ("clip.m4a", "second-clip.m4a", "unrelated.m4a"):
+        result = matcher.recognize_clip((tmp_path / file_name).read_bytes()).result
+        matched = result.status == "MATCH"
+        outcomes[file_name] = (result.status, result.best.audio_asset_number if matched else None,
+                               round(parameters.frames_to_seconds(result.best.offset_frames)) if matched else None)
+    assert outcomes == {"clip.m4a": ("MATCH", 1, 6), "second-clip.m4a": ("MATCH", 2, 2), "unrelated.m4a": ("NO_MATCH", None, None)}

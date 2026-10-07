@@ -1,0 +1,10 @@
+{
+  "description": "A count is never below zero",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": -1,
+    "match_margin": 3.5,
+    "match_offset_milliseconds": 6016
+  }
+}

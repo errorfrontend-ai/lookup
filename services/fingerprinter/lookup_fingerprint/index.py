@@ -110,24 +110,41 @@ class PostgresIndex:
 
     def __init__(
         self,
-        connection_string: str,
+        connection_string: str | None = None,
         table: str = "fingerprints.hashes_version_1",
         statement_timeout_milliseconds: int = 800,
+        *,
+        connection=None,
+        connect_timeout_seconds: int = 10,
     ) -> None:
+        """Opens its own connection from `connection_string`, or uses `connection` (a psycopg 3
+        connection the caller owns), so the ingest worker can write an asset, its hashes and the
+        ad's outcome in one transaction: `add` then runs as a savepoint inside the caller's. Opening its
+        own connection gives up after `connect_timeout_seconds`, so an unreachable database is an error,
+        not a wait."""
         import psycopg
         from psycopg import sql
 
+        if (connection_string is None) == (connection is None):
+            raise ValueError("give either a connection string or a connection")
         self._psycopg = psycopg
         schema_name, _, table_name = table.rpartition(".")
         self._schema = sql.Identifier(schema_name or "public")
         self._table = sql.Identifier(schema_name or "public", table_name)
         self._table_name = table_name
         self._statement_timeout_milliseconds = int(statement_timeout_milliseconds)
-        self._connection = psycopg.connect(connection_string, autocommit=False)
+        self._owns_connection = connection is None
+        self._connection = connection if connection is not None else psycopg.connect(
+            connection_string, autocommit=False, connect_timeout=connect_timeout_seconds)
         self._hash_counts: dict[int, int] = {}
 
+    @property
+    def connection(self):
+        return self._connection
+
     def close(self) -> None:
-        self._connection.close()
+        if self._owns_connection:
+            self._connection.close()
 
     def ensure_schema(self) -> None:
         from psycopg import sql

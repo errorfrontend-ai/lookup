@@ -8,10 +8,26 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { emitActionCardJsonSchema } from '../src/action-card/action-card-schema.js';
 import { emitErrorEnvelopeJsonSchema } from '../src/errors/error-envelope-schema.js';
+import {
+  emitIngestJobDataJsonSchema,
+  emitIngestJobResultJsonSchema,
+  emitRecognizeJobDataJsonSchema,
+  emitRecognizeJobResultJsonSchema,
+} from '../src/recognition/fingerprint-job-schemas.js';
+import { emitInstallRegistrationJsonSchema, emitRegisterInstallInputJsonSchema } from '../src/recognition/listener-install-schemas.js';
+import { emitRecognizeRequestFieldsJsonSchema, emitRecognizeResponseJsonSchema } from '../src/recognition/recognize-schemas.js';
 
 export const JSON_SCHEMA_FILES = {
   'action-card.schema.json': emitActionCardJsonSchema,
   'error-envelope.schema.json': emitErrorEnvelopeJsonSchema,
+  'register-install-input.schema.json': emitRegisterInstallInputJsonSchema,
+  'install-registration.schema.json': emitInstallRegistrationJsonSchema,
+  'recognize-request-fields.schema.json': emitRecognizeRequestFieldsJsonSchema,
+  'recognize-response.schema.json': emitRecognizeResponseJsonSchema,
+  'recognize-job-data.schema.json': emitRecognizeJobDataJsonSchema,
+  'recognize-job-result.schema.json': emitRecognizeJobResultJsonSchema,
+  'ingest-job-data.schema.json': emitIngestJobDataJsonSchema,
+  'ingest-job-result.schema.json': emitIngestJobResultJsonSchema,
 };
 
 export function formatJsonSchema(schema: Record<string, unknown>): string {

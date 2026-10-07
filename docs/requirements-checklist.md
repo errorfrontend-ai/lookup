@@ -20,7 +20,10 @@ How to read a line is explained at the top of part 1. In short:
 - `- [x]` only when a named test proves it, given after *Evidence:* as `path :: suite > test name`.
   Built but untested stays `- [ ]` and says so.
 - An item that was built differently by a recorded decision names the decision and stays unticked until
-  the user accepts the change.
+  the user accepts the change. When only a name or an inner mechanism differs and what the requirement
+  guarantees still holds, the tick says so after *Built as:*, naming the decision.
+- Gate checks that no test can hold (a run that must fail, a process check) stay unticked, marked
+  "checked at the gate", with the gate record that shows them.
 
 ## Checking the evidence
 

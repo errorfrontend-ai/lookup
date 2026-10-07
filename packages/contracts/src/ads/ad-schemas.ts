@@ -100,8 +100,20 @@ export interface AdCampaignSummary {
  * Why an uploaded file was refused and deleted (an ad's `processingErrorCode`). The portal turns each
  * into plain words; Step 3 adds the fingerprinting outcomes.
  */
-export const UPLOAD_REFUSAL_REASONS = ['size_or_type_mismatch', 'not_the_declared_audio_format'] as const;
+export const UPLOAD_REFUSAL_REASONS = [
+  // Checked by the API when the upload is completed.
+  'size_or_type_mismatch',
+  'not_the_declared_audio_format',
+  // Found by the ingest worker while preparing the audio for recognition (Step 3).
+  'audio_too_short',
+  'audio_too_long',
+  'no_audio_in_file',
+  'audio_unreadable',
+  'audio_took_too_long_to_read',
+] as const;
 export type UploadRefusalReason = (typeof UPLOAD_REFUSAL_REASONS)[number];
+/** The reasons only the ingest worker gives (so a refusal with one of these was Look Up's, not a person's). */
+export const INGEST_REFUSAL_REASONS = ['audio_too_short', 'audio_too_long', 'no_audio_in_file', 'audio_unreadable', 'audio_took_too_long_to_read'] as const;
 
 /**
  * Why an ad is under "Needs attention", most serious first. One rule in the database, so the ads

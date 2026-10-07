@@ -33,7 +33,9 @@ describe('status badges', () => {
     rerender(<FileStatusBadge status="AWAITING_UPLOAD" />);
     expect(screen.getByText('Waiting for the audio')).toBeInTheDocument();
     rerender(<FileStatusBadge status="PROCESSING" />);
-    expect(screen.getByText('Audio checked')).toBeInTheDocument();
+    expect(screen.getByText('Preparing for recognition')).toBeInTheDocument();
+    rerender(<FileStatusBadge status="READY" />);
+    expect(screen.getByText('Ready for listeners')).toBeInTheDocument();
     rerender(<FileStatusBadge status="FAILED" />);
     expect(screen.getByText('Upload refused')).toBeInTheDocument();
   });
@@ -53,9 +55,10 @@ describe('plain words for statuses', () => {
     }
   });
 
-  it('never promises that a checked upload is already recognised (that starts when recognition is switched on)', () => {
-    expect(describeFileStatus('PROCESSING').hint).toContain('once recognition is switched on');
+  it('never promises that a checked upload can be recognised before it is ready', () => {
+    expect(describeFileStatus('PROCESSING').hint).toContain('preparing it so listeners can identify it');
     expect(describeFileStatus('PROCESSING').label).not.toMatch(/ready/i);
+    expect(describeFileStatus('READY').hint).toBe('Listeners can identify this ad.');
   });
 
   it('says what to do about each reason an ad needs attention', () => {

@@ -42,6 +42,8 @@ describe('production configuration fails closed', () => {
     OBJECT_STORAGE_AD_UPLOADS_BUCKET: 'lookup-ad-uploads',
     DATABASE_TLS_MODE: 'require',
     ALLOWED_BROWSER_ORIGINS: 'https://portal.example.com',
+    LISTENER_INSTALL_TOKEN_SECRET: 'Zr7m0Qx2Lk9VpT4cWb6NyH1jS8dGfA3uEoI5aMnRtYv',
+    LISTENER_INSTALL_ID_PEPPER: 'Hb3Kq8Wz1Pn6Ty4Rc9Mv2Xs7Lj5Df0Ga1Ue8Io3YtNq',
   };
 
   it('accepts a sound production configuration', () => {
@@ -62,6 +64,28 @@ describe('production configuration fails closed', () => {
     expect(() =>
       loadAppConfig({ ...developmentConfig, AUTHENTICATION_SECRET: 'CHANGE_ME_TO_43_OR_MORE_BASE64URL_CHARACTERS_FROM_32_RANDOM_BYTES' }),
     ).toThrow(/AUTHENTICATION_SECRET: must be replaced with a random value/);
+  });
+
+  it('S3-INSTALLS-07: refuses a missing, short, placeholder or reused install-token secret or install-id pepper, never printing it', () => {
+    const developmentConfig = { ...soundProductionConfig, NODE_ENV: 'development' };
+    for (const secretName of ['LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER'] as const) {
+      for (const badValue of [undefined, 'too-short-to-be-random', 'CHANGE_ME_INSTALL_SECRET_43_CHARACTERS_OR_MORE_____']) {
+        let message = '';
+        try {
+          loadAppConfig({ ...developmentConfig, [secretName]: badValue });
+        } catch (error) {
+          message = (error as Error).message;
+        }
+        expect(message, `${secretName}=${String(badValue)}`).toContain(secretName);
+        if (badValue) expect(message).not.toContain(badValue);
+      }
+    }
+    expect(() => loadAppConfig({ ...developmentConfig, LISTENER_INSTALL_ID_PEPPER: developmentConfig.LISTENER_INSTALL_TOKEN_SECRET })).toThrow(
+      /must all be different/,
+    );
+    expect(() => loadAppConfig({ ...developmentConfig, LISTENER_INSTALL_TOKEN_SECRET: developmentConfig.AUTHENTICATION_SECRET })).toThrow(
+      /must all be different/,
+    );
   });
 
   it('refuses non-https browser origins', () => {

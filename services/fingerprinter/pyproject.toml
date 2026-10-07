@@ -3,22 +3,27 @@ name = "lookup-fingerprint"
 version = "0.1.0"
 description = "Look Up audio fingerprinting core, matcher workers and the Phase 0 benchmark harness"
 requires-python = ">=3.12"
+# Exact pins (S3-STACK-07): each was checked against Python 3.12 (the Docker image) and 3.14 (local).
 dependencies = [
-  "numpy>=2.1",
-  "scipy>=1.14",
-  "av>=14",            # PyAV: decodes AAC/Opus/MP3/WAV with bundled ffmpeg libs (no system ffmpeg needed)
+  "numpy==2.5.3",
+  "scipy==1.18.1",
+  "av==18.1.0",        # PyAV: decodes AAC/Opus/MP3/WAV with bundled ffmpeg libs (no system ffmpeg needed)
 ]
 
 [project.optional-dependencies]
-postgres = ["psycopg[binary]>=3.2"]
-dev = ["pytest>=8"]
+postgres = ["psycopg[binary]==3.3.6"]
+# The queue workers (workers/): BullMQ 3.3.0 runs the same Lua scripts as BullMQ 6 on the Node side.
+worker = ["bullmq==3.3.0", "structlog==26.1.0", "psycopg[binary]==3.3.6"]
+dev = ["pytest==9.1.1"]
 
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["lookup_fingerprint*", "bench*"]
+include = ["lookup_fingerprint*", "bench*", "workers*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# An empty parameter list (a fixture folder gone missing, say) fails collection rather than being skipped.
+empty_parameter_set_mark = "fail_at_collect"

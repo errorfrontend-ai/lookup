@@ -67,6 +67,17 @@ export class ObjectStorage implements OnApplicationShutdown {
     });
   }
 
+  /**
+   * A short-lived URL a fingerprint worker downloads an upload through. It is signed for the internal
+   * endpoint, which the workers reach (browsers get the public one), and it is the only way a worker
+   * reaches storage: the workers hold no credentials.
+   */
+  createWorkerDownloadUrl(objectKey: string, expiresInSeconds: number): Promise<string> {
+    return getSignedUrl(this.internalClient, new GetObjectCommand({ Bucket: this.adUploadsBucket, Key: objectKey }), {
+      expiresIn: expiresInSeconds,
+    });
+  }
+
   /** Size, type and entity tag of a stored object; null when there is no such object. */
   async describeObject(objectKey: string): Promise<StoredObjectFacts | null> {
     try {

@@ -1,15 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { waitForLogWrites } from './support/log-capture.js';
+import { aacClipBytes, defaultRecognizeFields, recognize, registerInstall } from './support/listener-test-kit.js';
 import { cookiesSetBy, PORTAL_ORIGIN, PortalTestUsers } from './support/portal-test-users.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
 
 /**
- * S1-LOGGING-07, S1-LOGGING-08, S1-LOGGING-15: with LOG_REQUEST_DETAILS switched on (for debugging
- * only), request lines carry headers, but credentials in them are still redacted. (This file runs in
+ * S1-LOGGING-07, S1-LOGGING-08, S1-LOGGING-15, S3-LOGGING-07: with LOG_REQUEST_DETAILS switched on (for
+ * debugging only), request lines carry headers, but credentials in them are still redacted, and a
+ * listener's clip and its fields are never logged. (This file runs in
  * its own process, so switching the setting here changes no other test.)
  */
 describe('request logging with LOG_REQUEST_DETAILS on', () => {
@@ -71,5 +74,28 @@ describe('request logging with LOG_REQUEST_DETAILS on', () => {
     expect((responseLine?.res as { headers?: Record<string, unknown> } | undefined)?.headers?.['set-cookie']).toBe('[redacted]');
     const logged = JSON.stringify(testApplication.logs.lines);
     for (const value of cookieValues) expect(logged).not.toContain(value);
+  });
+
+  it('a listener’s recognize request logs neither the clip nor its fields nor the install token, even with request details on', async () => {
+    const client = () => supertest(testApplication.application.getHttpServer());
+    const install = await registerInstall(client);
+    const installRowId = JSON.parse(Buffer.from(install.installToken.split('.')[1] as string, 'base64url').toString('utf8')).sub as string;
+    const marker = `clip-content-${randomUUID()}`;
+    const clip = Buffer.concat([aacClipBytes(2_048), Buffer.from(marker)]);
+    const fields = defaultRecognizeFields();
+    try {
+      const response = await recognize(client, { installToken: install.installToken, audio: clip, fields });
+      expect(response.headers['x-request-id']).toBeDefined();
+      await waitForLogWrites();
+      expect(testApplication.logs.find((line) => (line.req as { id?: string } | undefined)?.id === response.headers['x-request-id'])).toBeDefined();
+      const logged = JSON.stringify(testApplication.logs.lines);
+      for (const secret of [marker, clip.toString('base64').slice(0, 48), clip.subarray(0, 64).toString('hex'), install.installToken, install.installId, fields.idempotency_key as string, fields.captured_at as string, fields.sent_at as string]) {
+        expect(logged).not.toContain(secret);
+      }
+    } finally {
+      await setupClient.query('DELETE FROM app.recognition_idempotency_keys WHERE listener_install_id = $1', [installRowId]);
+      await setupClient.query('DELETE FROM app.recognition_events WHERE listener_install_id = $1', [installRowId]);
+      await setupClient.query('DELETE FROM app.listener_installs WHERE id = $1', [installRowId]);
+    }
   });
 });

@@ -1,0 +1,10 @@
+{
+  "description": "The clip began a moment before the ad",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_margin": 3.5,
+    "match_offset_milliseconds": -128
+  }
+}

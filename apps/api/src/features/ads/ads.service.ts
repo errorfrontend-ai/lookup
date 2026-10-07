@@ -17,11 +17,13 @@ import {
   type UploadRequest,
 } from '@lookup/contracts';
 import { Injectable } from '@nestjs/common';
+import { ClsService } from 'nestjs-cls';
 import { PinoLogger } from 'nestjs-pino';
 import type { EntityManager } from 'typeorm';
 import { AuditTrail } from '../../common/audit/audit-trail.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
+import { IngestQueue } from '../../infrastructure/job-queues/ingest-queue.js';
 import { ObjectStorage } from '../../infrastructure/object-storage/object-storage.js';
 import { type AdListRow, buildAdListQuery, nextAdListCursor } from './ad-list-query.js';
 import { type AdRecord, findAdRecord, toAdDetail, toAdSummary } from './ad-records.js';
@@ -50,6 +52,8 @@ export class AdsService {
     private readonly stationScopedTransaction: StationScopedTransaction,
     private readonly objectStorage: ObjectStorage,
     private readonly auditTrail: AuditTrail,
+    private readonly ingestQueue: IngestQueue,
+    private readonly requestContext: ClsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext('ads');
@@ -175,7 +179,7 @@ export class AdsService {
     const firstBytes = await this.objectStorage.readFirstBytes(objectKey, storedFacts.entityTag, AUDIO_SIGNATURE_BYTES_TO_READ);
     if (!isDeclaredAudioFormat(firstBytes, declaredType)) return this.refuseUpload(adId, objectKey, 'not_the_declared_audio_format');
 
-    return this.stationScopedTransaction.run(async (database) => {
+    const { detail, isNewlyAccepted } = await this.stationScopedTransaction.run(async (database) => {
       const accepted = (await database.query(
         `UPDATE app.ads SET status = 'PROCESSING', upload_entity_tag = $3, uploaded_at = now()
           WHERE id = $1 AND status = 'AWAITING_UPLOAD' AND upload_object_key = $2
@@ -190,8 +194,22 @@ export class AdsService {
           changes: { sizeBytes: storedFacts.sizeBytes, contentType: declaredType },
         });
       }
-      return toAdDetail(await findAdRecord(database, adId));
+      return { detail: toAdDetail(await findAdRecord(database, adId)), isNewlyAccepted: accepted.length > 0 };
     });
+    if (isNewlyAccepted) await this.queueIngest(adId, objectKey);
+    return detail;
+  }
+
+  /**
+   * Hands the verified upload to the ingest worker. The upload is already accepted, so a queue that
+   * can't be reached now doesn't fail the request: the ingest sweep adds the job a few minutes later.
+   */
+  private async queueIngest(adId: string, objectKey: string): Promise<void> {
+    try {
+      await this.ingestQueue.enqueue(adId, objectKey, this.requestContext.getId());
+    } catch (error) {
+      this.logger.warn({ err: error, adId }, 'the ingest job could not be added now; the ingest sweep will add it');
+    }
   }
 
   async list(query: AdListQuery): Promise<AdListPage> {

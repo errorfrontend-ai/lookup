@@ -65,6 +65,30 @@ def find_peaks(spectrogram: np.ndarray, parameters: FingerprintParameters) -> tu
     return frequency_bins[order].astype(np.int32), frames[order].astype(np.int32)
 
 
+def pack_landmarks(
+    anchor_bins: np.ndarray, target_bins: np.ndarray, time_deltas: np.ndarray, parameters: FingerprintParameters,
+) -> np.ndarray:
+    """Packs (anchor frequency bin, target frequency bin, time delta in frames) exactly into one
+    int64 per landmark. Nothing is truncated, so two different landmarks never share a hash."""
+    return ((anchor_bins.astype(np.int64) * parameters.frequency_bin_count + target_bins.astype(np.int64))
+            * (parameters.maximum_time_delta_frames + 1) + time_deltas.astype(np.int64))
+
+
+def unpack_landmarks(hashes: np.ndarray, parameters: FingerprintParameters) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The exact inverse of pack_landmarks: (anchor bins, target bins, time deltas)."""
+    hashes = np.asarray(hashes, dtype=np.int64)
+    time_deltas = hashes % (parameters.maximum_time_delta_frames + 1)
+    frequency_pairs = hashes // (parameters.maximum_time_delta_frames + 1)
+    return frequency_pairs // parameters.frequency_bin_count, frequency_pairs % parameters.frequency_bin_count, time_deltas
+
+
+def largest_landmark_hash(parameters: FingerprintParameters) -> int:
+    """The biggest hash these parameters can produce (it must fit the bigint hash column)."""
+    last_bin = parameters.frequency_bin_count - 1
+    return int(pack_landmarks(np.array([last_bin]), np.array([last_bin]),
+                              np.array([parameters.maximum_time_delta_frames]), parameters)[0])
+
+
 def landmarks(
     frequency_bins: np.ndarray, frames: np.ndarray, parameters: FingerprintParameters,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -81,10 +105,8 @@ def landmarks(
         time_deltas = target_frames - anchor_frames
         within_range = ((time_deltas >= parameters.minimum_time_delta_frames)
                         & (time_deltas <= parameters.maximum_time_delta_frames))
-        hash_values = ((anchor_bins[within_range].astype(np.int64) * parameters.frequency_bin_count
-                        + target_bins[within_range])
-                       * (parameters.maximum_time_delta_frames + 1) + time_deltas[within_range])
-        hash_parts.append(hash_values)
+        hash_parts.append(pack_landmarks(
+            anchor_bins[within_range], target_bins[within_range], time_deltas[within_range], parameters))
         offset_parts.append(anchor_frames[within_range].astype(np.int64))
     if not hash_parts:
         return np.empty(0, np.int64), np.empty(0, np.int32)

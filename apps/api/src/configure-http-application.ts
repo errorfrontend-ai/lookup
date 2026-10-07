@@ -26,7 +26,9 @@ export function configureHttpApplication(application: NestExpressApplication, co
   application.use(helmet());
   application.enableCors({ origin: [...config.ALLOWED_BROWSER_ORIGINS], credentials: true, maxAge: 600 });
   application.use(preventResponseCaching);
-  application.use(limitRequestsPerClientAddress(application.get(RateLimiter), config.RATE_LIMIT_REQUESTS_PER_MINUTE));
+  application.use(
+    limitRequestsPerClientAddress(application.get(RateLimiter), config.RATE_LIMIT_REQUESTS_PER_MINUTE, config.LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE),
+  );
   application.use(cookieParser());
   application.use(rejectCrossSiteCookieRequests(config.ALLOWED_BROWSER_ORIGINS));
   application.useBodyParser('json', { limit: '100kb' });

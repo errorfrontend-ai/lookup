@@ -108,36 +108,43 @@ export const CardAction = z
   .discriminatedUnion('type', [LinkAction, CallAction, WhatsAppAction, MapAction])
   .meta({ id: 'CardAction' });
 
+/**
+ * The rules a card keeps beyond its shape: one id per button, Zambian numbers with nine digits, links
+ * in canonical https form and not through a shortener, and no map at 0,0. The portal, the API on save,
+ * and every answer to a listener (ListenerCard) apply the same rules.
+ */
+export function checkActionCardRules(card: { actions: Array<z.infer<typeof CardAction>> }, context: z.RefinementCtx): void {
+  const seenActionIds = new Set<string>();
+  card.actions.forEach((action, actionIndex) => {
+    const reject = (path: Array<string | number>, reason: ActionCardRuleReason) =>
+      context.addIssue({ code: 'custom', path: ['actions', actionIndex, ...path], params: { reason }, message: reason });
+    if (seenActionIds.has(action.id)) reject(['id'], 'duplicate_action_id');
+    seenActionIds.add(action.id);
+    if (
+      (action.type === 'CALL' || action.type === 'WHATSAPP') &&
+      action.phone_number_e164.startsWith('+260') &&
+      !ZAMBIAN_PHONE_NUMBER_E164.test(action.phone_number_e164)
+    ) {
+      reject(['phone_number_e164'], 'zambian_number_must_have_nine_digits');
+    }
+    if (action.type === 'MAP' && action.latitude === 0 && action.longitude === 0) {
+      reject([], 'map_location_is_zero_zero');
+    }
+    if (action.type === 'LINK') {
+      const parsedUrl = parseCanonicalHttpsUrl(action.url);
+      if (!parsedUrl) reject(['url'], 'link_must_be_canonical_https');
+      else if (isUrlShortenerHost(parsedUrl.hostname)) reject(['url'], 'link_uses_url_shortener');
+    }
+  });
+}
+
 export const ActionCard = z
   .strictObject({
     schema_version: z.literal(ACTION_CARD_SCHEMA_VERSION),
     layout: CardLayout,
     actions: z.array(CardAction).min(1).max(MAXIMUM_ACTIONS_PER_CARD),
   })
-  .superRefine((card, context) => {
-    const seenActionIds = new Set<string>();
-    card.actions.forEach((action, actionIndex) => {
-      const reject = (path: Array<string | number>, reason: ActionCardRuleReason) =>
-        context.addIssue({ code: 'custom', path: ['actions', actionIndex, ...path], params: { reason }, message: reason });
-      if (seenActionIds.has(action.id)) reject(['id'], 'duplicate_action_id');
-      seenActionIds.add(action.id);
-      if (
-        (action.type === 'CALL' || action.type === 'WHATSAPP') &&
-        action.phone_number_e164.startsWith('+260') &&
-        !ZAMBIAN_PHONE_NUMBER_E164.test(action.phone_number_e164)
-      ) {
-        reject(['phone_number_e164'], 'zambian_number_must_have_nine_digits');
-      }
-      if (action.type === 'MAP' && action.latitude === 0 && action.longitude === 0) {
-        reject([], 'map_location_is_zero_zero');
-      }
-      if (action.type === 'LINK') {
-        const parsedUrl = parseCanonicalHttpsUrl(action.url);
-        if (!parsedUrl) reject(['url'], 'link_must_be_canonical_https');
-        else if (isUrlShortenerHost(parsedUrl.hostname)) reject(['url'], 'link_uses_url_shortener');
-      }
-    });
-  })
+  .superRefine(checkActionCardRules)
   .meta({ id: 'ActionCard', title: 'Look Up action card, schema version 1' });
 
 export type ActionCard = z.infer<typeof ActionCard>;

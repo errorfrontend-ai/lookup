@@ -1,0 +1,10 @@
+{
+  "description": "Nothing came second, so there is no margin",
+  "result": {
+    "status": "MATCH",
+    "audio_asset_number": 17,
+    "aligned_hash_count": 42,
+    "match_margin": null,
+    "match_offset_milliseconds": 6016
+  }
+}

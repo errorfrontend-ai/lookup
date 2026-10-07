@@ -63,6 +63,11 @@ export class PortalTestUsers {
     return { userId, email, password, stationId };
   }
 
+  /** The stations created so far. */
+  get stationIds(): readonly string[] {
+    return this.createdStationIds;
+  }
+
   /** Removes everything the tests created at these stations, children first. */
   async cleanUp(): Promise<void> {
     const stationIds = this.createdStationIds;

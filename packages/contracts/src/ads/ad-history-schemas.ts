@@ -16,12 +16,15 @@ export type AdHistoryEvent = {
   occurredAt: string;
   /** Who did it, or null for someone who has since left the station's team. */
   actorName: string | null;
+  /** Done by Look Up itself (preparing the audio, or refusing a file it could not use), not by a person. */
+  isByLookUp: boolean;
 } & (
   | { kind: 'ad_created'; fileName: string | null }
   | { kind: 'ad_renamed'; previousTitle: string; title: string }
   | { kind: 'audio_upload_restarted'; fileName: string | null }
   | { kind: 'audio_upload_checked' }
   | { kind: 'audio_upload_refused'; refusalReason: string }
+  | { kind: 'audio_ready' }
   | { kind: 'buttons_saved'; isFirstSave: boolean; buttonChanges: ButtonChange[] }
   | { kind: 'schedule_saved'; isFirstSave: boolean; changedParts: ScheduleChangedPart[] }
   | { kind: 'ad_published'; isRepublish: boolean }

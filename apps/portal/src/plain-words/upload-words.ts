@@ -5,6 +5,16 @@ export function describeUploadRefusal(reason: string | null): string {
       return "The file that arrived wasn't the one you chose. Please upload it again.";
     case 'not_the_declared_audio_format':
       return "This file isn't a valid MP3, WAV or M4A audio file. Choose a different file.";
+    case 'audio_too_short':
+      return 'This audio is shorter than 5 seconds. Upload the full ad.';
+    case 'audio_too_long':
+      return 'This audio is longer than 2 minutes. Upload just the ad.';
+    case 'no_audio_in_file':
+      return 'This file has no sound in it. Choose the audio file of the ad.';
+    case 'audio_unreadable':
+      return "This audio couldn't be read. Export it again as MP3, WAV or M4A and upload that.";
+    case 'audio_took_too_long_to_read':
+      return 'This file took too long to read. Export it again as MP3, WAV or M4A and upload that.';
     default:
       return "This file couldn't be used. Choose a different file.";
   }

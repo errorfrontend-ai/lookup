@@ -66,6 +66,8 @@ export function describeHistoryEvent(event: AdHistoryEvent): string[] {
       return ['uploaded the audio'];
     case 'audio_upload_refused':
       return [`had the audio refused: ${describeUploadRefusal(event.refusalReason)}`];
+    case 'audio_ready':
+      return ['prepared the audio, so listeners can identify the ad'];
     case 'buttons_saved': {
       if (event.isFirstSave) return ['added the buttons'];
       const sentences = event.buttonChanges.map(describeButtonChange);
@@ -82,5 +84,6 @@ export function describeHistoryEvent(event: AdHistoryEvent): string[] {
 
 /** Who did it, in words. */
 export function describeHistoryActor(event: AdHistoryEvent): string {
+  if (event.isByLookUp) return 'Look Up';
   return event.actorName ?? FORMER_MEMBER;
 }

@@ -1,0 +1,10 @@
+{
+  "description": "The API had stopped waiting, so the clip was not even decoded",
+  "result": {
+    "status": "EXPIRED",
+    "audio_asset_number": null,
+    "aligned_hash_count": 0,
+    "match_margin": null,
+    "match_offset_milliseconds": null
+  }
+}

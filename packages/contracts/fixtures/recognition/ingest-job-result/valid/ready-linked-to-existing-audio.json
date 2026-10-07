@@ -1,0 +1,7 @@
+{
+  "description": "An exact copy of a stored recording: linked, not fingerprinted again",
+  "result": {
+    "outcome": "READY",
+    "is_linked_to_existing_audio": true
+  }
+}

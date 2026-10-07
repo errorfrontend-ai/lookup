@@ -1,0 +1,7 @@
+{
+  "description": "A yes/no value, not a number",
+  "result": {
+    "outcome": "READY",
+    "is_linked_to_existing_audio": 1
+  }
+}

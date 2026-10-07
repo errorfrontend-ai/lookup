@@ -16,6 +16,11 @@ from .fingerprint import Fingerprint, fingerprint
 from .index import LandmarkIndex
 
 
+# A listener's clip: the API refuses more than 256 KiB, and a 15-second clip decodes to under 16 s.
+CLIP_MAXIMUM_BYTES = 262_144
+CLIP_MAXIMUM_SECONDS = 16.0
+
+
 @dataclass(frozen=True)
 class Recognition:
     result: MatchResult
@@ -62,12 +67,22 @@ class Matcher:
         return Recognition(
             result=result, query_hash_count=len(query_fingerprint), timings_milliseconds=timings_milliseconds)
 
-    def recognize_file(self, source: str | Path | bytes, *, deadline_seconds: float | None = None) -> Recognition:
+    def recognize_file(
+        self, source: str | Path | bytes, *, maximum_bytes: int = 25 * 1024 * 1024, maximum_seconds: float = 20.0,
+        deadline_seconds: float | None = None,
+    ) -> Recognition:
         started_at = time.perf_counter()
         samples = decode_audio(
-            source, self.parameters.sample_rate, maximum_seconds=20.0, deadline_seconds=deadline_seconds)
+            source, self.parameters.sample_rate, maximum_seconds=maximum_seconds, maximum_bytes=maximum_bytes,
+            deadline_seconds=deadline_seconds)
         decode_milliseconds = (time.perf_counter() - started_at) * 1e3
         return self.recognize_samples(samples, timings_milliseconds={"decode": decode_milliseconds})
+
+    def recognize_clip(self, clip: bytes, *, deadline_seconds: float | None = None) -> Recognition:
+        """The engine's one entry point for a listener's clip (D10): the recognize worker calls only
+        this, so another engine can stand in by providing the same method."""
+        return self.recognize_file(
+            clip, maximum_bytes=CLIP_MAXIMUM_BYTES, maximum_seconds=CLIP_MAXIMUM_SECONDS, deadline_seconds=deadline_seconds)
 
     def duplicate_check(self, fingerprint_to_check: Fingerprint) -> DuplicateCheck:
         """How much of `fingerprint_to_check` is already indexed under one asset at one offset.

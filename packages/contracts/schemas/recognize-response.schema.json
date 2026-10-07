@@ -1,0 +1,497 @@
+{
+  "$id": "https://contracts.lookup.invalid/recognize-response/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/RecognizeResponse",
+  "$defs": {
+    "RecognizeResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "MATCH"
+            },
+            "recognition_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "is_deferred": {
+              "type": "boolean"
+            },
+            "captured_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "result": {
+              "$ref": "#/$defs/RecognitionResult"
+            }
+          },
+          "required": [
+            "status",
+            "recognition_id",
+            "request_id",
+            "is_deferred",
+            "captured_at",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "NO_MATCH"
+            },
+            "recognition_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "is_deferred": {
+              "type": "boolean"
+            },
+            "captured_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          "required": [
+            "status",
+            "recognition_id",
+            "request_id",
+            "is_deferred",
+            "captured_at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "CHOOSE_STATION"
+            },
+            "recognition_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "is_deferred": {
+              "type": "boolean"
+            },
+            "captured_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "candidates": {
+              "minItems": 2,
+              "maxItems": 4,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RecognitionResult"
+              }
+            }
+          },
+          "required": [
+            "status",
+            "recognition_id",
+            "request_id",
+            "is_deferred",
+            "captured_at",
+            "candidates"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RecognitionResult": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "CAMPAIGN",
+            "CLIENT_DEFAULT"
+          ]
+        },
+        "station": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "frequency_label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "logo": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicImage"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "frequency_label",
+            "logo"
+          ],
+          "additionalProperties": false
+        },
+        "client": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "logo": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PublicImage"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "logo"
+          ],
+          "additionalProperties": false
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "card": {
+          "$ref": "#/$defs/ListenerCard"
+        }
+      },
+      "required": [
+        "kind",
+        "station",
+        "client",
+        "title",
+        "card"
+      ],
+      "additionalProperties": false
+    },
+    "PublicImage": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
+        },
+        "width_pixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "height_pixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "address",
+        "width_pixels",
+        "height_pixels",
+        "size_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "ListenerCard": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "number",
+          "const": 1
+        },
+        "layout": {
+          "$ref": "#/$defs/CardLayout"
+        },
+        "header_image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublicImage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actions": {
+          "minItems": 1,
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CardAction"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "layout",
+        "header_image",
+        "actions"
+      ],
+      "additionalProperties": false
+    },
+    "CardLayout": {
+      "type": "string",
+      "enum": [
+        "VERTICAL_STACK"
+      ]
+    },
+    "CardAction": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LinkAction"
+        },
+        {
+          "$ref": "#/$defs/CallAction"
+        },
+        {
+          "$ref": "#/$defs/WhatsAppAction"
+        },
+        {
+          "$ref": "#/$defs/MapAction"
+        }
+      ]
+    },
+    "LinkAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "LINK"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https:\\/\\/(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z][A-Za-z0-9-]{0,61}[A-Za-z0-9](?:[\\/?#][\\x21-\\x7E]*)?$"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "ActionLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "allOf": [
+        {
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+        },
+        {
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
+        }
+      ]
+    },
+    "ActionStyle": {
+      "type": "string",
+      "enum": [
+        "PRIMARY",
+        "SECONDARY",
+        "OUTLINE"
+      ]
+    },
+    "CallAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "CALL"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "phone_number_e164": {
+          "$ref": "#/$defs/PhoneNumberE164"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "phone_number_e164"
+      ],
+      "additionalProperties": false
+    },
+    "PhoneNumberE164": {
+      "type": "string",
+      "pattern": "^\\+[1-9][0-9]{6,14}$",
+      "description": "E.164: \"+\", the country code, then the number; digits only, no spaces"
+    },
+    "WhatsAppAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "WHATSAPP"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "phone_number_e164": {
+          "$ref": "#/$defs/PhoneNumberE164"
+        },
+        "prefilled_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "allOf": [
+            {
+              "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+            },
+            {
+              "pattern": "^[^\\u0000-\\u0009\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "phone_number_e164"
+      ],
+      "additionalProperties": false
+    },
+    "MapAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "MAP"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "description": "Stable for a button across card versions; taps are counted against it"
+        },
+        "label": {
+          "$ref": "#/$defs/ActionLabel"
+        },
+        "style": {
+          "$ref": "#/$defs/ActionStyle"
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "place_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "allOf": [
+            {
+              "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+            },
+            {
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2069\\uFEFF]*$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "label",
+        "style",
+        "latitude",
+        "longitude"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

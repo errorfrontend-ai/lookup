@@ -27,8 +27,8 @@ export function describeCampaignStatus(status: CampaignDisplayStatus | null): St
 }
 
 /**
- * What the audio file's state is called. In this version a checked upload stays "Audio checked":
- * Look Up prepares it for recognition once the recognition service is switched on.
+ * What the audio file's state is called. A checked upload is prepared for recognition by Look Up's
+ * fingerprint worker, usually within a minute, and then it is ready for listeners.
  */
 export function describeFileStatus(status: AdStatus, uploadPercent: number | null = null): StatusWords {
   switch (status) {
@@ -38,9 +38,9 @@ export function describeFileStatus(status: AdStatus, uploadPercent: number | nul
         : { label: `Uploading ${uploadPercent}%`, tone: 'warning', hint: 'Keep this page open until the upload finishes.' };
     case 'PROCESSING':
       return {
-        label: 'Audio checked',
+        label: 'Preparing for recognition',
         tone: 'neutral',
-        hint: 'Your audio arrived safely. Look Up prepares it for recognition once recognition is switched on.',
+        hint: 'Your audio arrived safely. Look Up is preparing it so listeners can identify it; this usually takes a minute.',
       };
     case 'READY':
       return { label: 'Ready for listeners', tone: 'success', hint: 'Listeners can identify this ad.' };
