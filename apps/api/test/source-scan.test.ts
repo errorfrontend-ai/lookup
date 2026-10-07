@@ -99,6 +99,19 @@ describe('source scan', () => {
     expect(filesMatching(configurationFiles, swallowsFailure)).toEqual([]);
   });
 
+  it('no unit or API test is skipped or singled out, so a green run means every test ran', () => {
+    // Built from pieces, so this file does not match its own rule. (The browser tests in apps/portal/e2e
+    // skip on purpose by screen size: the keyboard check runs on the desktop, the tap check on the phone.)
+    const skipsOrSinglesOut = new RegExp(`\\b(?:it|test|describe)\\.(?:${['skip', 'only', 'todo', 'skipIf', 'runIf'].join('|')})\\b|\\bx(?:it|describe)\\(`);
+    const testFiles = ['apps/api/test', 'apps/portal/src', 'packages/contracts/test'].flatMap((folder) =>
+      (readdirSync(resolve(REPOSITORY_ROOT, folder), { recursive: true }) as string[])
+        .filter((name) => /\.test\.tsx?$/.test(name))
+        .map((name) => ({ path: `${folder}/${name.split(sep).join('/')}`, text: readFileSync(resolve(REPOSITORY_ROOT, folder, name), 'utf8') })),
+    );
+    expect(testFiles.length).toBeGreaterThan(70);
+    expect(filesMatching(testFiles, skipsOrSinglesOut)).toEqual([]);
+  });
+
   it('no invisible or direction-changing characters in the API, the contracts or their tests (code must read as it runs; write them as escapes)', () => {
     // Built from code points, so this file never contains the characters it looks for.
     const ranges = [[0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2064], [0x2066, 0x2069], [0xfeff, 0xfeff]] as const;

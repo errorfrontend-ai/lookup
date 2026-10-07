@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useMemo } from 'react';
 import { isRouteErrorResponse, useRouteError } from 'react-router';
 import { NotFoundPage } from '../components/plain-pages';
-import { reportClientError } from './error-reporting';
+import type { ClientErrorDraft } from './error-reporting';
+import { SomethingWentWrongPage, useCrashReport } from './something-went-wrong-page';
 
 /**
  * Whether the error is a part of the portal that could not be downloaded (the connection dropped, or a
@@ -19,12 +20,12 @@ export function isPageDownloadFailure(error: unknown): boolean {
 export function RouteErrorPage() {
   const routeError = useRouteError();
   const isNotFound = isRouteErrorResponse(routeError) && routeError.status === 404;
-
-  useEffect(() => {
-    if (isNotFound) return;
+  const report = useMemo((): ClientErrorDraft | null => {
+    if (isNotFound) return null;
     const error = routeError instanceof Error ? routeError : new Error(String(routeError));
-    reportClientError({ kind: 'render', message: error.message, stack: error.stack });
+    return { kind: 'render', message: error.message, stack: error.stack };
   }, [routeError, isNotFound]);
+  const reportState = useCrashReport(report);
 
   if (isNotFound) return <NotFoundPage />;
   if (isPageDownloadFailure(routeError)) {
@@ -42,17 +43,5 @@ export function RouteErrorPage() {
       </main>
     );
   }
-  return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-4 px-6">
-      <h1 className="text-title">Something went wrong on this page</h1>
-      <p className="text-body text-muted">We've been told about it. Reloading usually fixes it.</p>
-      <button
-        type="button"
-        onClick={() => window.location.reload()}
-        className="min-h-11 rounded-md bg-accent px-5 text-label text-on-accent hover:bg-accent-hover"
-      >
-        Reload the page
-      </button>
-    </main>
-  );
+  return <SomethingWentWrongPage reportState={reportState} />;
 }

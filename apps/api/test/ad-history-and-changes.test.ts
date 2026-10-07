@@ -273,6 +273,10 @@ describe('ad history, rename and archive', () => {
       expect((await send(otherStationOwner, 'post', `${adsPath(owner)}/${adId}/archive`)).status).toBe(404);
       expect((await send(stationUnderReviewOwner, 'post', `${adsPath(stationUnderReviewOwner)}/${adId}/archive`)).status).toBe(403);
       expect((await send(owner, 'get', `${adsPath(owner)}/${adId}`)).status).toBe(200);
+
+      const manager = await testUsers.create({ joinStationId: owner.stationId, role: 'MANAGER' });
+      expectStatus(await send(manager, 'post', `${adsPath(owner)}/${adId}/archive`), 204);
+      expect((await send(owner, 'get', `${adsPath(owner)}/${adId}`)).status).toBe(404);
     });
   });
 });

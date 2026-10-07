@@ -92,6 +92,16 @@ describe('logged errors never carry personal values', () => {
     });
   });
 
+  it('S1-LOGGING-17: a plain caller mistake is logged at info level, without a stack', async () => {
+    const lines = await logLinesFor('/api/v1/auth/me', 401);
+    const rejectedLine = lines.find((line) => line.msg === 'request rejected');
+    expect(rejectedLine?.level).toBe(30);
+    expect(rejectedLine).not.toHaveProperty('err');
+    expect(lines.every((line) => Number(line.level) < 50)).toBe(true);
+    // A stack in a JSON line shows as an escaped newline followed by "at …".
+    expect(JSON.stringify(lines)).not.toMatch(/\\n\s+at /);
+  });
+
   it('S1-LOGGING-15: by default a request line holds only id, method and path: no headers, no query string', async () => {
     const response = await client().get('/api/v1/auth/me?email=chanda.mwale%40example.test').set('Cookie', 'session=secret-cookie-value');
     await waitForLogWrites();

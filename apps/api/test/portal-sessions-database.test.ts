@@ -281,6 +281,10 @@ describe('sign-in and session functions', () => {
       const signedIn = await signIn(email, STORED_HASH);
       expect((await changePassword(signedIn.portal_session_id as string, WRONG_HASH)).outcome).toBe('INVALID_CREDENTIALS');
       expect(await auditActions(userId)).toContain('password_change_failed');
+      // Counted like a wrong password at sign-in, so guessing through this route also meets the backstop.
+      const counted = (await setupClient.query('SELECT consecutive_failed_sign_in_count, last_failed_sign_in_at FROM app.portal_users WHERE id = $1', [userId])).rows[0];
+      expect(counted.consecutive_failed_sign_in_count).toBe(1);
+      expect(counted.last_failed_sign_in_at).not.toBeNull();
     });
 
     it('ends every session of the user and opens a fresh one for the caller', async () => {

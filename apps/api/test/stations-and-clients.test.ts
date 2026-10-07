@@ -127,6 +127,38 @@ describe('station access, the station profile and clients', () => {
       await setupClient.query(`UPDATE app.stations SET status = 'SUSPENDED' WHERE id = $1`, [owner.stationId]);
       expect((await get(owner, `/api/v1/stations/${owner.stationId}/clients`)).status).toBe(403);
     });
+
+    it.each(['PENDING_VERIFICATION', 'PENDING_REVIEW', 'REJECTED', 'SUSPENDED'])('a %s station reaches its profile and none of its content', async (status) => {
+      const owner = await testUsers.create();
+      await setupClient.query('UPDATE app.stations SET status = $2 WHERE id = $1', [owner.stationId, status]);
+      const station = `/api/v1/stations/${owner.stationId}`;
+      // The station check comes before the ad is looked up, so any ad id is refused the same way.
+      const ad = `${station}/ads/${randomUUID()}`;
+      expectStatus(await get(owner, station), 200);
+
+      const contentRoutes: Array<[method: 'get' | 'post' | 'put', path: string]> = [
+        ['get', `${station}/clients`],
+        ['post', `${station}/clients`],
+        ['get', `${station}/overview`],
+        ['get', `${station}/ads`],
+        ['post', `${station}/ads`],
+        ['get', ad],
+        ['post', `${ad}/upload-url`],
+        ['post', `${ad}/complete`],
+        ['get', `${ad}/playback-url`],
+        ['put', `${ad}/card`],
+        ['put', `${ad}/schedule`],
+        ['post', `${ad}/publish`],
+        ['get', `${ad}/history`],
+        ['put', `${ad}/title`],
+        ['post', `${ad}/archive`],
+      ];
+      for (const [method, path] of contentRoutes) {
+        const response = method === 'get' ? await get(owner, path) : method === 'post' ? await post(owner, path, {}) : await put(owner, path, {});
+        expect(response.status, `${method.toUpperCase()} ${path}`).toBe(403);
+        expect(response.body.error.code).toBe('STATION_NOT_ACTIVE');
+      }
+    });
   });
 
   describe('changing where the station is', () => {
@@ -222,13 +254,15 @@ describe('station access, the station profile and clients', () => {
       expect(listed.body.map((client: { name: string }) => client.name)).toEqual(['Apex Motors', 'banda Hardware', 'zebra Foods']);
     });
 
-    it('creating a client is audited with who, which station and the request id', async () => {
+    it('creating a client is audited with who, which station, the request id and when', async () => {
       const owner = await testUsers.create();
+      const sentAt = Date.now();
       const created = expectStatus(await post(owner, `/api/v1/stations/${owner.stationId}/clients`, { name: '  Brand A  ' }), 201);
+      const answeredAt = Date.now();
       expect(created.body).toEqual({ id: expect.any(String), name: 'Brand A' });
       const audit = (
         await setupClient.query(
-          'SELECT station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id FROM app.audit_events WHERE entity_id = $1',
+          'SELECT station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id, occurred_at FROM app.audit_events WHERE entity_id = $1',
           [created.body.id],
         )
       ).rows;
@@ -241,8 +275,13 @@ describe('station access, the station profile and clients', () => {
           entity_id: created.body.id,
           changes: { name: 'Brand A' },
           request_id: created.headers['x-request-id'],
+          occurred_at: expect.any(Date),
         },
       ]);
+      // The database and this test share one clock; a second either side allows for rounding.
+      const occurredAt = (audit[0]?.occurred_at as Date).getTime();
+      expect(occurredAt).toBeGreaterThanOrEqual(sentAt - 1_000);
+      expect(occurredAt).toBeLessThanOrEqual(answeredAt + 1_000);
     });
 
     it('a duplicate name is refused with a plain message', async () => {

@@ -24,7 +24,7 @@ describe('portal source scan', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('nothing in the portal shows an error\'s own message to a person: only the API\'s plain message or ours', () => {
+  it("nothing in the portal shows an error's own message to a person: only the API's plain message or ours", () => {
     const showsRawErrorText = /\{\s*(?:error|err|caughtError)\.message\s*\}|\{\s*String\(\s*(?:error|err|caughtError)\s*\)\s*\}/;
     const offenders = portalSourceFiles().filter((file) => !file.path.startsWith('api/') && showsRawErrorText.test(file.text)).map((file) => file.path);
     expect(offenders).toEqual([]);
@@ -53,5 +53,22 @@ describe('portal source scan', () => {
         return narrowingVariant.test(text) || narrowingMediaQuery.test(text);
       });
     expect(offenders).toEqual([]);
+  });
+
+  it('lists every shared component in the component inventory (docs/design/portal-component-inventory.md)', () => {
+    const inventory = readFileSync(join(SOURCE_ROOT, '..', '..', '..', 'docs', 'design', 'portal-component-inventory.md'), 'utf8');
+    const components = readdirSync(join(SOURCE_ROOT, 'components')).filter((name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name));
+    expect(components.length).toBeGreaterThan(20);
+    expect(components.map((name) => name.replace(/\.tsx?$/, '')).filter((name) => !inventory.includes(`\`components/${name}\``))).toEqual([]);
+  });
+
+  it('draws its icons as inline SVG hidden from screen readers, with no icon package or icon font to download', () => {
+    const manifest = JSON.parse(readFileSync(join(SOURCE_ROOT, '..', 'package.json'), 'utf8')) as Record<string, Record<string, string> | undefined>;
+    const packages = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
+    expect(packages.filter((name) => /icon|lucide|fontawesome|heroicons|phosphor|material-symbols/i.test(name))).toEqual([]);
+
+    const drawings = portalSourceFiles().filter((file) => file.text.includes('<svg'));
+    expect(drawings.map((file) => file.path).sort()).toEqual(['components/frequency-dial.tsx', 'components/icons.tsx']);
+    for (const drawing of drawings) expect(drawing.text, drawing.path).toMatch(/<svg[^>]*aria-hidden="true"/s);
   });
 });

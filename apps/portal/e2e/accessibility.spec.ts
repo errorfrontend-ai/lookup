@@ -5,15 +5,23 @@ import { signInAsSeededOwner } from './support/sign-in';
 test.describe('accessibility in the browser', () => {
   test('every control a keyboard reaches shows where the focus is', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === 'phone', 'A keyboard is checked on the desktop.');
+    await page.goto('/sign-in');
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to your station' })).toBeVisible();
+    expect(await focusWithoutVisibleOutline(page, 6), 'sign in').toEqual([]);
+
     const stationId = await signInAsSeededOwner(page);
 
     await page.goto(`/stations/${stationId}/ads`);
     await expect(page.getByRole('heading', { level: 1, name: 'Ads' })).toBeVisible();
-    expect(await focusWithoutVisibleOutline(page, 30)).toEqual([]);
+    expect(await focusWithoutVisibleOutline(page, 30), 'ads list').toEqual([]);
+
+    await page.getByRole('table').getByRole('link').first().click();
+    await expect(page.getByRole('link', { name: 'History', exact: true })).toBeVisible();
+    expect(await focusWithoutVisibleOutline(page, 30), "an ad's page").toEqual([]);
 
     await page.goto(`/stations/${stationId}/ads/new`);
     await page.getByRole('radio', { name: /Brand A/ }).check();
-    expect(await focusWithoutVisibleOutline(page, 12)).toEqual([]);
+    expect(await focusWithoutVisibleOutline(page, 12), 'new ad').toEqual([]);
   });
 
   test('every control on the station screens is big enough to tap on a phone', async ({ page }, testInfo) => {

@@ -174,6 +174,7 @@ describe('Step 2 routes when something underneath fails', () => {
     ['update the profile', 'put', () => `${stationPath}/profile`, () => ({ province: 'Lusaka', city: 'Lusaka' })],
     ['ad history', 'get', () => `${adPath}/history`],
     ['rename an ad', 'put', () => `${adPath}/title`, () => ({ title: 'Renamed' })],
+    ['remove an ad', 'post', () => `${adPath}/archive`],
     ['create an ad', 'post', () => `${stationPath}/ads`, () => ({ clientId: randomUUID(), title: 'x', upload: uploadRequest.upload })],
     ['get an ad', 'get', () => adPath],
     ['request an upload URL', 'post', () => `${adPath}/upload-url`, () => uploadRequest],
@@ -224,6 +225,7 @@ describe('Step 2 routes when something underneath fails', () => {
     ['sign in', /sign_in_portal_user/],
     ['refresh', /rotate_portal_refresh_token/],
     ['change password', /change_portal_user_password/],
+    ['sign out', /end_portal_session/],
   ] as const)('a database error in %s', async (name, sqlToFail) => {
     const user = await testUsers.create();
     const cookies = await signIn(user);
@@ -235,7 +237,9 @@ describe('Step 2 routes when something underneath fails', () => {
           ? await client().post('/api/v1/auth/sign-in').set('Origin', PORTAL_ORIGIN).set('X-Forwarded-For', newClientAddress()).send({ email: user.email, password: user.password })
           : name === 'refresh'
             ? await send('post', '/api/v1/auth/refresh', undefined, cookies)
-            : await send('post', '/api/v1/auth/change-password', { currentPassword: user.password, newPassword: 'copper lantern quiet meadow' }, cookies);
+            : name === 'sign out'
+              ? await send('post', '/api/v1/auth/sign-out', undefined, cookies)
+              : await send('post', '/api/v1/auth/change-password', { currentPassword: user.password, newPassword: 'copper lantern quiet meadow' }, cookies);
       await expectGenericFailure(response, 'database');
     } finally {
       failureSwitch.kind = null;

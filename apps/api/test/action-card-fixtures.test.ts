@@ -34,9 +34,10 @@ function asApiField(issue: { path: string; code: string }) {
 }
 
 /**
- * S2-CARDS-23, S2-CARDS-22: the shared contract fixtures, the same ones the portal and the listener
- * app are tested with, sent through the real route. Every valid card is stored and comes back
- * unchanged; every invalid card is refused with exactly the fields and reasons the fixture expects.
+ * S2-CARDS-23, S2-CARDS-22: the shared contract fixtures (the contracts package tests its schema with
+ * them, and the listener app is to be tested with them in step 4), sent through the real route. Every
+ * valid card is stored and comes back unchanged; every invalid card is refused with exactly the fields
+ * and reasons the fixture expects. The portal checks what it builds against the contract's schema itself.
  */
 describe('action card fixtures through PUT …/card', () => {
   let testApplication: TestApplication;

@@ -1,7 +1,10 @@
 import { randomInt, randomUUID } from 'node:crypto';
+import type { Redis } from 'ioredis';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pathOnly, scrubPersonalData } from '../src/common/privacy/scrub-personal-data.js';
+import { DerivedKeys } from '../src/common/security/derived-keys.js';
+import { KEY_VALUE_STORE } from '../src/infrastructure/key-value-store/key-value-store.module.js';
 import { waitForLogWrites } from './support/log-capture.js';
 import { PORTAL_ORIGIN } from './support/portal-test-users.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
@@ -52,6 +55,15 @@ describe('client error reports', () => {
       expect((await report({ source: 'listener-app', kind: 'reported', message: 'probe' }, clientAddress)).status).toBe(202);
     }
     expect((await report({ source: 'listener-app', kind: 'reported', message: 'probe' }, clientAddress)).status).toBe(429);
+
+    // S1-LOGGING-14: the count is kept under a keyed hash of the address; the address itself is
+    // neither stored nor logged.
+    const keyValueStore = testApplication.application.get<Redis>(KEY_VALUE_STORE);
+    const hashedAddress = testApplication.application.get(DerivedKeys).hashIdentifier(clientAddress);
+    expect((await keyValueStore.keys(`rate-limit:*${hashedAddress}`)).length).toBeGreaterThan(0);
+    expect(await keyValueStore.keys(`*${clientAddress}*`)).toEqual([]);
+    await waitForLogWrites();
+    expect(JSON.stringify(testApplication.logs.lines)).not.toContain(clientAddress);
   });
 
   it('a cookie-carrying report from another site is refused (cross-site check)', async () => {

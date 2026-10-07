@@ -141,6 +141,7 @@ describe('station isolation and role privileges, table by table', () => {
         await expectRefused(client, `INSERT INTO app.campaigns (station_id, ad_id, name, active_period) VALUES ($1, $2, 'x', tstzrange(now(), now() + interval '1 day'))`, [stationIds.B, ofB.ad]);
         await expectRefused(client, `INSERT INTO app.campaign_time_windows (campaign_id, station_id, days_of_week, local_start_time, local_end_time) VALUES ($1, $2, '{1}', '07:00', '08:00')`, [ofB.campaign, stationIds.B]);
         await expectRefused(client, `INSERT INTO app.station_memberships (station_id, portal_user_id, role) VALUES ($1, $2, 'MANAGER')`, [stationIds.B, data.A.owner]);
+        await expectRefused(client, `INSERT INTO app.audit_events (station_id, action, entity_type, request_id) VALUES ($1, 'intruder', 'station', 'test')`, [stationIds.B]);
       });
     });
 

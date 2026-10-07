@@ -283,6 +283,12 @@ describe('The schedule step', () => {
       expect(within(row).getByText('Fri–Sun · 07:00–09:00')).toBeInTheDocument();
       await person.click(within(row).getByRole('button', { name: 'Choose Every day' }));
       expect(within(row).getByText('Every day · 07:00–09:00')).toBeInTheDocument();
+      // Seven day buttons, each named in full and saying whether it is chosen.
+      for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) {
+        expect(within(row).getByRole('button', { name: day })).toHaveAttribute('aria-pressed', 'true');
+      }
+      await person.click(within(row).getByRole('button', { name: 'Monday' }));
+      expect(within(row).getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-pressed', 'false');
     });
 
     it('says in words when a slot is all day or runs into the next morning', async () => {

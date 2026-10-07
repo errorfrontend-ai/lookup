@@ -20,7 +20,12 @@ test.describe('signing in and out', () => {
     await signInAsSeededOwner(page);
     await expect(page.getByRole('region', { name: 'Your ads at a glance' })).toBeVisible();
 
-    await useNavigation(page, 'Sign out', testInfo.project.name === 'phone');
+    // A wide screen has the menu down the side; a phone has a top bar whose Menu button opens it.
+    const isPhone = testInfo.project.name === 'phone';
+    await expect(page.locator('aside')).toBeVisible({ visible: !isPhone });
+    await expect(page.getByRole('button', { name: 'Menu' })).toBeVisible({ visible: isPhone });
+
+    await useNavigation(page, 'Sign out', isPhone);
     await expect(page.getByRole('heading', { level: 1, name: 'Sign in to your station' })).toBeVisible();
 
     // Signed out means signed out: a station page sends the person back to Sign in.

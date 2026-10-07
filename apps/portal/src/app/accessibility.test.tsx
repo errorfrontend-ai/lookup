@@ -93,7 +93,7 @@ describe('accessibility: what axe finds on each screen', () => {
     await expectNoProblems();
   });
 
-  it.each(['', '?tab=buttons', '?tab=schedule', '?tab=history'])('an ad\'s own page %s', async (tab) => {
+  it.each(['', '?tab=buttons', '?tab=schedule', '?tab=history'])("an ad's own page %s", async (tab) => {
     renderPortalAt(`/stations/${stationId}/ads/${liveAd.id}${tab}`);
     await screen.findByRole('heading', { level: 1, name: 'Summer service offer' });
     await screen.findAllByText(/Brand A/);

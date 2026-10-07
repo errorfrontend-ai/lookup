@@ -67,6 +67,12 @@ describe('portal sign-in and sessions', () => {
       const user = await testUsers.create();
       const response = await signIn(user.email.toUpperCase(), user.password).expect(200);
 
+      // Every cookie the API sets carries the __Host- prefix, read from the response itself rather than
+      // from the constants, so a renamed cookie fails here.
+      const namesSet = Object.keys(cookiesSetBy(response));
+      expect(namesSet.sort()).toEqual([ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, TRUSTED_DEVICE_COOKIE].sort());
+      for (const name of namesSet) expect(name).toMatch(/^__Host-/);
+
       for (const cookieName of [ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, TRUSTED_DEVICE_COOKIE]) {
         const line = setCookieLine(response, cookieName) as string;
         expect(line, cookieName).toBeDefined();

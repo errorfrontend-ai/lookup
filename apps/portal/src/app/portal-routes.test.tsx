@@ -131,6 +131,18 @@ describe('the station shell', () => {
     renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
     expect((await screen.findAllByText('Radio Phoenix'))[0]).toBeInTheDocument();
     expect(screen.getAllByText('89.5')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Look Up')[0]).toBeInTheDocument();
+  });
+
+  it('marks the page the person is on in the menu, and only that one', async () => {
+    const user = signedInUserWith();
+    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
+    renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
+    const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
+    expect(within(navigation).getByRole('link', { name: 'Ads' })).toHaveAttribute('aria-current', 'page');
+    for (const other of ['Overview', 'Clients', 'Station profile']) {
+      expect(within(navigation).getByRole('link', { name: other })).not.toHaveAttribute('aria-current');
+    }
   });
 
   it('tells a station under review why it cannot add ads yet, and offers only its profile', async () => {
@@ -239,6 +251,24 @@ describe('a page that fails to draw', () => {
     const report = fakeApi.calls.find((call) => call.path === '/client-errors')?.body as Record<string, unknown>;
     expect(report).toMatchObject({ source: 'portal', kind: 'render', location: '/' });
     expect(String(report.message)).toContain('Cannot read properties of undefined');
+    expect(await screen.findByText(/We've been told about it/)).toBeInTheDocument();
+  });
+
+  it('does not say the team was told when the report could not be sent', async () => {
+    installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, signedInUserWith()),
+      'POST /client-errors': () => errorResponse(503, 'SERVICE_UNAVAILABLE', 'Please try again shortly.'),
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    function BrokenPage(): never {
+      throw new TypeError("Cannot read properties of undefined (reading 'title')");
+    }
+    const routesWithBrokenPage: RouteObject[] = [{ ...(PORTAL_ROUTES[0] as RouteObject & { index?: false }), children: [{ path: '/broken', element: <BrokenPage /> }] }];
+
+    renderPortalAt('/broken', routesWithBrokenPage);
+
+    expect(await screen.findByText(/We couldn't tell the Look Up team about it/)).toBeInTheDocument();
+    expect(screen.queryByText(/We've been told/)).not.toBeInTheDocument();
   });
 
   it('says a page that could not be downloaded is a connection problem, and offers to try again', async () => {

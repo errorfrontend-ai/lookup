@@ -12,10 +12,10 @@ function sentReports(fakeApi: ReturnType<typeof installFakeApi>) {
 }
 
 describe('client error reporting', () => {
-  it('sends reports the API contract accepts, trimmed to its limits', () => {
+  it('sends reports the API contract accepts, trimmed to its limits, and says the API took it', async () => {
     const fakeApi = installFakeApi({ 'POST /client-errors': () => jsonResponse(202, null) });
 
-    reportClientError({ kind: 'reported', message: 'x'.repeat(2_000), stack: 'y'.repeat(20_000) });
+    await expect(reportClientError({ kind: 'reported', message: 'x'.repeat(2_000), stack: 'y'.repeat(20_000) })).resolves.toBe(true);
 
     const [report] = sentReports(fakeApi);
     expect(ClientErrorReport.safeParse(report).success).toBe(true);
@@ -38,14 +38,16 @@ describe('client error reporting', () => {
     ]);
   });
 
-  it('never throws when the report itself cannot be sent', async () => {
+  it('never throws when the report itself cannot be sent, and says it was not sent', async () => {
+    installFakeApi({ 'POST /client-errors': () => jsonResponse(503, null) });
+    await expect(reportClientError({ kind: 'reported', message: 'refused' })).resolves.toBe(false);
+
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
-    expect(() => reportClientError({ kind: 'reported', message: 'offline' })).not.toThrow();
-    await Promise.resolve();
+    await expect(reportClientError({ kind: 'reported', message: 'offline' })).resolves.toBe(false);
 
     vi.stubGlobal('fetch', vi.fn(() => {
       throw new TypeError('fetch is broken');
     }));
-    expect(() => reportClientError({ kind: 'reported', message: 'broken fetch' })).not.toThrow();
+    await expect(reportClientError({ kind: 'reported', message: 'broken fetch' })).resolves.toBe(false);
   });
 });

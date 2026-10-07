@@ -443,6 +443,33 @@ describe('Ad page', () => {
         vi.useRealTimers();
       }
     });
+
+    it('keeps asking while the audio is being prepared, says when it is ready for listeners, then stops asking', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const ad = adDetail({ title: 'Preparing', status: 'PROCESSING', uploadedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), campaign: null, schedule: null });
+        let polls = 0;
+        const { adPath } = installAdPage({
+          ad,
+          extra: {
+            [`GET /stations/${stationId}/ads/${ad.id}`]: () => {
+              polls += 1;
+              return jsonResponse(200, polls < 2 ? ad : { ...ad, status: 'READY' });
+            },
+          },
+        });
+        renderPortalAt(adPath);
+        expect(await screen.findAllByText('Audio checked')).not.toHaveLength(0);
+        await vi.advanceTimersByTimeAsync(5_100);
+        await waitFor(() => expect(screen.getAllByText('Ready for listeners').length).toBeGreaterThan(0));
+
+        const pollsWhenReady = polls;
+        await vi.advanceTimersByTimeAsync(70_000);
+        expect(polls).toBe(pollsWhenReady);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
 

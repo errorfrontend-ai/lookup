@@ -586,9 +586,16 @@ describe('The buttons step', () => {
       const { stepPath } = installButtonsPage();
       renderPortalAt(stepPath);
       await screen.findByRole('heading', { name: 'Add the buttons' });
+      expect(screen.getByRole('heading', { name: 'What listeners see' })).toBeInTheDocument();
       expect(screen.getByRole('group', { name: 'Preview of what listeners see, on a 320 pixel wide phone' })).toBeInTheDocument();
-      await person.click(screen.getByRole('button', { name: 'Large phone · 411' }));
+      const widths = screen.getByRole('group', { name: 'Preview width' });
+      expect(within(widths).getByRole('button', { name: 'Small phone · 320' })).toHaveAttribute('aria-pressed', 'true');
+      expect(within(widths).getByRole('button', { name: 'Large phone · 411' })).toHaveAttribute('aria-pressed', 'false');
+
+      await person.click(within(widths).getByRole('button', { name: 'Large phone · 411' }));
       expect(screen.getByRole('group', { name: 'Preview of what listeners see, on a 411 pixel wide phone' })).toBeInTheDocument();
+      expect(within(widths).getByRole('button', { name: 'Large phone · 411' })).toHaveAttribute('aria-pressed', 'true');
+      expect(within(widths).getByRole('button', { name: 'Small phone · 320' })).toHaveAttribute('aria-pressed', 'false');
     });
   });
 });
