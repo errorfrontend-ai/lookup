@@ -7,6 +7,7 @@ import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, s
 import { renderPortalAt } from '../test/render-portal';
 import { queryClient } from './portal-api';
 import { PORTAL_ROUTES } from './portal-routes';
+import { isPageDownloadFailure } from './route-error-page';
 
 const notSignedIn = {
   'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
@@ -238,5 +239,34 @@ describe('a page that fails to draw', () => {
     const report = fakeApi.calls.find((call) => call.path === '/client-errors')?.body as Record<string, unknown>;
     expect(report).toMatchObject({ source: 'portal', kind: 'render', location: '/' });
     expect(String(report.message)).toContain('Cannot read properties of undefined');
+  });
+
+  it('says a page that could not be downloaded is a connection problem, and offers to try again', async () => {
+    installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, signedInUserWith()),
+      'POST /client-errors': () => jsonResponse(202, null),
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const routesWithUnreachablePage: RouteObject[] = [
+      {
+        ...(PORTAL_ROUTES[0] as RouteObject & { index?: false }),
+        children: [{ path: '/far-away', lazy: () => Promise.reject(new TypeError('Failed to fetch dynamically imported module: http://localhost/assets/ad-setup-page.js')) }],
+      },
+    ];
+
+    renderPortalAt('/far-away', routesWithUnreachablePage);
+
+    expect(await screen.findByRole('heading', { name: "We couldn't load this page" })).toBeInTheDocument();
+    expect(screen.getByText(/The connection may have dropped/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(INTERNAL_DETAIL_PATTERN);
+  });
+
+  it('knows a failed download in the words each browser uses', () => {
+    expect(isPageDownloadFailure(new TypeError('Failed to fetch dynamically imported module: https://x/a.js'))).toBe(true); // Chrome, Edge
+    expect(isPageDownloadFailure(new TypeError('error loading dynamically imported module: https://x/a.js'))).toBe(true); // Firefox
+    expect(isPageDownloadFailure(new TypeError('Importing a module script failed.'))).toBe(true); // Safari
+    expect(isPageDownloadFailure(new TypeError("Cannot read properties of undefined (reading 'title')"))).toBe(false);
+    expect(isPageDownloadFailure('a thrown string')).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import { Icon } from '../components/icons';
+import { useFocusHeadingOnChange } from '../components/use-focus-heading-on-change';
 import { describeStationStatus } from '../plain-words/station-status-words';
 import { type MemberStation, useRequiredCurrentStation } from '../features/stations/use-current-station';
 import { PortalNavigation } from './portal-navigation';
@@ -14,8 +15,9 @@ export function PortalShell() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const location = useLocation();
 
-  // Following a link closes the drawer.
+  // Following a link closes the drawer, and the new page's heading takes focus so it is announced.
   useEffect(() => setIsDrawerOpen(false), [location.pathname]);
+  useFocusHeadingOnChange(location.pathname);
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[15.5rem_1fr]">

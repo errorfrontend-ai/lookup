@@ -20,6 +20,12 @@
     outline-offset: 2px;
   }
 
+  /* A heading or the main area is given focus only so a new page is announced; it is not a control, so no ring. */
+  h1[tabindex='-1']:focus,
+  main[tabindex='-1']:focus {
+    outline: none;
+  }
+
   h1,
   h2,
   h3 {

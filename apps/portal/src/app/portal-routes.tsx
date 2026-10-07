@@ -1,10 +1,8 @@
 import type { RouteObject } from 'react-router';
-import { NotFoundPage } from '../components/plain-pages';
+import { LoadingScreen, NotFoundPage } from '../components/plain-pages';
 import { ChangePasswordPage } from '../features/account/change-password-page';
-import { AdDetailPage } from '../features/ads/ad-detail-page';
 import { AdsListPage } from '../features/ads/ads-list-page';
 import { ClientsPage } from '../features/clients/clients-page';
-import { AdSetupPage } from '../features/new-ad/ad-setup-page';
 import { OverviewPage } from '../features/overview/overview-page';
 import { SignInPage } from '../features/sign-in/sign-in-page';
 import { StationProfilePage } from '../features/stations/station-profile-page';
@@ -13,10 +11,17 @@ import { HomeRedirect, RequireSignedIn } from './require-signed-in';
 import { RouteErrorPage } from './route-error-page';
 import { ActiveStationOnly, ContentEditorsOnly, StationScope } from './station-scope';
 
+// The new-ad wizard and an ad's own page are the largest parts of the portal and are downloaded only
+// when first opened, so signing in and the lists load sooner on a slow connection.
+const loadAdSetupPage = () => import('../features/new-ad/ad-setup-page').then((module) => ({ Component: module.AdSetupPage }));
+const loadAdDetailPage = () => import('../features/ads/ad-detail-page').then((module) => ({ Component: module.AdDetailPage }));
+
 /** Every page in the portal. Station pages live under /stations/:stationId so links can be shared. */
 export const PORTAL_ROUTES: RouteObject[] = [
   {
     errorElement: <RouteErrorPage />,
+    // Shown while a page that is opened directly is still downloading.
+    hydrateFallbackElement: <LoadingScreen />,
     children: [
       { path: '/sign-in', element: <SignInPage /> },
       {
@@ -31,8 +36,8 @@ export const PORTAL_ROUTES: RouteObject[] = [
                 // Setting up an ad takes the whole screen, so it sits outside the shell.
                 element: <ContentEditorsOnly />,
                 children: [
-                  { path: 'ads/new', element: <AdSetupPage /> },
-                  { path: 'ads/:adId/setup', element: <AdSetupPage /> },
+                  { path: 'ads/new', lazy: loadAdSetupPage },
+                  { path: 'ads/:adId/setup', lazy: loadAdSetupPage },
                 ],
               },
               {
@@ -43,7 +48,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
                     children: [
                       { path: 'overview', element: <OverviewPage /> },
                       { path: 'ads', element: <AdsListPage /> },
-                      { path: 'ads/:adId', element: <AdDetailPage /> },
+                      { path: 'ads/:adId', lazy: loadAdDetailPage },
                       { path: 'clients', element: <ClientsPage /> },
                     ],
                   },

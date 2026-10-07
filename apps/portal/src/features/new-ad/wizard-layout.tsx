@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Icon } from '../../components/icons';
+import { useFocusHeadingOnChange } from '../../components/use-focus-heading-on-change';
 import { WIZARD_STEPS, type WizardStepId } from './wizard-steps';
 
 export type SaveStatus = 'nothing-saved' | 'saving' | 'saved' | 'unsaved';
@@ -38,6 +39,8 @@ export function WizardLayout({
   children: ReactNode;
   footer: ReactNode;
 }) {
+  // A new step starts at its heading, which is announced, rather than on the button that led there.
+  useFocusHeadingOnChange(currentStep);
   const currentNumber = WIZARD_STEPS.findIndex((step) => step.id === currentStep) + 1;
   const currentLabel = WIZARD_STEPS[currentNumber - 1]?.label ?? '';
 

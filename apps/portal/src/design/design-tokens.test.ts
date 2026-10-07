@@ -35,7 +35,13 @@ const TEXT_PAIRINGS: Array<[text: string, background: string]> = [
   ['accent', 'surface'],
   ['danger', 'dangerSoft'],
   ['danger', 'surface'],
+  ['ink', 'dangerSoft'],
   ['success', 'successSoft'],
+  ['ink', 'successSoft'],
+  ['muted', 'successSoft'],
+  // "Draft saved", "Calls +260 …" and the other read-backs under a field; "Changes not saved yet".
+  ['success', 'surface'],
+  ['warning', 'surface'],
   ['ink', 'warningSoft'],
   ['warning', 'warningSoft'],
   // Client avatars: the page colour as text on each token colour.
