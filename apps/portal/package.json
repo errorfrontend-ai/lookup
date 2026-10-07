@@ -16,7 +16,7 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "pretypecheck": "npm run build:contracts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.end-to-end.json",
     "pretest": "npm run build:contracts",
     "test": "vitest run",
     "test:end-to-end": "playwright test"
@@ -31,15 +31,18 @@
     "react-router": "7.18.4"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.7",
+    "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "axe-core": "4.14.0",
     "jsdom": "29.1.1",
+    "pg": "8.23.1",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.15",
     "typescript": "~6.0.3",

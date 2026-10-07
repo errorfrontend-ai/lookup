@@ -8,6 +8,10 @@ __pycache__/
 node_modules/
 dist/
 
+# Browser test output (traces and screenshots of failures)
+test-results/
+playwright-report/
+
 # Secrets
 .env
 .env.*
