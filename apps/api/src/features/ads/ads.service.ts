@@ -278,6 +278,6 @@ function describeUpload(upload: UploadRequest, displayFileName: string) {
 /** Last path segment only, without control or bidirectional characters, at most 255 characters. */
 export function cleanFileNameForDisplay(fileName: string): string {
   const lastSegment = fileName.split(/[\\/]/).pop() ?? '';
-  const cleaned = lastSegment.replace(/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g, '').trim();
+  const cleaned = lastSegment.replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '').trim();
   return Array.from(cleaned || 'audio').slice(0, 255).join('');
 }

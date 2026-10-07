@@ -98,6 +98,13 @@ describe('Ad page', () => {
   });
 
   describe('states', () => {
+    it('treats something in the address that is not an ad id as not found, and asks the API nothing with it', async () => {
+      const { fakeApi } = installAdPage();
+      renderPortalAt(`/stations/${stationId}/ads/x%2F..%2Foverview`);
+      expect(await screen.findByRole('heading', { name: "We couldn't find that ad" })).toBeInTheDocument();
+      expect(fakeApi.calls.some((call) => call.path.includes('..'))).toBe(false);
+    });
+
     it('says it cannot find an ad that is not there, with a way back', async () => {
       const unknownId = '0190f1a2-0000-7000-8000-0000000000ff';
       installFakeApi({

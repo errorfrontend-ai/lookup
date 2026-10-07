@@ -42,7 +42,7 @@ function RecentChanges({ stationId, adId }: { stationId: string; adId: string })
     <section aria-label="Recent changes" className="flex flex-col gap-2 rounded-lg border border-line-soft bg-surface p-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-heading">Recent changes</h2>
-        <Link to="?tab=history" className="text-label text-accent underline underline-offset-4">
+        <Link to="?tab=history" className="inline-flex min-h-11 items-center text-label text-accent underline underline-offset-4">
           Full history
         </Link>
       </div>
@@ -71,7 +71,7 @@ export function AdOverviewTab({ ad, station }: { ad: AdDetail; station: MemberSt
         <section aria-label="When it airs" className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-heading">When it airs</h2>
-            <Link to="?tab=schedule" className="text-label text-accent underline underline-offset-4">
+            <Link to="?tab=schedule" className="inline-flex min-h-11 items-center text-label text-accent underline underline-offset-4">
               See the week
             </Link>
           </div>
@@ -82,7 +82,7 @@ export function AdOverviewTab({ ad, station }: { ad: AdDetail; station: MemberSt
       <section aria-label="What listeners see" className="flex h-fit flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-heading">What listeners see</h2>
-          <Link to="?tab=buttons" className="text-label text-accent underline underline-offset-4">
+          <Link to="?tab=buttons" className="inline-flex min-h-11 items-center text-label text-accent underline underline-offset-4">
             See the buttons
           </Link>
         </div>

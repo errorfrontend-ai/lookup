@@ -1,6 +1,7 @@
 import { ActionCard } from '@lookup/contracts';
 import { describe, expect, it } from 'vitest';
 import { type ButtonDraft, newButtonDraft } from './button-draft';
+import { describeHiddenButtons } from '../../plain-words/button-words';
 import { problemsFromApiFields, validateButtonDrafts } from './validate-button-drafts';
 
 function draft(kind: ButtonDraft['kind'], fields: Partial<ButtonDraft> = {}): ButtonDraft {
@@ -78,7 +79,7 @@ describe('turning typed buttons into a card', () => {
     });
 
     it('refuses a label with hidden or direction-changing characters', () => {
-      const sneaky = goodCall({ label: 'Call‮us' });
+      const sneaky = goodCall({ label: 'Call\u202Eus' });
       expect(validateButtonDrafts([sneaky]).problemsByKey.get(sneaky.key)?.label).toBe("The label has a character we can't use. Type it again.");
     });
 
@@ -167,7 +168,7 @@ describe('turning typed buttons into a card', () => {
       const validation = validateButtonDrafts([fine, broken, alsoFine]);
 
       expect(validation.previewCard.actions.map((action) => action.id)).toEqual([fine.key, alsoFine.key]);
-      expect(validation.hiddenFromPreview).toEqual(['Book online']);
+      expect(validation.hiddenFromPreview).toEqual([2]);
     });
 
     it('styles a button by its place in the list, so fixing a hidden first button brings back the main one', () => {
@@ -177,9 +178,12 @@ describe('turning typed buttons into a card', () => {
       expect(previewCard.actions[0]).toMatchObject({ id: second.key, style: 'SECONDARY' });
     });
 
-    it('calls a button with no label by its number', () => {
-      const validation = validateButtonDrafts([goodCall(), goodCall({ label: '', phoneText: '' })]);
-      expect(validation.hiddenFromPreview).toEqual(['Button 2']);
+    it('names the buttons it leaves out by their number, never by what was typed', () => {
+      const validation = validateButtonDrafts([goodCall({ label: '', phoneText: '' }), goodCall(), goodCall({ label: 'Call\u202Eus' })]);
+      expect(validation.hiddenFromPreview).toEqual([1, 3]);
+      expect(describeHiddenButtons([2])).toBe('button 2');
+      expect(describeHiddenButtons([1, 3])).toBe('buttons 1 and 3');
+      expect(describeHiddenButtons([1, 2, 4])).toBe('buttons 1, 2 and 4');
     });
 
     it('is empty, not broken, with no buttons', () => {

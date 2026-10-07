@@ -24,6 +24,7 @@ export function WizardLayout({
   currentStep,
   completedSteps,
   saveStatus,
+  exitLabel,
   onExit,
   children,
   footer,
@@ -35,6 +36,8 @@ export function WizardLayout({
   currentStep: WizardStepId;
   completedSteps: ReadonlySet<WizardStepId>;
   saveStatus: SaveStatus;
+  /** The exit button's name for a screen reader: it says the draft is saved only when that is true. */
+  exitLabel: string;
   onExit: () => void;
   children: ReactNode;
   footer: ReactNode;
@@ -48,7 +51,7 @@ export function WizardLayout({
     <div className="flex min-h-dvh flex-col bg-ground">
       <header className="sticky top-0 z-20 flex flex-col gap-2 border-b border-line-soft bg-surface px-4 pb-3 pt-2 md:px-7">
         <div className="flex min-h-12 items-center gap-3">
-          <button type="button" onClick={onExit} aria-label={saveStatus === 'nothing-saved' ? 'Exit' : 'Exit (your draft is saved)'} className="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-ground">
+          <button type="button" onClick={onExit} aria-label={exitLabel} className="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-ground">
             <Icon name="close" size={22} />
           </button>
           <div className="flex min-w-0 flex-col">

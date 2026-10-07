@@ -6,6 +6,8 @@ import { defineConfig } from '@playwright/test';
 // file the seed script reads. Nothing secret is written in this repository.
 const apiEnvironmentFile = fileURLToPath(new URL('../api/.env', import.meta.url));
 if (existsSync(apiEnvironmentFile)) process.loadEnvFile(apiEnvironmentFile);
+// The clean-up afterwards touches only ads made from this moment on (set once, then inherited by the workers).
+process.env.BROWSER_TESTS_STARTED_AT ??= new Date().toISOString();
 
 /**
  * Browser journeys against the real stack (Docker services, the API and the portal), in the Chrome
@@ -27,7 +29,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5180',
     channel: 'chrome',
-    trace: 'retain-on-failure',
+    // No traces: a trace records what was typed and the network traffic, which would put the test
+    // password and session cookies in a file. A screenshot of the failure is kept instead.
+    trace: 'off',
     screenshot: 'only-on-failure',
   },
   projects: [

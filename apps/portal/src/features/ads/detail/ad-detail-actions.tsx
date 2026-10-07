@@ -8,6 +8,7 @@ import { ConfirmDialog, ModalDialog } from '../../../components/modal-dialog';
 import { TextField } from '../../../components/text-field';
 import { useToast } from '../../../components/toast-region';
 import { useArchiveAd, useRenameAd } from '../use-ad-detail';
+import { browserMaxLength } from '../../../formatting/text-length';
 
 /** The words for a refused title: ours for a bad one, and the general explanation for anything else. */
 function titleProblem(error: unknown): string | null {
@@ -48,7 +49,7 @@ export function RenameAdDialog({ stationId, adId, currentTitle, onClose }: { sta
           hint="Listeners see this above the buttons."
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          maxLength={MAXIMUM_AD_TITLE_LENGTH}
+          maxLength={browserMaxLength(MAXIMUM_AD_TITLE_LENGTH)}
           counter={`${[...title].length} / ${MAXIMUM_AD_TITLE_LENGTH}`}
           error={problem}
           autoComplete="off"

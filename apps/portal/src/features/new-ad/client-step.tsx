@@ -7,6 +7,7 @@ import { ErrorNotice } from '../../components/error-notice';
 import { SkeletonRows } from '../../components/skeleton';
 import { TextField } from '../../components/text-field';
 import { useClients, useCreateClient } from '../clients/use-clients';
+import { browserMaxLength } from '../../formatting/text-length';
 
 const SHOW_FILTER_FROM_CLIENT_COUNT = 7;
 
@@ -85,7 +86,7 @@ export function ClientStep({ stationId, selectedClientId, onSelect }: { stationI
                 hint="The business you are making this ad for, like “Brand A”."
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
-                maxLength={MAXIMUM_CLIENT_NAME_LENGTH}
+                maxLength={browserMaxLength(MAXIMUM_CLIENT_NAME_LENGTH)}
                 counter={`${[...newName].length} / ${MAXIMUM_CLIENT_NAME_LENGTH}`}
                 error={createClient.error instanceof ApiError && createClient.error.code === 'CONFLICT' ? createClient.error.message : null}
                 autoComplete="off"

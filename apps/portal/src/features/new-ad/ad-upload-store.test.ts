@@ -129,7 +129,7 @@ describe('the upload store', () => {
     expect(getUploadState(adId)).toMatchObject({ failure: null, apiError: null });
   });
 
-  it('reports a failed request for a fresh address as a check that failed, with the reference to quote', async () => {
+  it('says the upload could not start when a fresh address cannot be had, with the reference to quote', async () => {
     useTransport(async () => {
       throw new StorageNetworkError();
     });
@@ -137,7 +137,7 @@ describe('the upload store', () => {
     startUpload({ stationId, adId, file, instructions: instructions() });
     await untilPhase('failed');
     await retryUpload(adId);
-    expect(getUploadState(adId)).toMatchObject({ phase: 'failed', failure: 'check_failed' });
+    expect(getUploadState(adId)).toMatchObject({ phase: 'failed', failure: 'link_failed' });
     expect(getUploadState(adId)?.apiError?.requestId).toBe('ref12345');
   });
 

@@ -10,6 +10,8 @@ import { setScreenWidth } from '../../test/screen-size';
 import { clearAllUploads } from '../new-ad/ad-upload-store';
 
 const person = userEvent.setup({ delay: null });
+/** A field by the end of its name: fields in a row are named after the row first ("Button 2 Phone number"). */
+const endsWith = (name: string) => new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 const owner = signedInUserWith([{ role: 'OWNER', name: 'Radio Phoenix', frequencyLabel: '89.5 FM' }]);
 const stationId = owner.stations[0]?.id as string;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -71,9 +73,9 @@ function installButtonsPage({ ad = adWithoutButtons(), user = owner, onSave }: P
 
 const addButton = async (kind: 'Call' | 'WhatsApp' | 'Directions' | 'Website') => person.click(screen.getByRole('button', { name: `Add a ${kind} button` }));
 const rowNumber = (number: number) => screen.getByRole('listitem', { name: `Button ${number}` });
-const labelsInOrder = () => screen.queryAllByRole('listitem', { name: /^Button \d$/ }).map((row) => (within(row).getByLabelText('Label') as HTMLInputElement).value);
+const labelsInOrder = () => screen.queryAllByRole('listitem', { name: /^Button \d$/ }).map((row) => (within(row).getByLabelText(endsWith('Label')) as HTMLInputElement).value);
 const typeInto = async (row: HTMLElement, field: string, text: string) => {
-  const input = within(row).getByLabelText(field);
+  const input = within(row).getByLabelText(endsWith(field));
   await person.clear(input);
   if (text) await person.type(input, text);
 };
@@ -106,17 +108,17 @@ describe('The buttons step', () => {
 
       await addButton('Call');
       const row = rowNumber(1);
-      expect(within(row).getByLabelText('Label')).toHaveValue('Call us');
+      expect(within(row).getByLabelText(endsWith('Label'))).toHaveValue('Call us');
       expect(within(row).getByText('The main button')).toBeInTheDocument();
       expect(within(row).queryByText('Enter the phone number.')).not.toBeInTheDocument();
       // The new row has the cursor, so it can be typed into at once.
-      expect(within(row).getByLabelText('Label')).toHaveFocus();
+      expect(within(row).getByLabelText(endsWith('Label'))).toHaveFocus();
 
-      await person.click(within(row).getByLabelText('Phone number'));
+      await person.click(within(row).getByLabelText(endsWith('Phone number')));
       await person.tab();
       expect(await within(row).findByText('Enter the phone number.')).toBeInTheDocument();
 
-      await person.type(within(row).getByLabelText('Phone number'), '0977 123 456');
+      await person.type(within(row).getByLabelText(endsWith('Phone number')), '0977 123 456');
       expect(within(row).queryByText('Enter the phone number.')).not.toBeInTheDocument();
       expect(within(row).getByText(/Calls \+260 97 712 3456/)).toBeInTheDocument();
       expect(within(preview()).getByText('Call us')).toBeInTheDocument();
@@ -145,7 +147,7 @@ describe('The buttons step', () => {
       expect(await within(row).findByText(/Addresses must start with https:\/\//)).toBeInTheDocument();
       expect(within(preview()).getByText('Call us')).toBeInTheDocument();
       expect(within(preview()).queryByText('Visit our website')).not.toBeInTheDocument();
-      expect(screen.getByText('Not shown until fixed: “Visit our website”.')).toBeInTheDocument();
+      expect(screen.getByText('Not shown until fixed: button 2.')).toBeInTheDocument();
 
       await typeInto(row, 'Web address', 'brand.co.zm/book');
       expect(within(preview()).getByText('Visit our website')).toBeInTheDocument();
@@ -160,15 +162,15 @@ describe('The buttons step', () => {
       await addButton('Call');
       const row = rowNumber(1);
 
-      await person.selectOptions(within(row).getByLabelText('Type'), 'WhatsApp');
-      expect(within(row).getByLabelText('Label')).toHaveValue('Chat on WhatsApp');
-      expect(within(row).getByLabelText('First message (optional)')).toBeInTheDocument();
+      await person.selectOptions(within(row).getByLabelText(endsWith('Type')), 'WhatsApp');
+      expect(within(row).getByLabelText(endsWith('Label'))).toHaveValue('Chat on WhatsApp');
+      expect(within(row).getByLabelText(endsWith('First message (optional)'))).toBeInTheDocument();
 
       await typeInto(row, 'Label', 'Ring Brand A');
-      await person.selectOptions(within(row).getByLabelText('Type'), 'Website');
-      expect(within(row).getByLabelText('Label')).toHaveValue('Ring Brand A');
-      expect(within(row).getByLabelText('Web address')).toBeInTheDocument();
-      expect(within(row).queryByLabelText('Phone number')).not.toBeInTheDocument();
+      await person.selectOptions(within(row).getByLabelText(endsWith('Type')), 'Website');
+      expect(within(row).getByLabelText(endsWith('Label'))).toHaveValue('Ring Brand A');
+      expect(within(row).getByLabelText(endsWith('Web address'))).toBeInTheDocument();
+      expect(within(row).queryByLabelText(endsWith('Phone number'))).not.toBeInTheDocument();
     });
 
     it('reads a Directions location from a pasted Google Maps link and offers a way to check it', async () => {
@@ -194,8 +196,38 @@ describe('The buttons step', () => {
       await screen.findByRole('heading', { name: 'Add the buttons' });
       await addButton('WhatsApp');
       const row = rowNumber(1);
-      await person.type(within(row).getByLabelText('First message (optional)'), 'Hello{Enter}I saw your ad');
+      await person.type(within(row).getByLabelText(endsWith('First message (optional)')), 'Hello{Enter}I saw your ad');
       expect(within(row).getByText('19 / 500')).toBeInTheDocument();
+    });
+  });
+
+  describe('fields a screen reader can tell apart', () => {
+    it('names each field after its button, so "Phone number" in button 2 is not mistaken for the one in button 1', async () => {
+      const { stepPath } = installButtonsPage();
+      renderPortalAt(stepPath);
+      await screen.findByRole('heading', { name: 'Add the buttons' });
+      await addButton('Call');
+      await addButton('WhatsApp');
+      expect(screen.getByLabelText('Button 1 Phone number')).toBeInTheDocument();
+      expect(screen.getByLabelText('Button 2 Phone number')).toBeInTheDocument();
+      expect(screen.getByLabelText('Button 2 First message (optional)')).toBeInTheDocument();
+      expect(screen.getByLabelText('Button 1 Type')).toBeInTheDocument();
+      expect(screen.getByLabelText('Button 2 Label')).toBeInTheDocument();
+    });
+
+    it('marks a field with a problem as invalid and ties it to the message, which is announced', async () => {
+      const { stepPath } = installButtonsPage();
+      renderPortalAt(stepPath);
+      await screen.findByRole('heading', { name: 'Add the buttons' });
+      await addButton('Website');
+      const field = screen.getByLabelText('Button 1 Web address');
+      await person.type(field, 'http://brand.co.zm');
+      await person.tab();
+
+      const message = await screen.findByText(/Addresses must start with https:\/\//);
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(message).toHaveAttribute('role', 'alert');
+      expect(field.getAttribute('aria-describedby')?.split(' ')).toContain(message.id);
     });
   });
 
@@ -329,7 +361,7 @@ describe('The buttons step', () => {
       expect(await screen.findByText('2 things to fix before these buttons can be saved.')).toBeInTheDocument();
       expect(within(rowNumber(1)).getByText('Enter the phone number.')).toBeInTheDocument();
       expect(within(rowNumber(2)).getByText('Short links like bit.ly hide where the button goes. Paste the full address instead.')).toBeInTheDocument();
-      await waitFor(() => expect(within(rowNumber(1)).getByLabelText('Phone number')).toHaveFocus());
+      await waitFor(() => expect(within(rowNumber(1)).getByLabelText(endsWith('Phone number'))).toHaveFocus());
       expect(calls.some((call) => call.method === 'PUT')).toBe(false);
       expect(screen.getByText('Changes not saved yet')).toBeInTheDocument();
     });
@@ -388,7 +420,7 @@ describe('The buttons step', () => {
       const notice = (await screen.findByText("We couldn't save the buttons")).closest('[role="alert"]') as HTMLElement;
       expect(notice).toHaveTextContent('ref-9988');
       expect(document.body.textContent).not.toMatch(INTERNAL_DETAIL_PATTERN);
-      expect(within(rowNumber(1)).getByLabelText('Label')).toHaveValue('Phone Brand A');
+      expect(within(rowNumber(1)).getByLabelText(endsWith('Label'))).toHaveValue('Phone Brand A');
       expect(screen.getByText('Changes not saved yet')).toBeInTheDocument();
     });
   });
@@ -401,10 +433,10 @@ describe('The buttons step', () => {
       await screen.findByRole('heading', { name: 'Add the buttons' });
 
       expect(labelsInOrder()).toEqual(['Call Brand A', 'Chat on WhatsApp', 'Get directions']);
-      expect(within(rowNumber(1)).getByLabelText('Phone number')).toHaveValue('+260 97 712 3456');
-      expect(within(rowNumber(2)).getByLabelText('First message (optional)')).toHaveValue('Hello there');
-      expect(within(rowNumber(3)).getByLabelText('Location')).toHaveValue('-15.4167, 28.2833');
-      expect(within(rowNumber(3)).getByLabelText('Place name (optional)')).toHaveValue('Cairo Road, Lusaka');
+      expect(within(rowNumber(1)).getByLabelText(endsWith('Phone number'))).toHaveValue('+260 97 712 3456');
+      expect(within(rowNumber(2)).getByLabelText(endsWith('First message (optional)'))).toHaveValue('Hello there');
+      expect(within(rowNumber(3)).getByLabelText(endsWith('Location'))).toHaveValue('-15.4167, 28.2833');
+      expect(within(rowNumber(3)).getByLabelText(endsWith('Place name (optional)'))).toHaveValue('Cairo Road, Lusaka');
       expect(within(preview()).getByText('Call Brand A')).toBeInTheDocument();
       expect(within(preview()).getByText('Brand A · via Radio Phoenix · 89.5 FM')).toBeInTheDocument();
 
@@ -450,15 +482,37 @@ describe('The buttons step', () => {
       await screen.findByRole('heading', { name: 'Add the buttons' });
       await addButton('Call');
 
-      await person.click(screen.getByRole('button', { name: 'Exit (your draft is saved)' }));
+      // With changes not saved, the exit button does not claim the draft is saved.
+      expect(screen.queryByRole('button', { name: 'Exit (your draft is saved)' })).not.toBeInTheDocument();
+      await person.click(screen.getByRole('button', { name: 'Exit' }));
       const dialog = await screen.findByRole('dialog', { name: 'Leave without saving your changes?' });
       expect(dialog).toHaveTextContent("The changes you made haven't been saved");
       await person.click(within(dialog).getByRole('button', { name: 'Keep working' }));
       expect(labelsInOrder()).toEqual(['Call us']);
 
-      await person.click(screen.getByRole('button', { name: 'Exit (your draft is saved)' }));
+      await person.click(screen.getByRole('button', { name: 'Exit' }));
       await person.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Leave' }));
       await waitFor(() => expect(router.state.location.search).toBe('?view=drafts'));
+    });
+
+    it('asks before Save and close drops changes to the times that are not saved yet', async () => {
+      const ad = adDetail({ title: 'Summer service offer', status: 'PROCESSING', campaign: null, schedule: null });
+      const { stepPath } = installButtonsPage({ ad });
+      const { router } = renderPortalAt(stepPath);
+      await screen.findByRole('heading', { name: 'Add the buttons' });
+
+      // Change the times without saving them, then come back to the buttons and change those too.
+      await person.click(screen.getByRole('button', { name: 'Save and continue' }));
+      await screen.findByRole('heading', { level: 1, name: 'Set when it airs' });
+      await person.selectOptions(screen.getByLabelText('Keep giving the buttons after a slot ends'), '0');
+      await person.click(screen.getByRole('button', { name: 'Back' }));
+      await screen.findByRole('heading', { level: 1, name: 'Add the buttons' });
+      await typeInto(rowNumber(1), 'Label', 'Phone Brand A');
+
+      await person.click(screen.getByRole('button', { name: 'Save and close' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Leave without saving your changes?' });
+      await person.click(within(dialog).getByRole('button', { name: 'Keep working' }));
+      expect(router.state.location.search).toBe('?step=buttons');
     });
 
     it('leaves at once when nothing was changed', async () => {
@@ -483,7 +537,7 @@ describe('The buttons step', () => {
 
       await person.click(screen.getByRole('button', { name: 'Next: Buttons' }));
       expect(await screen.findByRole('heading', { level: 1, name: 'Add the buttons' })).toBeInTheDocument();
-      expect(within(rowNumber(1)).getByLabelText('Web address')).toHaveValue('brand.co.zm');
+      expect(within(rowNumber(1)).getByLabelText(endsWith('Web address'))).toHaveValue('brand.co.zm');
     });
 
     it('will not go on from the audio until the audio is in', async () => {
@@ -515,7 +569,7 @@ describe('The buttons step', () => {
       expect(screen.queryByRole('listitem', { name: 'Button 1' })).not.toBeInTheDocument();
 
       await person.click(edit);
-      expect(within(rowNumber(1)).getByLabelText('Phone number')).toHaveValue('0977123456');
+      expect(within(rowNumber(1)).getByLabelText(endsWith('Phone number'))).toHaveValue('0977123456');
     });
 
     it('shows both side by side on a wide screen, with no switch', async () => {

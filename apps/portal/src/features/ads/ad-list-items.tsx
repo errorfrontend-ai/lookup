@@ -29,7 +29,7 @@ function AdIdentity({ ad, stationId }: { ad: AdSummary; stationId: string }) {
     <div className="flex min-w-0 items-center gap-3">
       <ClientAvatar clientId={ad.client.id} name={ad.client.name} />
       <div className="flex min-w-0 flex-col">
-        <Link to={`/stations/${stationId}/ads/${ad.id}`} className="truncate text-heading text-ink no-underline hover:text-accent hover:underline">
+        <Link to={`/stations/${stationId}/ads/${ad.id}`} className="-my-2.5 truncate py-2.5 text-heading text-ink no-underline hover:text-accent hover:underline">
           {ad.title}
         </Link>
         <span className="truncate text-caption text-muted">{ad.client.name}</span>

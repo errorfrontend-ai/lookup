@@ -54,7 +54,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={() => dismiss(toast.id)}
-              className="-mr-2 flex size-9 items-center justify-center rounded-md hover:bg-surface/10"
+              className="-my-1 -mr-2 flex size-11 items-center justify-center rounded-md hover:bg-surface/10"
               aria-label="Dismiss message"
             >
               <Icon name="close" size={16} />

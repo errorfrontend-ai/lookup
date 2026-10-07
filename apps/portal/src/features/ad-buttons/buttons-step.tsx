@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ListenerCardPreview } from '../../components/listener-card-preview';
 import { PhoneWidthToggle, type PhoneWidth } from '../../components/phone-width-toggle';
 import { LARGE_SCREEN_QUERY, useMediaQuery } from '../../components/use-media-query';
+import { describeHiddenButtons } from '../../plain-words/button-words';
 import type { MemberStation } from '../stations/use-current-station';
 import { ButtonsEditor } from './buttons-editor';
 import type { ButtonDraft } from './button-draft';
@@ -19,7 +20,7 @@ function PreviewPanel({ ad, station, validation }: { ad: AdDetail; station: Memb
       <ListenerCardPreview card={validation.previewCard} adTitle={ad.title} clientName={ad.client.name} stationName={station.name} frequencyLabel={station.frequencyLabel} phoneWidth={phoneWidth} />
       {validation.hiddenFromPreview.length > 0 ? (
         <p className="rounded-md bg-warning-soft px-3 py-2 text-caption text-warning">
-          Not shown until fixed: {validation.hiddenFromPreview.map((label) => `“${label}”`).join(', ')}.
+          Not shown until fixed: {describeHiddenButtons(validation.hiddenFromPreview)}.
         </p>
       ) : null}
     </section>

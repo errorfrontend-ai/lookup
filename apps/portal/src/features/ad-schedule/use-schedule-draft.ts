@@ -43,7 +43,8 @@ function signature(draft: ScheduleDraft): string {
 export function useScheduleDraft(stationId: string, adId: string | undefined, detail: AdDetail | undefined, stationTimeZone: string | undefined) {
   const saveSchedule = useSaveSchedule(stationId, adId ?? '');
   const timeZone = detail?.schedule?.stationTimeZone ?? stationTimeZone;
-  const today = useMemo(() => (timeZone ? todayInTimeZone(timeZone) : null), [timeZone]);
+  // Read afresh each time: a page left open past midnight must not keep yesterday's date.
+  const today = timeZone ? todayInTimeZone(timeZone) : null;
 
   const [draft, setDraft] = useState<ScheduleDraft | null>(null);
   const initialSignature = useRef<string | null>(null);

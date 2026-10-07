@@ -90,7 +90,11 @@ function installSetup({ user = owner, clients = [brandA, brandB], draft = newDra
     [`GET /stations/${sessionStationId}/ads`]: () => jsonResponse(200, { ads: [], nextCursor: null }),
     [`POST /stations/${sessionStationId}/ads`]: () => jsonResponse(201, { adId, upload: uploadInstructions }),
     [`GET /stations/${sessionStationId}/ads/${adId}`]: () => jsonResponse(200, current),
-    [`POST /stations/${sessionStationId}/ads/${adId}/upload-url`]: () => jsonResponse(200, { ...uploadInstructions, url: 'https://storage.test/second-address' }),
+    [`POST /stations/${sessionStationId}/ads/${adId}/upload-url`]: () => {
+      // As the API does: a fresh address puts the ad back to waiting for its audio.
+      current = { ...current, status: 'AWAITING_UPLOAD', processingErrorCode: null };
+      return jsonResponse(200, { ...uploadInstructions, url: 'https://storage.test/second-address' });
+    },
     [`POST /stations/${sessionStationId}/ads/${adId}/complete`]: () => {
       current = { ...current, status: 'PROCESSING', uploadedAt: new Date().toISOString() };
       return jsonResponse(200, current);
@@ -480,6 +484,155 @@ describe('Setting up an ad', () => {
       installSetup();
       renderPortalAt('/stations/0190f1a2-0000-7000-8000-0000000fffff/ads/new');
       expect(await screen.findByRole('heading', { name: "We couldn't find that page" })).toBeInTheDocument();
+    });
+  });
+
+  describe('what the review found (each was a real fault)', () => {
+    it('shows a replacement for a refused file going up: progress, Stop, and Next once it is in', async () => {
+      let finishSending: (status: { status: number }) => void = () => undefined;
+      restoreTransport();
+      useTransport(({ onProgress }) => {
+        onProgress(0.4);
+        return new Promise((resolve) => {
+          finishSending = resolve;
+        });
+      });
+      installSetup({ draft: newDraft({ status: 'FAILED', processingErrorCode: 'not_the_declared_audio_format' }) });
+      renderPortalAt(`/stations/${stationId}/ads/${adId}/setup?step=audio`);
+      await screen.findByText("This file isn't a valid MP3, WAV or M4A audio file. Choose a different file.");
+
+      await person.upload(screen.getByLabelText('Replacement audio file'), audioFile());
+
+      const progressBar = await screen.findByRole('progressbar', { name: 'Upload progress' });
+      expect(progressBar).toHaveAttribute('aria-valuenow', '40');
+      expect(screen.getByText('Uploading 40%').closest('li')).toHaveAttribute('aria-current', 'step');
+      expect(screen.getByRole('button', { name: 'Stop upload' })).toBeInTheDocument();
+      expect(screen.queryByText("This file isn't a valid MP3, WAV or M4A audio file. Choose a different file.")).not.toBeInTheDocument();
+      // While it is going up the person may carry on to the buttons.
+      expect(screen.getByRole('button', { name: 'Next: Buttons' })).toBeEnabled();
+
+      finishSending({ status: 200 });
+      const progress = await screen.findByRole('list', { name: 'Upload progress' });
+      await waitFor(() => expect(within(progress).getByText('Checked')).toBeInTheDocument());
+    });
+
+    it('offers Stop only while the file is going up, not while it is being checked', async () => {
+      installSetup({ extra: { [`POST /stations/${stationId}/ads/${adId}/complete`]: () => new Promise<Response>(() => undefined) } });
+      renderPortalAt(`/stations/${stationId}/ads/${adId}/setup?step=audio`);
+      await person.upload(await screen.findByLabelText('Audio file'), audioFile());
+      await screen.findByText('Checking the file…');
+      expect(screen.queryByRole('button', { name: 'Stop upload' })).not.toBeInTheDocument();
+    });
+
+    it('asks only for the check again when the file arrived but the check failed, and sends nothing twice', async () => {
+      let checks = 0;
+      const { calls } = installSetup({
+        extra: {
+          [`POST /stations/${stationId}/ads/${adId}/complete`]: () => {
+            checks += 1;
+            return checks === 1 ? errorResponse(500, 'INTERNAL', 'Something went wrong on our side. Please try again.', 'ref-3030') : jsonResponse(200, newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString() }));
+          },
+        },
+      });
+      renderPortalAt(`/stations/${stationId}/ads/${adId}/setup?step=audio`);
+      await person.upload(await screen.findByLabelText('Audio file'), audioFile());
+      expect(await screen.findByText("We couldn't check the file just now. Try again.")).toBeInTheDocument();
+      const addressesBefore = calls.filter((call) => call.path.endsWith('/upload-url')).length;
+
+      await person.click(screen.getByRole('button', { name: 'Try again' }));
+      const progress = await screen.findByRole('list', { name: 'Upload progress' });
+      await waitFor(() => expect(within(progress).getByText('Checked')).toBeInTheDocument());
+      expect(checks).toBe(2);
+      expect(calls.filter((call) => call.path.endsWith('/upload-url'))).toHaveLength(addressesBefore);
+      expect(transportCalls).toHaveLength(1);
+    });
+
+    it('sets an earlier failure aside once the ad shows its audio checked', async () => {
+      let isChecked = false;
+      installSetup({
+        extra: {
+          [`POST /stations/${stationId}/ads/${adId}/complete`]: () => errorResponse(500, 'INTERNAL', 'Something went wrong on our side.', 'ref-4040'),
+          [`GET /stations/${stationId}/ads/${adId}`]: () => jsonResponse(200, newDraft(isChecked ? { status: 'PROCESSING', uploadedAt: new Date().toISOString() } : {})),
+        },
+      });
+      renderPortalAt(`/stations/${stationId}/ads/${adId}/setup?step=audio`);
+      await person.upload(await screen.findByLabelText('Audio file'), audioFile());
+      await screen.findByText("We couldn't check the file just now. Try again.");
+
+      // The check did happen on the server after all; the ad is read again.
+      isChecked = true;
+      await queryClient.invalidateQueries();
+      await waitFor(() => expect(screen.queryByText("We couldn't check the file just now. Try again.")).not.toBeInTheDocument());
+      expect(within(screen.getByRole('list', { name: 'Upload progress' })).getByText('Checked')).toBeInTheDocument();
+    });
+
+    it('says the upload could not start when a fresh address cannot be had', async () => {
+      installSetup({ extra: { [`POST /stations/${stationId}/ads/${adId}/upload-url`]: () => errorResponse(429, 'RATE_LIMITED', 'Too many tries. Please wait a minute and try again.', 'ref-5050') } });
+      renderPortalAt(`/stations/${stationId}/ads/${adId}/setup?step=audio`);
+      await person.upload(await screen.findByLabelText('Audio file'), audioFile());
+      expect(await screen.findByText("We couldn't start the upload. Try again.")).toBeInTheDocument();
+      expect(screen.getByText(/ref-5050/)).toBeInTheDocument();
+    });
+
+    it('does not let the person leave while the ad is being created, so no empty draft is left behind', async () => {
+      installSetup({ extra: { [`POST /stations/${stationId}/ads`]: () => new Promise<Response>(() => undefined) } });
+      const { router } = renderPortalAt(`/stations/${stationId}/ads/new`);
+      await chooseClientAndContinue(/Brand A/);
+      await person.upload(screen.getByLabelText('Audio file'), audioFile());
+      await screen.findByLabelText('Ad title');
+      await person.click(screen.getByRole('button', { name: 'Upload ad' }));
+      await screen.findByRole('button', { name: 'Uploading…' });
+
+      await person.click(screen.getByRole('button', { name: 'Exit' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await router.navigate(`/stations/${stationId}/ads`);
+      expect(router.state.location.pathname).toBe(`/stations/${stationId}/ads/new`);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('asks before the browser\'s Back button (or any link) leaves an unsaved new ad, and can be told to stay', async () => {
+      installSetup();
+      const { router } = renderPortalAt(`/stations/${stationId}/ads/new`);
+      await person.click(await screen.findByRole('radio', { name: /Brand A/ }));
+
+      await router.navigate(`/stations/${stationId}/overview`);
+      const dialog = await screen.findByRole('dialog', { name: 'Leave without saving?' });
+      await person.click(within(dialog).getByRole('button', { name: 'Keep working' }));
+      expect(router.state.location.pathname).toBe(`/stations/${stationId}/ads/new`);
+      expect(screen.getByRole('radio', { name: /Brand A/ })).toBeChecked();
+
+      await router.navigate(`/stations/${stationId}/overview`);
+      await person.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Leave' }));
+      await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${stationId}/overview`));
+    });
+
+    it('lets the address change between steps without asking: nothing is lost', async () => {
+      installSetup({ draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString() }) });
+      const { router } = renderPortalAt(`/stations/${stationId}/ads/${adId}/setup?step=buttons`);
+      await screen.findByRole('heading', { level: 1, name: 'Add the buttons' });
+      await person.click(screen.getByRole('button', { name: 'Add a Call button' }));
+      await router.navigate({ search: '?step=audio' });
+      expect(await screen.findByRole('heading', { level: 1, name: 'Your audio' })).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('will not take a title longer than an ad title may be, counting as people count', async () => {
+      installSetup();
+      renderPortalAt(`/stations/${stationId}/ads/new`);
+      await chooseClientAndContinue(/Brand A/);
+      await person.upload(screen.getByLabelText('Audio file'), audioFile());
+      const title = await screen.findByLabelText('Ad title');
+      await person.clear(title);
+      await person.type(title, 'a'.repeat(121));
+      expect(screen.getByText('Keep the title to 120 characters or fewer.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Upload ad' })).toBeDisabled();
+    });
+
+    it('treats something in the address that is not an ad id as not found, and asks the API nothing with it', async () => {
+      const { calls } = installSetup();
+      renderPortalAt(`/stations/${stationId}/ads/not-an-id/setup?step=review`);
+      expect(await screen.findByRole('heading', { name: "We couldn't find that ad" })).toBeInTheDocument();
+      expect(calls.some((call) => call.path.includes('not-an-id'))).toBe(false);
     });
   });
 });

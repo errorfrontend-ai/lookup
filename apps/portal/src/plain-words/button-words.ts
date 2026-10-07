@@ -7,6 +7,12 @@ export const BUTTON_KIND_WORDS: Record<ButtonKind, { name: string; addLabel: str
   LINK: { name: 'Website', addLabel: 'Website', description: 'Opens a web page.' },
 };
 
+/** "button 2", "buttons 2 and 4", "buttons 1, 2 and 4": the buttons the preview leaves out until they are fixed. */
+export function describeHiddenButtons(numbers: readonly number[]): string {
+  if (numbers.length === 1) return `button ${numbers[0]}`;
+  return `buttons ${numbers.slice(0, -1).join(', ')} and ${numbers.at(-1)}`;
+}
+
 export const NO_BUTTONS_PROBLEM = 'Add at least one button, or listeners will have nothing to tap.';
 export const TOO_MANY_BUTTONS_PROBLEM = 'A card can have up to 6 buttons. Remove one to add another.';
 export const CARD_NOT_SAVABLE_PROBLEM = "These buttons can't be saved as they are. Check each one.";

@@ -31,6 +31,25 @@ function Section({ title, editStep, editLabel, children }: { title: string; edit
   );
 }
 
+const UNSAVED_STEP_WORDS = { buttons: 'Save the buttons', schedule: 'Save the schedule' } as const;
+
+/** Changes made in this visit that are not saved yet. Publish puts the saved version on air, so they come first. */
+function UnsavedChanges({ steps }: { steps: ReadonlyArray<'buttons' | 'schedule'> }) {
+  return (
+    <div role="alert" className="flex flex-col gap-2 rounded-lg border border-warning bg-warning-soft p-4">
+      <span className="text-label text-ink">Some changes aren't saved yet</span>
+      <span className="text-body text-ink">Publishing puts the saved version on air. Go back and save your changes first.</span>
+      <div className="flex flex-wrap gap-x-4">
+        {steps.map((step) => (
+          <Link key={step} to={{ search: `?step=${step}` }} className="flex min-h-11 items-center text-label text-accent underline underline-offset-4">
+            {UNSAVED_STEP_WORDS[step]}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Whether the ad can be published, and if not, what stops it and where to fix each thing. */
 function Readiness({ blockers, isPublished, campaignStatus }: { blockers: PublishBlocker[]; isPublished: boolean; campaignStatus: AdDetail['campaign'] }) {
   if (isPublished && campaignStatus) {
@@ -83,7 +102,18 @@ function Readiness({ blockers, isPublished, campaignStatus }: { blockers: Publis
  * The last step: everything in one place to check before the ad goes on air. Each part has its own
  * "change" link back to its step, and what stops publishing (if anything) is listed with a link to fix it.
  */
-export function ReviewStep({ ad, station, blockers }: { ad: AdDetail; station: MemberStation; blockers: PublishBlocker[] }) {
+export function ReviewStep({
+  ad,
+  station,
+  blockers,
+  unsavedSteps = [],
+}: {
+  ad: AdDetail;
+  station: MemberStation;
+  blockers: PublishBlocker[];
+  /** Steps with changes made in this visit that are not saved yet. */
+  unsavedSteps?: ReadonlyArray<'buttons' | 'schedule'>;
+}) {
   const [phoneWidth, setPhoneWidth] = useState<PhoneWidth>(320);
   const isPublished = Boolean(ad.campaign && ad.campaign.displayStatus !== 'DRAFT');
   const hasAudio = ad.status !== 'AWAITING_UPLOAD' && ad.status !== 'FAILED';
@@ -97,6 +127,7 @@ export function ReviewStep({ ad, station, blockers }: { ad: AdDetail; station: M
         <p className="text-body text-muted">{isPublished ? 'Everything about this ad, in one place.' : 'Check everything below. Publishing puts the ad on the schedule you set.'}</p>
       </div>
 
+      {unsavedSteps.length > 0 ? <UnsavedChanges steps={unsavedSteps} /> : null}
       <Readiness blockers={blockers} isPublished={isPublished} campaignStatus={ad.campaign} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">

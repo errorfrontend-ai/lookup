@@ -27,5 +27,8 @@ export default defineConfig({
     css: false,
     // The build machine is slow (4 CPUs, little memory); whole-portal tests need more than the 5 s default.
     testTimeout: 15_000,
+    // Two test files at a time: with more, page tests starve each other (and Docker and the dev servers)
+    // and fail on time alone, which a test that is meant to catch faults must never do.
+    maxWorkers: 2,
   },
 });

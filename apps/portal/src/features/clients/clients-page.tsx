@@ -13,6 +13,7 @@ import { TextField } from '../../components/text-field';
 import { useToast } from '../../components/toast-region';
 import { canChangeStationContent, useRequiredCurrentStation } from '../stations/use-current-station';
 import { useClients, useCreateClient } from './use-clients';
+import { browserMaxLength } from '../../formatting/text-length';
 
 /** How many ads a client has, in words. */
 export function describeClientAdCount(adCount: number): string {
@@ -57,7 +58,7 @@ function AddClientForm({ stationId }: { stationId: string }) {
           hint="The business you upload ads for, like “Brand A”."
           value={name}
           onChange={(event) => setName(event.target.value)}
-          maxLength={MAXIMUM_CLIENT_NAME_LENGTH}
+          maxLength={browserMaxLength(MAXIMUM_CLIENT_NAME_LENGTH)}
           counter={`${[...name].length} / ${MAXIMUM_CLIENT_NAME_LENGTH}`}
           error={problem}
           autoComplete="off"

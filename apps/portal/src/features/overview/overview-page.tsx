@@ -157,7 +157,7 @@ export function OverviewPage() {
                       <AttentionRow key={ad.id} ad={ad} stationId={station.id} canChange={canUpload} />
                     ))}
                   </ul>
-                  <Link to={`${adsPath}?view=attention`} className="self-start text-label text-accent underline underline-offset-4">
+                  <Link to={`${adsPath}?view=attention`} className="inline-flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
                     See all in Ads
                   </Link>
                 </>

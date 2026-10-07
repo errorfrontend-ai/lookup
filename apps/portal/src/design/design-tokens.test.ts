@@ -44,6 +44,7 @@ const TEXT_PAIRINGS: Array<[text: string, background: string]> = [
   ['warning', 'surface'],
   ['ink', 'warningSoft'],
   ['warning', 'warningSoft'],
+  ['accent', 'warningSoft'],
   // Client avatars: the page colour as text on each token colour.
   ['surface', 'ink'],
   ['surface', 'success'],
@@ -55,6 +56,13 @@ const TEXT_PAIRINGS: Array<[text: string, background: string]> = [
 ];
 
 describe('design tokens', () => {
+  it('hold the colours (light and dark), spacing, radii and type scale that the portal and the app share', () => {
+    const groups = tokens as unknown as Record<string, Record<string, unknown>>;
+    expect(Object.keys(groups.color ?? {})).toEqual(expect.arrayContaining(['light', 'dark']));
+    expect(Object.keys(groups.color?.light as object)).toEqual(Object.keys(groups.color?.dark as object));
+    for (const group of ['space', 'radius', 'type']) expect(Object.keys(groups[group] ?? {}).length, group).toBeGreaterThan(0);
+  });
+
   it('the committed CSS matches tokens.json (run npm run generate:design-tokens after changing tokens)', () => {
     expect(readFileSync(GENERATED_STYLES_FILE, 'utf8')).toBe(buildDesignTokenStyles(tokens));
   });

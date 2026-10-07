@@ -13,6 +13,7 @@ export type UploadFailure =
   | 'network' //        the connection dropped
   | 'link_expired' //   the signed address ran out before the file finished
   | 'storage_refused' // storage said no for another reason
+  | 'link_failed' //    a fresh signed address could not be had (the file was not sent)
   | 'not_received' //   the file never arrived (the API could not find it)
   | 'refused' //        the API checked the file and refused it (not audio, wrong size)
   | 'check_failed' //   the check itself failed (server trouble)
@@ -134,7 +135,14 @@ async function run(adId: string, instructions: UploadInstructions): Promise<void
     return;
   }
 
-  update(adId, { phase: 'checking', percent: 100 });
+  await checkUpload(adId);
+}
+
+/** Asks the API to check the file that is in storage. Asking again is safe: an ad already checked just comes back as it is. */
+async function checkUpload(adId: string): Promise<void> {
+  const state = uploads.get(adId);
+  if (!state) return;
+  update(adId, { phase: 'checking', percent: 100, failure: null, apiError: null });
   try {
     const checked = await portalApi.post<AdDetail>(`/stations/${state.stationId}/ads/${adId}/complete`);
     update(adId, { phase: 'checked' });
@@ -154,13 +162,15 @@ export function cancelUpload(adId: string): void {
 }
 
 /**
- * Tries again with the same file. A fresh signed address is asked for first (the old one is used up or
- * expired), then the file goes up and is checked as before.
+ * Tries again with the same file. When the file reached storage and only the check failed, just the
+ * check is asked for again (sending it again would waste the station's data). Otherwise a fresh signed
+ * address is asked for (the old one is used up or expired), then the file goes up and is checked.
  */
 export async function retryUpload(adId: string): Promise<void> {
   const state = uploads.get(adId);
   if (!state) return;
-  await sendAgain(adId, state.file);
+  if (state.failure === 'check_failed') await checkUpload(adId);
+  else await sendAgain(adId, state.file);
 }
 
 /** Replaces the file (after a refusal, or when the page was reloaded and the file is gone): a fresh address, then the new file. */
@@ -178,9 +188,11 @@ async function sendAgain(adId: string, file: File): Promise<void> {
     const instructions = await portalApi.post<UploadInstructions>(`/stations/${state.stationId}/ads/${adId}/upload-url`, {
       upload: { fileName: file.name, contentType: state.contentType, sizeBytes: file.size },
     });
+    // A fresh address puts a refused ad back to waiting for its audio; the ad's page reads that again.
+    void queryClient.invalidateQueries({ queryKey: stationQueryKeys.adDetail(state.stationId, adId) });
     await run(adId, instructions);
   } catch (error) {
-    update(adId, { phase: 'failed', failure: 'check_failed', apiError: error instanceof ApiError ? error : null });
+    update(adId, { phase: 'failed', failure: 'link_failed', apiError: error instanceof ApiError ? error : null });
   }
 }
 

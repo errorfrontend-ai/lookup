@@ -1,5 +1,5 @@
 import { GRACE_PERIOD_MINUTES_OPTIONS, MAXIMUM_ENGAGEMENT_LIMIT, MAXIMUM_TIME_WINDOWS_PER_SCHEDULE } from '@lookup/contracts';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ProgrammeRundown } from '../../components/programme-rundown';
 import { SelectField } from '../../components/select-field';
 import { TextField } from '../../components/text-field';
@@ -65,7 +65,8 @@ export function ScheduleStep({
   const [preferredView, setPreferredView] = useState<'grid' | 'list' | null>(null);
 
   const { windows } = validation;
-  const onTheHour = gridFromWindows(windows);
+  // Worked out once per change of the times, not on every redraw: it walks every minute of the week.
+  const onTheHour = useMemo(() => gridFromWindows(windows), [windows]);
   // The grid can show the times only when it shows them exactly, and every slot is complete (a slot with no days would vanish from it).
   const canUseGrid = isWideScreen && onTheHour.isOnTheHour && validation.problems.slots.size === 0;
   const view = canUseGrid ? (preferredView ?? 'grid') : 'list';

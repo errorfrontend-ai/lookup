@@ -64,6 +64,16 @@ function installReviewPage({ ad = readyDraft(), user = owner, onPublish }: PageO
   return { ...fakeApi, ad, published, reviewPath: `/stations/${stationId}/ads/${ad.id}/setup?step=review` };
 }
 
+/** Answers the ad's own address with whatever `currentAd` returns now, on top of the page's fake API. */
+function installFakeApiOverride(currentAd: () => AdDetail) {
+  const fetchBefore = globalThis.fetch;
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+    if ((init?.method ?? 'GET') === 'GET' && url.endsWith(`/ads/${currentAd().id}`)) return Promise.resolve(jsonResponse(200, currentAd()));
+    return fetchBefore(input, init);
+  });
+}
+
 const openReview = async (options: PageOptions = {}) => {
   const page = installReviewPage(options);
   const rendered = renderPortalAt(page.reviewPath);
@@ -234,6 +244,44 @@ describe('Review and publish', () => {
 
       await person.click(screen.getByRole('button', { name: 'Close' }));
       await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${stationId}/ads/${ad.id}`));
+      // Nothing was saved, so nothing says it was.
+      expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('what the review found (each was a real fault)', () => {
+    it('lets Publish be pressed again once the ad has changed after the API refused it', async () => {
+      let ad = readyDraft();
+      installReviewPage({
+        ad,
+        onPublish: () => errorResponse(409, 'AD_NOT_READY_TO_PUBLISH', "This ad isn't ready to publish yet.", 'ref-6060', [{ path: 'schedule', code: 'schedule_already_ended' }]),
+      });
+      // The ad as the API holds it is read again after the station fixes the dates.
+      installFakeApiOverride(() => ad);
+      renderPortalAt(`/stations/${stationId}/ads/${ad.id}/setup?step=review`);
+      await screen.findByText('Ready to publish');
+      await person.click(screen.getByRole('button', { name: 'Publish' }));
+      await person.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Publish' }));
+      await screen.findByText('Its last day has already passed.');
+      expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+
+      ad = { ...ad, updatedAt: new Date(Date.now() + 60_000).toISOString() };
+      await queryClient.invalidateQueries();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled());
+      expect(screen.getByText('Ready to publish')).toBeInTheDocument();
+    });
+
+    it('holds Publish back while changes made in this visit are not saved, and says how to save them', async () => {
+      const { router } = await openReview();
+      await person.click(screen.getByRole('link', { name: 'Change the schedule' }));
+      await screen.findByRole('heading', { level: 1, name: 'Set when it airs' });
+      await person.selectOptions(screen.getByLabelText('Keep giving the buttons after a slot ends'), '0');
+      await router.navigate({ search: '?step=review' });
+
+      const notice = await screen.findByText("Some changes aren't saved yet");
+      expect(notice.closest('[role="alert"]')).toHaveTextContent('Publishing puts the saved version on air.');
+      expect(screen.getByRole('link', { name: 'Save the schedule' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
     });
   });
 

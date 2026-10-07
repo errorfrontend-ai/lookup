@@ -33,4 +33,25 @@ describe('portal source scan', () => {
   it('no console output left in the app', () => {
     expect(portalSourceFiles().filter((file) => /\bconsole\s*\.\s*(log|info|warn|error|debug)\s*\(/.test(file.text)).map((file) => file.path)).toEqual([]);
   });
+
+  it('no invisible or direction-changing characters anywhere in the source or its tests (they can make code read differently from how it runs)', () => {
+    // Written as escapes here, so this file passes its own rule.
+    const hiddenCharacters = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/;
+    const everyFile = (readdirSync(SOURCE_ROOT, { recursive: true }) as string[]).filter((name) => /\.(ts|tsx|css)$/.test(name));
+    const offenders = everyFile.filter((name) => hiddenCharacters.test(readFileSync(join(SOURCE_ROOT, name), 'utf8')));
+    expect(everyFile.length).toBeGreaterThan(60);
+    expect(offenders).toEqual([]);
+  });
+
+  it('is written mobile-first: wider layouts are added with min-width breakpoints, never taken away with max-width ones', () => {
+    const narrowingVariant = /\bmax-(?:sm|md|lg|xl|2xl)\s*:/;
+    const narrowingMediaQuery = /@media[^{]*max-width/;
+    const offenders = (readdirSync(SOURCE_ROOT, { recursive: true }) as string[])
+      .filter((name) => /\.(tsx|css)$/.test(name) && !/\.test\.tsx$/.test(name))
+      .filter((name) => {
+        const text = readFileSync(join(SOURCE_ROOT, name), 'utf8');
+        return narrowingVariant.test(text) || narrowingMediaQuery.test(text);
+      });
+    expect(offenders).toEqual([]);
+  });
 });

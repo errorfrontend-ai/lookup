@@ -98,4 +98,18 @@ describe('source scan', () => {
     const swallowsFailure = /\|\|\s*(true|echo|exit 0|:)\b|--passWithNoTests|continue-on-error\s*:\s*true/;
     expect(filesMatching(configurationFiles, swallowsFailure)).toEqual([]);
   });
+
+  it('no invisible or direction-changing characters in the API, the contracts or their tests (code must read as it runs; write them as escapes)', () => {
+    // Built from code points, so this file never contains the characters it looks for.
+    const ranges = [[0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2064], [0x2066, 0x2069], [0xfeff, 0xfeff]] as const;
+    const hiddenCharacter = new RegExp(`[${ranges.map(([first, last]) => `${String.fromCodePoint(first)}-${String.fromCodePoint(last)}`).join('')}]`);
+    const folders = ['apps/api/src', 'apps/api/test', 'apps/api/scripts', 'packages/contracts/src', 'packages/contracts/test', 'packages/contracts/fixtures', 'packages/contracts/schemas'];
+    const everyFile = folders.flatMap((folder) =>
+      (readdirSync(resolve(REPOSITORY_ROOT, folder), { recursive: true }) as string[])
+        .filter((name) => /\.(ts|json)$/.test(name))
+        .map((name) => `${folder}/${name.split(sep).join('/')}`),
+    );
+    expect(everyFile.length).toBeGreaterThan(100);
+    expect(everyFile.filter((path) => hiddenCharacter.test(readFileSync(resolve(REPOSITORY_ROOT, path), 'utf8')))).toEqual([]);
+  });
 });

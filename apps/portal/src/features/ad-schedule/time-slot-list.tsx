@@ -17,11 +17,11 @@ const DAY_SHORTCUTS = [
   { label: 'Every day', days: [1, 2, 3, 4, 5, 6, 7] },
 ] as const;
 
-function TimeSelect({ label, value, onChange, error }: { label: string; value: string; onChange: (time: string) => void; error?: string }) {
+function TimeSelect({ label, context, value, onChange, error }: { label: string; context: string; value: string; onChange: (time: string) => void; error?: string }) {
   // A time that is not on the quarter hour (read from a saved schedule) is still offered, so it is never silently changed.
   const options = TIMES_OF_DAY.includes(value) ? TIMES_OF_DAY : [...TIMES_OF_DAY, value].sort();
   return (
-    <SelectField label={label} value={value} onChange={(event) => onChange(event.target.value)} error={error}>
+    <SelectField label={label} context={context} value={value} onChange={(event) => onChange(event.target.value)} error={error}>
       {options.map((time) => (
         <option key={time} value={time}>
           {time}
@@ -45,7 +45,9 @@ function TimeSlotRow({ slot, number, problems, onChange, onRemove }: { slot: Tim
       </div>
 
       <fieldset className="flex flex-col gap-2 border-0 p-0">
-        <legend className="mb-1 text-label">Days</legend>
+        <legend className="mb-1 text-label">
+          <span className="sr-only">Time slot {number}</span> Days
+        </legend>
         <div className="flex flex-wrap gap-2">
           {SHORT_DAY_NAMES.map((shortName, index) => (
             <button
@@ -62,7 +64,7 @@ function TimeSlotRow({ slot, number, problems, onChange, onRemove }: { slot: Tim
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           {DAY_SHORTCUTS.map((shortcut) => (
-            <button key={shortcut.label} type="button" onClick={() => onChange({ days: [...shortcut.days] })} aria-label={`Choose ${shortcut.label}`} className="min-h-9 text-caption text-accent underline underline-offset-4">
+            <button key={shortcut.label} type="button" onClick={() => onChange({ days: [...shortcut.days] })} aria-label={`Choose ${shortcut.label}`} className="min-h-11 text-caption text-accent underline underline-offset-4">
               {shortcut.label}
             </button>
           ))}
@@ -75,8 +77,8 @@ function TimeSlotRow({ slot, number, problems, onChange, onRemove }: { slot: Tim
       </fieldset>
 
       <div className="grid grid-cols-2 gap-4">
-        <TimeSelect label="From" value={slot.from} onChange={(from) => onChange({ from })} />
-        <TimeSelect label="To" value={slot.to} onChange={(to) => onChange({ to })} error={problems.end} />
+        <TimeSelect label="From" context={`Time slot ${number}`} value={slot.from} onChange={(from) => onChange({ from })} />
+        <TimeSelect label="To" context={`Time slot ${number}`} value={slot.to} onChange={(to) => onChange({ to })} error={problems.end} />
       </div>
       <p className="text-caption text-muted">
         {describeDays(slot.days)} · {slot.from}–{slot.to}

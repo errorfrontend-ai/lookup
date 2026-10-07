@@ -32,8 +32,8 @@ export interface ButtonValidation {
   cardProblem: string | null;
   /** The buttons that are right so far, for the live preview. A button with a problem is left out of it until it is fixed. */
   previewCard: { schema_version: 1; layout: 'VERTICAL_STACK'; actions: CardAction[] };
-  /** The labels of the buttons left out of the preview, so it can say why. */
-  hiddenFromPreview: string[];
+  /** The numbers (from 1) of the buttons left out of the preview, so it can say which. Numbers, not labels: a label is whatever was typed. */
+  hiddenFromPreview: number[];
   problemCount: number;
 }
 
@@ -111,13 +111,13 @@ function readDraft(draft: ButtonDraft, position: number): { action: CardAction |
 export function validateButtonDrafts(drafts: readonly ButtonDraft[]): ButtonValidation {
   const problemsByKey = new Map<string, ButtonFieldProblems>();
   const actions: CardAction[] = [];
-  const hiddenFromPreview: string[] = [];
+  const hiddenFromPreview: number[] = [];
 
   drafts.forEach((draft, position) => {
     const { action, problems } = readDraft(draft, position);
     if (action) actions.push(action);
     else {
-      hiddenFromPreview.push(draft.label.trim() || `Button ${position + 1}`);
+      hiddenFromPreview.push(position + 1);
       if (Object.keys(problems).length > 0) problemsByKey.set(draft.key, problems);
     }
   });

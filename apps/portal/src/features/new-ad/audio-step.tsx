@@ -12,6 +12,7 @@ import { checkAudioFile } from './check-audio-file';
 import { LocalAudioPreview } from './local-audio-preview';
 import type { ChosenAudio } from './use-chosen-audio';
 import { UploadStages } from './upload-stages';
+import { browserMaxLength } from '../../formatting/text-length';
 
 const ACCEPTED_FILES = '.mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a';
 const FILE_RULES = 'MP3, WAV or M4A · up to 20 MB · between 5 seconds and 2 minutes long.';
@@ -114,7 +115,7 @@ function ChooseAudio({ chosen, titleProblem }: { chosen: ChosenAudio; titleProbl
           hint="What you will see in your lists, and what listeners see above the buttons."
           value={chosen.title}
           onChange={(event) => chosen.setTitle(event.target.value)}
-          maxLength={MAXIMUM_AD_TITLE_LENGTH}
+          maxLength={browserMaxLength(MAXIMUM_AD_TITLE_LENGTH)}
           counter={`${[...chosen.title].length} / ${MAXIMUM_AD_TITLE_LENGTH}`}
           error={titleProblem}
           autoComplete="off"
@@ -127,10 +128,13 @@ function ChooseAudio({ chosen, titleProblem }: { chosen: ChosenAudio; titleProbl
 /** Step 2 once the ad exists: where the upload has got to, and what to do if it failed. */
 function UploadProgress({ stationId, ad, upload }: { stationId: string; ad: AdDetail | undefined; upload: UploadState | undefined }) {
   const hasArrived = ad?.status === 'PROCESSING' || ad?.status === 'READY' || ad?.status === 'NEEDS_REVIEW';
-  const isRunning = upload?.phase === 'uploading' || upload?.phase === 'checking';
-  const needsFile = !isRunning && !hasArrived && ad && !upload?.file;
-  const fileName = upload?.file.name ?? ad?.uploadedFileName ?? 'Your audio';
-  const fileSize = upload?.file.size ?? ad?.uploadSizeBytes ?? null;
+  // Once the ad shows its audio checked, an earlier failure on this page is out of date: set it aside.
+  const currentUpload = upload && !(hasArrived && upload.phase === 'failed') ? upload : undefined;
+  // A new file going up (or already in) wins over an earlier refusal that the cached ad still shows.
+  const showsRefusal = ad?.status === 'FAILED' && !currentUpload;
+  const needsFile = Boolean(ad) && !hasArrived && !currentUpload && ad?.status !== 'FAILED';
+  const fileName = currentUpload?.file.name ?? ad?.uploadedFileName ?? 'Your audio';
+  const fileSize = currentUpload?.file.size ?? ad?.uploadSizeBytes ?? null;
 
   const [replacementProblem, setReplacementProblem] = useState<string | null>(null);
 
@@ -146,37 +150,38 @@ function UploadProgress({ stationId, ad, upload }: { stationId: string; ad: AdDe
 
   return (
     <div className="flex flex-col gap-4">
-      {upload || ad?.uploadedFileName ? (
+      {currentUpload || ad?.uploadedFileName ? (
         <FileCard name={fileName} detail={fileSize ? formatFileSize(fileSize) : ''}>
-          {upload && upload.phase !== 'failed' ? <LocalAudioPreview file={upload.file} peaks={upload.peaks} title={ad?.title ?? ''} /> : null}
+          {currentUpload && currentUpload.phase !== 'failed' ? <LocalAudioPreview file={currentUpload.file} peaks={currentUpload.peaks} title={ad?.title ?? ''} /> : null}
         </FileCard>
       ) : null}
 
-      {upload?.phase !== 'failed' && ad?.status !== 'FAILED' && !needsFile ? (
+      {currentUpload?.phase !== 'failed' && !showsRefusal && !needsFile ? (
         <section aria-label="Upload" className="rounded-lg border border-line-soft bg-surface p-4">
-          <UploadStages ad={ad} upload={upload} />
-          {isRunning ? (
-            <Button variant="quiet" className="mt-3" onClick={() => cancelUpload(ad?.id ?? '')}>
+          <UploadStages ad={ad} upload={currentUpload} />
+          {/* Only the sending can be stopped; the check that follows is the API's and takes a moment. */}
+          {currentUpload?.phase === 'uploading' ? (
+            <Button variant="quiet" className="mt-3" onClick={() => cancelUpload(currentUpload.adId)}>
               Stop upload
             </Button>
           ) : null}
         </section>
       ) : null}
 
-      {upload?.phase === 'failed' ? (
+      {currentUpload?.phase === 'failed' ? (
         <div className="flex flex-col gap-3 rounded-lg border border-danger bg-danger-soft p-4">
           <p role="alert" className="text-body font-bold text-danger">
-            {upload.failure === 'refused' && ad?.processingErrorCode ? describeUploadRefusal(ad.processingErrorCode) : describeUploadFailure(upload.failure ?? 'storage_refused')}
+            {currentUpload.failure === 'refused' && ad?.processingErrorCode ? describeUploadRefusal(ad.processingErrorCode) : describeUploadFailure(currentUpload.failure ?? 'storage_refused')}
           </p>
-          {upload.apiError ? <ErrorNotice error={upload.apiError} /> : null}
+          {currentUpload.apiError ? <ErrorNotice error={currentUpload.apiError} /> : null}
           <div className="flex flex-wrap gap-2">
-            {upload.failure !== 'refused' ? <Button onClick={() => void retryUpload(upload.adId)}>Try again</Button> : null}
+            {currentUpload.failure !== 'refused' ? <Button onClick={() => void retryUpload(currentUpload.adId)}>Try again</Button> : null}
             <FileReplacer onChoose={(file) => void chooseReplacement(file)} label="Choose a different file" />
           </div>
         </div>
       ) : null}
 
-      {ad?.status === 'FAILED' && !upload ? (
+      {showsRefusal && ad ? (
         <div className="flex flex-col gap-3 rounded-lg border border-danger bg-danger-soft p-4">
           <p role="alert" className="text-body font-bold text-danger">
             {describeUploadRefusal(ad.processingErrorCode)}
@@ -191,7 +196,7 @@ function UploadProgress({ stationId, ad, upload }: { stationId: string; ad: AdDe
         </p>
       ) : null}
 
-      {needsFile && ad?.status !== 'FAILED' ? (
+      {needsFile ? (
         <div className="flex flex-col gap-3">
           <p className="text-body text-muted">{describeFileStatus('AWAITING_UPLOAD').hint} Choose the file again to finish the upload.</p>
           <FileChooser onChoose={(file) => void chooseReplacement(file)} label="Choose the audio file" />

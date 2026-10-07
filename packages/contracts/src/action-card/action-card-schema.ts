@@ -22,9 +22,9 @@ export const MAXIMUM_PLACE_NAME_LENGTH = 80;
 const NO_SURROUNDING_WHITESPACE = /^\S(?:[\s\S]*\S)?$/;
 // Control characters, zero-width characters and bidirectional overrides (Trojan Source) are refused.
 const NO_CONTROL_OR_INVISIBLE_CHARACTERS =
-  /^[^\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]*$/;
+  /^[^\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]*$/;
 const NO_CONTROL_CHARACTERS_EXCEPT_LINE_BREAKS =
-  /^[^\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]*$/;
+  /^[^\u0000-\u0009\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]*$/;
 // https, a dotted ASCII host whose last label starts with a letter (so no IP addresses, no localhost,
 // no user:password@, no port), then visible ASCII only. The portal turns international domain names
 // into punycode (new URL(input).href) before saving, so a lookalike host shows as xn--… in the app.

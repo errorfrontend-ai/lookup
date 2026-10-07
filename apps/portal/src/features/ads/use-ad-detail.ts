@@ -4,12 +4,22 @@ import { portalApi } from '../../app/portal-api';
 import { stationQueryKeys } from '../stations/station-query-keys';
 import { chooseAdRefreshInterval } from './choose-ad-refresh-interval';
 
+/**
+ * The newer of two versions of an ad. A background refresh that was sent before a save can arrive after
+ * it; every save moves `updatedAt` on, so the older of the two is the out-of-date one.
+ */
+export function newerAdDetail(fetched: AdDetail, held: AdDetail | undefined): AdDetail {
+  return held && Date.parse(held.updatedAt) > Date.parse(fetched.updatedAt) ? held : fetched;
+}
+
 /** One ad in full. It refreshes itself as often as its state warrants (see chooseAdRefreshInterval). */
 export function useAd(stationId: string, adId: string, enabled = true) {
+  const queryClient = useQueryClient();
+  const queryKey = stationQueryKeys.adDetail(stationId, adId);
   return useQuery({
-    queryKey: stationQueryKeys.adDetail(stationId, adId),
+    queryKey,
     enabled: enabled && adId !== '',
-    queryFn: () => portalApi.get<AdDetail>(`/stations/${stationId}/ads/${adId}`),
+    queryFn: async () => newerAdDetail(await portalApi.get<AdDetail>(`/stations/${stationId}/ads/${adId}`), queryClient.getQueryData<AdDetail>(queryKey)),
     refetchInterval: (query) => (query.state.data ? chooseAdRefreshInterval(query.state.data) : false),
   });
 }

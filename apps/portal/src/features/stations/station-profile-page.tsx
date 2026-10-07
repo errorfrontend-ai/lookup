@@ -12,6 +12,7 @@ import { useToast } from '../../components/toast-region';
 import { describeStationRole, describeStationStatus } from '../../plain-words/station-status-words';
 import { canChangeStationProfile, useRequiredCurrentStation } from './use-current-station';
 import { useStationProfile, useUpdateStationProfile } from './use-station-profile';
+import { browserMaxLength } from '../../formatting/text-length';
 
 function ProfileRow({ label, children, note }: { label: string; children: ReactNode; note?: string }) {
   return (
@@ -60,7 +61,7 @@ function WhereYouAreForm({ stationId, profile, onDone }: { stationId: string; pr
         label="City or town"
         value={city}
         onChange={(event) => setCity(event.target.value)}
-        maxLength={MAXIMUM_CITY_LENGTH}
+        maxLength={browserMaxLength(MAXIMUM_CITY_LENGTH)}
         counter={`${[...city].length} / ${MAXIMUM_CITY_LENGTH}`}
         error={hasFieldProblem ? `Enter a city or town of up to ${MAXIMUM_CITY_LENGTH} characters, or leave it empty.` : null}
         autoComplete="off"

@@ -9,26 +9,23 @@ import { BUTTON_KINDS, type ButtonDraft, type ButtonField, type ButtonKind, STAR
 import { parseMapLocation } from './parse-map-location';
 import { readWebAddress } from './read-web-address';
 import type { ButtonFieldProblems } from './validate-button-drafts';
+import { browserMaxLength, countCharacters } from '../../formatting/text-length';
 
 const KIND_ICONS: Record<ButtonKind, IconName> = { CALL: 'phone', WHATSAPP: 'chat', MAP: 'pin', LINK: 'link' };
 
 const ICON_BUTTON_CLASSES = 'flex size-11 items-center justify-center rounded-md border border-line bg-surface text-ink hover:bg-ground disabled:cursor-not-allowed disabled:opacity-40';
-
-function countCharacters(text: string): number {
-  return [...text].length;
-}
 
 /** Shows, in plain words, what the typed text was understood as, so the station can check it before listeners do. */
 function Understood({ children }: { children: React.ReactNode }) {
   return <p className="flex flex-wrap items-center gap-x-2 text-caption text-success">{children}</p>;
 }
 
-function PhoneField({ draft, problem, onChange, onTouch }: FieldsProps) {
+function PhoneField({ context, draft, problem, onChange, onTouch }: FieldsProps) {
   const understood = normalizeZambianPhoneInput(draft.phoneText);
   return (
     <div className="flex flex-col gap-1.5">
       <TextField
-        label="Phone number"
+        label="Phone number" context={context}
         hint="Like 0977 123 456. Numbers from other countries need their + code."
         type="tel"
         inputMode="tel"
@@ -49,12 +46,12 @@ function PhoneField({ draft, problem, onChange, onTouch }: FieldsProps) {
 }
 
 function WhatsAppFields(props: FieldsProps) {
-  const { draft, problem, onChange, onTouch } = props;
+  const { context, draft, problem, onChange, onTouch } = props;
   return (
     <>
       <PhoneField {...props} />
       <TextAreaField
-        label="First message (optional)"
+        label="First message (optional)" context={context}
         hint="What the chat starts with. The listener can change it before sending."
         value={draft.firstMessage}
         onChange={(event) => onChange({ firstMessage: event.target.value })}
@@ -66,14 +63,14 @@ function WhatsAppFields(props: FieldsProps) {
   );
 }
 
-function MapFields({ draft, problem, onChange, onTouch }: FieldsProps) {
+function MapFields({ context, draft, problem, onChange, onTouch }: FieldsProps) {
   const location = parseMapLocation(draft.locationText);
   const address = location.kind === 'found' ? buildActionUri({ type: 'MAP', id: draft.key, label: draft.label, style: 'PRIMARY', latitude: location.latitude, longitude: location.longitude }) : null;
   return (
     <>
       <div className="flex flex-col gap-1.5">
         <TextField
-          label="Location"
+          label="Location" context={context}
           hint="Paste a Google Maps link, or type latitude and longitude, like -15.4167, 28.2833."
           autoComplete="off"
           value={draft.locationText}
@@ -86,7 +83,7 @@ function MapFields({ draft, problem, onChange, onTouch }: FieldsProps) {
             <Icon name="check" size={14} />
             Understood: {location.latitude}, {location.longitude}
             {address ? (
-              <a href={address} target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-4">
+              <a href={address} target="_blank" rel="noopener noreferrer" className="-my-3.5 py-3.5 text-accent underline underline-offset-4">
                 Check on Google Maps
               </a>
             ) : null}
@@ -94,13 +91,13 @@ function MapFields({ draft, problem, onChange, onTouch }: FieldsProps) {
         ) : null}
       </div>
       <TextField
-        label="Place name (optional)"
+        label="Place name (optional)" context={context}
         hint="A name for the place, like “Cairo Road branch”."
         autoComplete="off"
         value={draft.placeName}
         onChange={(event) => onChange({ placeName: event.target.value })}
         onBlur={() => onTouch('placeName')}
-        maxLength={MAXIMUM_PLACE_NAME_LENGTH + 20}
+        maxLength={browserMaxLength(MAXIMUM_PLACE_NAME_LENGTH)}
         counter={`${countCharacters(draft.placeName)} / ${MAXIMUM_PLACE_NAME_LENGTH}`}
         error={problem.placeName}
       />
@@ -108,12 +105,12 @@ function MapFields({ draft, problem, onChange, onTouch }: FieldsProps) {
   );
 }
 
-function LinkFields({ draft, problem, onChange, onTouch }: FieldsProps) {
+function LinkFields({ context, draft, problem, onChange, onTouch }: FieldsProps) {
   const address = readWebAddress(draft.webAddressText);
   return (
     <div className="flex flex-col gap-1.5">
       <TextField
-        label="Web address"
+        label="Web address" context={context}
         hint="Like brand.co.zm/offer. Use the full address, not a short link."
         inputMode="url"
         autoComplete="off"
@@ -128,7 +125,7 @@ function LinkFields({ draft, problem, onChange, onTouch }: FieldsProps) {
         <Understood>
           <Icon name="check" size={14} />
           Opens {address.url}
-          <a href={address.url} target="_blank" rel="noopener noreferrer" className="text-accent underline underline-offset-4">
+          <a href={address.url} target="_blank" rel="noopener noreferrer" className="-my-3.5 py-3.5 text-accent underline underline-offset-4">
             Try the link
           </a>
         </Understood>
@@ -138,6 +135,8 @@ function LinkFields({ draft, problem, onChange, onTouch }: FieldsProps) {
 }
 
 interface FieldsProps {
+  /** "Button 2": read out before each field's label, so a screen reader knows which row it is in. */
+  context: string;
   draft: ButtonDraft;
   problem: ButtonFieldProblems;
   onChange: (changes: Partial<ButtonDraft>) => void;
@@ -172,7 +171,8 @@ export function ButtonRow({
   }, [shouldFocusOnMount]);
 
   const name = draft.label.trim() || `button ${position + 1}`;
-  const fieldProps: FieldsProps = { draft, problem, onChange, onTouch };
+  const context = `Button ${position + 1}`;
+  const fieldProps: FieldsProps = { context, draft, problem, onChange, onTouch };
 
   const changeKind = (kind: ButtonKind) => {
     // A label left as the starting words follows the kind; one the person wrote stays.
@@ -202,7 +202,7 @@ export function ButtonRow({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <SelectField label="Type" hint={BUTTON_KIND_WORDS[draft.kind].description} value={draft.kind} onChange={(event) => changeKind(event.target.value as ButtonKind)}>
+        <SelectField label="Type" context={context} hint={BUTTON_KIND_WORDS[draft.kind].description} value={draft.kind} onChange={(event) => changeKind(event.target.value as ButtonKind)}>
           {BUTTON_KINDS.map((kind) => (
             <option key={kind} value={kind}>
               {BUTTON_KIND_WORDS[kind].name}
@@ -211,12 +211,13 @@ export function ButtonRow({
         </SelectField>
         <TextField
           label="Label"
+          context={context}
           hint="What the button says."
           autoComplete="off"
           value={draft.label}
           onChange={(event) => onChange({ label: event.target.value })}
           onBlur={() => onTouch('label')}
-          maxLength={MAXIMUM_LABEL_LENGTH + 20}
+          maxLength={browserMaxLength(MAXIMUM_LABEL_LENGTH)}
           counter={`${countCharacters(draft.label)} / ${MAXIMUM_LABEL_LENGTH}`}
           error={problem.label}
         />

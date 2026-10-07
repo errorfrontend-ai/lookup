@@ -15,6 +15,7 @@ import { RemoveAdDialog, RenameAdDialog } from './detail/ad-detail-actions';
 import { AdHistoryTab } from './detail/ad-history-tab';
 import { AdOverviewTab } from './detail/ad-overview-tab';
 import { AdScheduleTab } from './detail/ad-schedule-tab';
+import { isAdId } from './ad-id';
 import { useAd } from './use-ad-detail';
 
 const TABS = [
@@ -40,7 +41,8 @@ function AdNotFound({ stationId }: { stationId: string }) {
 /** One ad: its audio, buttons, schedule and history, with rename and remove for those who may change it. */
 export function AdDetailPage() {
   const station = useRequiredCurrentStation();
-  const { adId = '' } = useParams();
+  const { adId: adIdInAddress } = useParams();
+  const adId = isAdId(adIdInAddress) ? adIdInAddress : '';
   const ad = useAd(station.id, adId);
   const [searchParams] = useSearchParams();
   const [openDialog, setOpenDialog] = useState<'rename' | 'remove' | null>(null);
@@ -48,6 +50,7 @@ export function AdDetailPage() {
   const requestedTab = searchParams.get('tab');
   const currentTab: TabId = TABS.find((tab) => tab.id === requestedTab)?.id ?? 'overview';
 
+  if (!adId) return <AdNotFound stationId={station.id} />;
   if (ad.isPending) return <Skeleton className="h-96 w-full" />;
   if (ad.isError) {
     if (ad.error instanceof ApiError && ad.error.httpStatus === 404) return <AdNotFound stationId={station.id} />;

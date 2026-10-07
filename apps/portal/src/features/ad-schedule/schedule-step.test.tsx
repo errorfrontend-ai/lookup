@@ -10,6 +10,8 @@ import { setScreenWidth } from '../../test/screen-size';
 import { clearAllUploads } from '../new-ad/ad-upload-store';
 
 const person = userEvent.setup({ delay: null });
+/** A field by the end of its name: fields in a row are named after the row first ("Button 2 Phone number"). */
+const endsWith = (name: string) => new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 const owner = signedInUserWith([{ role: 'OWNER', name: 'Radio Phoenix', frequencyLabel: '89.5 FM' }]);
 const stationId = owner.stations[0]?.id as string;
 
@@ -88,7 +90,7 @@ describe('The schedule step', () => {
       expect(dateBox('First day')).toHaveValue('2026-10-06');
       expect(dateBox('Last day')).toHaveValue('2026-11-02');
       expect(screen.getByText('Airs for 28 days (4 weeks)')).toBeInTheDocument();
-      expect(screen.getByLabelText('Keep giving the buttons after a slot ends')).toHaveValue('10');
+      expect(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends'))).toHaveValue('10');
       expect(screen.getByRole('checkbox', { name: /Limit how many times/ })).not.toBeChecked();
       expect(within(week()).getByText('No hours set.')).toBeInTheDocument();
     });
@@ -224,11 +226,17 @@ describe('The schedule step', () => {
     });
 
     it('says when the pattern needs more separate time slots than an ad can have', async () => {
-      await openStep();
-      // 23 separate single hours, no two the same and none touching, so no days can share a slot.
-      const hoursByDay = [['Monday', [1, 3, 5, 7, 9, 11]], ['Tuesday', [2, 4, 6, 8, 10, 12]], ['Wednesday', [13, 15, 17, 19]], ['Thursday', [14, 16, 18, 20]], ['Friday', [0, 21, 23]]] as const;
-      for (const [day, hours] of hoursByDay) for (const hour of hours) fireEvent.click(cell(day, hour));
-      expect(await screen.findByText('This needs 23 separate time slots, and an ad can have at most 21. Use the same hours on several days, or fewer separate hours.')).toBeInTheDocument();
+      // A saved schedule at the most: 21 separate single hours, no two the same and none touching, so no days share a slot.
+      const hoursByDay: Array<[day: number, hours: number[]]> = [[1, [1, 3, 5, 7, 9, 11]], [2, [2, 4, 6, 8, 10, 12]], [3, [13, 15, 17, 19]], [4, [14, 16, 18, 20]], [5, [0]]];
+      const atTheMost = hoursByDay.flatMap(([day, hours]) =>
+        hours.map((hour) => ({ daysOfWeek: [day], localStartTime: `${String(hour).padStart(2, '0')}:00`, localEndTime: `${String(hour + 1).padStart(2, '0')}:00` })),
+      );
+      await openStep({ ad: adWithoutSchedule({ campaign: campaignSummary({ displayStatus: 'DRAFT' }), schedule: scheduleFixture({ displayStatus: 'DRAFT', timeWindows: atTheMost }) }) });
+      expect(screen.queryByText(/separate time slots/)).not.toBeInTheDocument();
+
+      // One more separate hour is one too many.
+      fireEvent.click(cell('Friday', 21));
+      expect(await screen.findByText('This needs 22 separate time slots, and an ad can have at most 21. Use the same hours on several days, or fewer separate hours.')).toBeInTheDocument();
     });
   });
 
@@ -242,10 +250,10 @@ describe('The schedule step', () => {
       const row = slotRow(1);
       expect(within(row).getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-pressed', 'true');
       expect(within(row).getByRole('button', { name: 'Tuesday' })).toHaveAttribute('aria-pressed', 'false');
-      expect(within(row).getByLabelText('From')).toHaveValue('07:00');
-      expect(within(row).getByLabelText('To')).toHaveValue('09:00');
+      expect(within(row).getByLabelText(endsWith('From'))).toHaveValue('07:00');
+      expect(within(row).getByLabelText(endsWith('To'))).toHaveValue('09:00');
 
-      await person.selectOptions(within(row).getByLabelText('To'), '10:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('To')), '10:00');
       await person.click(screen.getByRole('button', { name: 'Hour grid' }));
       expect(cell('Monday', 9)).toHaveAttribute('aria-pressed', 'true');
       expect(within(week()).getByText('Mon · 07:00–10:00')).toBeInTheDocument();
@@ -283,13 +291,13 @@ describe('The schedule step', () => {
       await person.click(screen.getByRole('button', { name: 'Add a time' }));
       const row = slotRow(1);
 
-      await person.selectOptions(within(row).getByLabelText('From'), '22:00');
-      await person.selectOptions(within(row).getByLabelText('To'), '02:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('From')), '22:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('To')), '02:00');
       expect(within(row).getByText(/Ends the next morning/)).toBeInTheDocument();
       expect(within(week()).getByText('Mon–Fri · 22:00–02:00')).toBeInTheDocument();
 
-      await person.selectOptions(within(row).getByLabelText('From'), '00:00');
-      await person.selectOptions(within(row).getByLabelText('To'), '00:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('From')), '00:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('To')), '00:00');
       expect(within(row).getByText(/All day/)).toBeInTheDocument();
       expect(within(row).queryByText(/can't be the same/)).not.toBeInTheDocument();
     });
@@ -300,10 +308,10 @@ describe('The schedule step', () => {
       await person.click(screen.getByRole('button', { name: 'Add a time' }));
       const row = slotRow(1);
 
-      await person.selectOptions(within(row).getByLabelText('To'), '07:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('To')), '07:00');
       expect(within(row).getByText("The end can't be the same as the start. To air all day, choose 00:00 to 00:00.")).toBeInTheDocument();
 
-      await person.selectOptions(within(row).getByLabelText('To'), '09:00');
+      await person.selectOptions(within(row).getByLabelText(endsWith('To')), '09:00');
       for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']) await person.click(within(row).getByRole('button', { name: day }));
       expect(within(row).getByText('Choose at least one day.')).toBeInTheDocument();
     });
@@ -317,18 +325,39 @@ describe('The schedule step', () => {
 
       await person.click(screen.getByRole('button', { name: 'Remove time slot 1' }));
       expect(screen.getAllByRole('listitem', { name: /^Time slot \d$/ })).toHaveLength(1);
+    });
 
+    it('allows no more slots than an ad can have', async () => {
+      setScreenWidth(375);
+      // A saved schedule one short of the most (20 different half hours on Monday and Tuesday), so the list is drawn once.
+      const twentyWindows = Array.from({ length: 20 }, (_unused, index) => ({
+        daysOfWeek: [(index % 2) + 1],
+        localStartTime: `${String(index).padStart(2, '0')}:00`,
+        localEndTime: `${String(index).padStart(2, '0')}:30`,
+      }));
+      await openStep({ ad: adWithoutSchedule({ campaign: campaignSummary({ displayStatus: 'DRAFT' }), schedule: scheduleFixture({ displayStatus: 'DRAFT', timeWindows: twentyWindows }) }) });
       const addAnother = screen.getByRole('button', { name: 'Add another time' });
-      for (let count = 1; count < 21; count += 1) fireEvent.click(addAnother);
+      expect(addAnother).toBeEnabled();
+      fireEvent.click(addAnother);
       expect(screen.getAllByRole('listitem', { name: /^Time slot \d+$/ })).toHaveLength(21);
       expect(addAnother).toBeDisabled();
+    });
+
+    it('names the times and days after their slot, so a screen reader can tell the slots apart', async () => {
+      setScreenWidth(375);
+      await openStep();
+      await person.click(screen.getByRole('button', { name: 'Add a time' }));
+      await person.click(screen.getByRole('button', { name: 'Add another time' }));
+      expect(screen.getByLabelText('Time slot 1 From')).toBeInTheDocument();
+      expect(screen.getByLabelText('Time slot 2 To')).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Time slot 2 Days' })).toBeInTheDocument();
     });
 
     it('offers the quarter hours', async () => {
       setScreenWidth(375);
       await openStep();
       await person.click(screen.getByRole('button', { name: 'Add a time' }));
-      const options = within(within(slotRow(1)).getByLabelText('From')).getAllByRole('option');
+      const options = within(within(slotRow(1)).getByLabelText(endsWith('From'))).getAllByRole('option');
       expect(options).toHaveLength(96);
       expect(options[0]).toHaveValue('00:00');
       expect(options[5]).toHaveValue('01:15');
@@ -343,8 +372,8 @@ describe('The schedule step', () => {
       await openStep({ ad: offTheHour() });
       expect(screen.getByText(/Some times don't start or end on the hour, so they are shown as a list/)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Hour grid' })).not.toBeInTheDocument();
-      expect(within(slotRow(1)).getByLabelText('From')).toHaveValue('07:30');
-      expect(within(slotRow(1)).getByLabelText('To')).toHaveValue('08:45');
+      expect(within(slotRow(1)).getByLabelText(endsWith('From'))).toHaveValue('07:30');
+      expect(within(slotRow(1)).getByLabelText(endsWith('To'))).toHaveValue('08:45');
     });
 
     it('takes the grid away while a slot is unfinished, because a slot with no days would vanish from it', async () => {
@@ -363,11 +392,11 @@ describe('The schedule step', () => {
       await openStep();
       await person.click(cell('Monday', 7));
       await person.click(screen.getByRole('button', { name: 'List of times' }));
-      await person.selectOptions(within(slotRow(1)).getByLabelText('From'), '07:30');
+      await person.selectOptions(within(slotRow(1)).getByLabelText(endsWith('From')), '07:30');
       expect(screen.queryByRole('button', { name: 'Hour grid' })).not.toBeInTheDocument();
       expect(screen.getByText(/Some times don't start or end on the hour/)).toBeInTheDocument();
 
-      await person.selectOptions(within(slotRow(1)).getByLabelText('From'), '07:00');
+      await person.selectOptions(within(slotRow(1)).getByLabelText(endsWith('From')), '07:00');
       expect(screen.getByRole('button', { name: 'Hour grid' })).toBeInTheDocument();
     });
   });
@@ -391,15 +420,15 @@ describe('The schedule step', () => {
 
     it('offers the four grace periods in words', async () => {
       await openStep();
-      const options = within(screen.getByLabelText('Keep giving the buttons after a slot ends')).getAllByRole('option').map((option) => option.textContent);
+      const options = within(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends'))).getAllByRole('option').map((option) => option.textContent);
       expect(options).toEqual(['None: only during the slot', '5 minutes after the slot ends', '10 minutes after the slot ends', '20 minutes after the slot ends']);
     });
 
     it('shows the tap limit box only when the limit is on, and says what a wrong number should be', async () => {
       await openStep();
-      expect(screen.queryByLabelText('Number of taps')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(endsWith('Number of taps'))).not.toBeInTheDocument();
       await person.click(screen.getByRole('checkbox', { name: /Limit how many times/ }));
-      await person.type(screen.getByLabelText('Number of taps'), 'lots');
+      await person.type(screen.getByLabelText(endsWith('Number of taps')), 'lots');
       expect(await screen.findByText('Enter a whole number from 1 to 1,000,000.')).toBeInTheDocument();
     });
   });
@@ -411,9 +440,9 @@ describe('The schedule step', () => {
       await person.click(cell('Monday', 8));
       await person.click(cell('Tuesday', 7));
       await person.click(cell('Tuesday', 8));
-      await person.selectOptions(screen.getByLabelText('Keep giving the buttons after a slot ends'), '20');
+      await person.selectOptions(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends')), '20');
       await person.click(screen.getByRole('checkbox', { name: /Limit how many times/ }));
-      await person.type(screen.getByLabelText('Number of taps'), '1,500');
+      await person.type(screen.getByLabelText(endsWith('Number of taps')), '1,500');
       setDate('Last day', '2026-10-31');
       expect(screen.getByText('Changes not saved yet')).toBeInTheDocument();
 
@@ -529,8 +558,8 @@ describe('The schedule step', () => {
       expect(screen.getByText('Edit ad · Brand A')).toBeInTheDocument();
       expect(dateBox('First day')).toHaveValue('2026-10-01');
       expect(dateBox('Last day')).toHaveValue('2026-10-31');
-      expect(screen.getByLabelText('Keep giving the buttons after a slot ends')).toHaveValue('5');
-      expect(screen.getByLabelText('Number of taps')).toHaveValue('250');
+      expect(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends'))).toHaveValue('5');
+      expect(screen.getByLabelText(endsWith('Number of taps'))).toHaveValue('250');
       expect(cell('Wednesday', 7)).toHaveAttribute('aria-pressed', 'true');
       expect(cell('Wednesday', 9)).toHaveAttribute('aria-pressed', 'false');
       expect(screen.getByText('Draft saved')).toBeInTheDocument();
@@ -587,7 +616,7 @@ describe('The schedule step', () => {
     it('asks before leaving with unsaved changes', async () => {
       const { router } = await openStep({ ad: published() });
       await person.click(cell('Wednesday', 9));
-      await person.click(screen.getByRole('button', { name: 'Exit (your draft is saved)' }));
+      await person.click(screen.getByRole('button', { name: 'Exit' }));
       const dialog = await screen.findByRole('dialog', { name: 'Leave without saving your changes?' });
       await person.click(within(dialog).getByRole('button', { name: 'Keep working' }));
       expect(router.state.location.search).toBe('?step=schedule');
@@ -595,7 +624,7 @@ describe('The schedule step', () => {
 
     it('keeps the saved dates when the start was in the past and the schedule is only being corrected', async () => {
       const { savedSchedules } = await openStep({ ad: published() });
-      await person.selectOptions(screen.getByLabelText('Keep giving the buttons after a slot ends'), '0');
+      await person.selectOptions(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends')), '0');
       await person.click(screen.getByRole('button', { name: 'Save and close' }));
       await waitFor(() => expect(savedSchedules).toHaveLength(1));
       expect(savedSchedules[0]?.startsOn).toBe('2026-10-01');

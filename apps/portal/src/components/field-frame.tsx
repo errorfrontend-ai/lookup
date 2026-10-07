@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 export function FieldFrame({
   controlId,
   label,
+  context,
   hint,
   error,
   counter,
@@ -14,6 +15,11 @@ export function FieldFrame({
 }: {
   controlId: string;
   label: string;
+  /**
+   * Which of several alike the field belongs to ("Button 2", "Time slot 1"). Read out before the label
+   * but not shown, so a screen reader moving from field to field knows which row it is in.
+   */
+  context?: string;
   hint?: string;
   error?: string | null;
   /** For example "20 / 60": how much of a limit is used. */
@@ -24,6 +30,9 @@ export function FieldFrame({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <label htmlFor={controlId} className="text-label">
+          {/* The space sits outside the hidden part: some name calculations drop a space at the end of an element. */}
+          {context ? <span className="sr-only">{context}</span> : null}
+          {context ? ' ' : null}
           {label}
         </label>
         {counter ? <span className="text-caption text-muted">{counter}</span> : null}

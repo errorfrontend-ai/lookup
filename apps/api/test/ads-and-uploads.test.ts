@@ -135,7 +135,7 @@ describe('ads and direct audio uploads', () => {
         await post(owner, adsPath, {
           clientId,
           title: 'Path trick',
-          upload: { fileName: '..\\..\\windows\\system32\\evil‮play.mp3', contentType: 'audio/mpeg', sizeBytes: bytes.length },
+          upload: { fileName: '..\\..\\windows\\system32\\evil\u202Eplay.mp3', contentType: 'audio/mpeg', sizeBytes: bytes.length },
         }),
         201,
       );

@@ -1,6 +1,6 @@
-import { type AdDetail } from '@lookup/contracts';
-import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { type AdDetail, MAXIMUM_AD_TITLE_LENGTH } from '@lookup/contracts';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -16,6 +16,7 @@ import { ReviewStep } from '../ad-review/review-step';
 import { usePublishAd } from '../ad-review/use-publish-ad';
 import { ScheduleStep } from '../ad-schedule/schedule-step';
 import { useScheduleDraft } from '../ad-schedule/use-schedule-draft';
+import { isAdId } from '../ads/ad-id';
 import { useAd } from '../ads/use-ad-detail';
 import { useClients } from '../clients/use-clients';
 import { useRequiredCurrentStation } from '../stations/use-current-station';
@@ -28,6 +29,7 @@ import { useCreateAd } from './use-create-ad';
 import { WizardFooter } from './wizard-footer';
 import { type SaveStatus, WizardLayout } from './wizard-layout';
 import { firstIncompleteStep, isWizardStepId, type WizardStepId } from './wizard-steps';
+import { countCharacters } from '../../formatting/text-length';
 
 type LeaveWarning = 'nothing-saved' | 'unsaved-changes';
 
@@ -49,9 +51,22 @@ function focusFirstProblem() {
  */
 export function AdSetupPage() {
   const station = useRequiredCurrentStation();
-  const { adId } = useParams();
+  const { adId: adIdInAddress } = useParams();
+  // Something in the address that is not an ad id is "not found", and never goes into an API path.
+  const hasUnusableAdId = adIdInAddress !== undefined && !isAdId(adIdInAddress);
+  const adId = hasUnusableAdId ? undefined : adIdInAddress;
   const [searchParameters] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Navigations the page makes on purpose (after a save, or once the person has agreed to leave) are never stopped.
+  const isLeavingOnPurpose = useRef(false);
+  const goTo = (to: string, options?: { replace?: boolean }) => {
+    isLeavingOnPurpose.current = true;
+    void navigate(to, options);
+  };
+  useEffect(() => {
+    isLeavingOnPurpose.current = false;
+  }, [location.pathname]);
   const showToast = useToast();
 
   const ad = useAd(station.id, adId ?? '', Boolean(adId));
@@ -96,8 +111,25 @@ export function AdSetupPage() {
   }, [mustPinStep, detail, upload, navigate]);
 
   const hasUnsavedChanges = buttons.isDirty || schedule.isDirty;
+  const hasUnsavedNewAd = !adId && Boolean(chosen.file || clientId);
+
+  // Anything else that would leave the page (the browser's Back button, a link) asks first when something
+  // would be lost. Moving between steps keeps everything, so it is never stopped.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !isLeavingOnPurpose.current && currentLocation.pathname !== nextLocation.pathname && (hasUnsavedChanges || hasUnsavedNewAd || createAd.isPending),
+  );
+  // While the ad is being created, leaving would strand an empty draft; it only takes a moment, so stay.
+  useEffect(() => {
+    if (blocker.state === 'blocked' && createAd.isPending) blocker.reset();
+  }, [blocker, createAd.isPending]);
+
+  // A refusal to publish is about the ad as it was then; once the ad changes or the step does, it no longer applies.
+  const { reset: resetPublish } = publish;
+  useEffect(() => resetPublish(), [currentStep, detail?.updatedAt, resetPublish]);
   const saveStatus: SaveStatus = createAd.isPending || buttons.isSaving || schedule.isSaving ? 'saving' : !adId ? 'nothing-saved' : hasUnsavedChanges ? 'unsaved' : 'saved';
-  const titleProblem = chosen.title.trim() === '' ? 'Give the ad a title.' : null;
+  const titleLength = countCharacters(chosen.title.trim());
+  const titleProblem = titleLength === 0 ? 'Give the ad a title.' : titleLength > MAXIMUM_AD_TITLE_LENGTH ? `Keep the title to ${MAXIMUM_AD_TITLE_LENGTH} characters or fewer.` : null;
   const canUpload = Boolean(chosenClientId && chosen.file && chosen.check?.isAcceptable && !titleProblem);
   const isUploadRunning = upload?.phase === 'uploading' || upload?.phase === 'checking';
   const audioHasArrived = Boolean(detail) && firstIncompleteStep(detail ?? null, upload) !== 'audio';
@@ -116,7 +148,7 @@ export function AdSetupPage() {
       {
         onSuccess: (created) => {
           startUpload({ stationId: station.id, adId: created.adId, file, peaks: check.facts.peaks, instructions: created.upload });
-          void navigate(`/stations/${station.id}/ads/${created.adId}/setup?step=audio`, { replace: true });
+          goTo(`/stations/${station.id}/ads/${created.adId}/setup?step=audio`, { replace: true });
         },
       },
     );
@@ -127,21 +159,22 @@ export function AdSetupPage() {
   /** Leaves setup: a draft goes back to Drafts, a published ad back to its own page. `savedMessage` says what was saved, when something was. */
   const leave = (savedMessage?: string) => {
     if (!adId) {
-      void navigate(adsPath);
+      goTo(adsPath);
       return;
     }
     if (isEditing) {
-      showToast(savedMessage ?? 'Saved.');
+      if (savedMessage) showToast(savedMessage);
       const tab = currentStep === 'buttons' ? '?tab=buttons' : currentStep === 'schedule' ? '?tab=schedule' : '';
-      void navigate(`${adsPath}/${adId}${tab}`);
+      goTo(`${adsPath}/${adId}${tab}`);
       return;
     }
     showToast(savedMessage ?? (isUploadRunning ? 'Draft saved. The upload carries on — keep this tab open until it finishes.' : 'Draft saved. Continue setup from Drafts any time.'));
-    void navigate(`${adsPath}?view=drafts`);
+    goTo(`${adsPath}?view=drafts`);
   };
 
   const askToLeave = () => {
-    if (!adId && (chosen.file || clientId)) setLeaveWarning('nothing-saved');
+    if (createAd.isPending) return;
+    if (hasUnsavedNewAd) setLeaveWarning('nothing-saved');
     else if (hasUnsavedChanges) setLeaveWarning('unsaved-changes');
     else leave();
   };
@@ -155,6 +188,8 @@ export function AdSetupPage() {
       }
     }
     if (then === 'continue') goToStep('schedule');
+    // Closing would lose unsaved times; ask first.
+    else if (schedule.isDirty) setLeaveWarning('unsaved-changes');
     else leave(isEditing ? 'Buttons saved.' : 'Buttons saved. Continue setup from Drafts any time.');
   };
 
@@ -170,6 +205,8 @@ export function AdSetupPage() {
       current = saved;
     }
     if (then === 'continue') goToStep('review');
+    // Closing would lose unsaved buttons; ask first.
+    else if (buttons.isDirty) setLeaveWarning('unsaved-changes');
     else if (isEditing && current?.campaign?.displayStatus === 'DRAFT') {
       showToast('Schedule saved. Publish it when you are ready.');
       goToStep('review');
@@ -181,7 +218,7 @@ export function AdSetupPage() {
       onSuccess: (published) => {
         setIsConfirmingPublish(false);
         showToast(describePublished(published, schedule.today));
-        void navigate(`${adsPath}/${published.id}`);
+        goTo(`${adsPath}/${published.id}`);
       },
       onError: () => setIsConfirmingPublish(false),
     });
@@ -191,7 +228,18 @@ export function AdSetupPage() {
 
   let body;
   let footer;
-  if (adId && ad.isPending) {
+  if (hasUnusableAdId) {
+    body = (
+      <div className="mx-auto flex max-w-xl flex-col gap-3">
+        <h1 className="text-display">We couldn't find that ad</h1>
+        <p className="text-body text-muted">The link may be out of date.</p>
+        <Link to={adsPath} className="text-label text-accent underline underline-offset-4">
+          Go to your ads
+        </Link>
+      </div>
+    );
+    footer = <WizardFooter />;
+  } else if (adId && ad.isPending) {
     body = <Skeleton className="mx-auto h-64 w-full max-w-xl" />;
     footer = <WizardFooter />;
   } else if (adId && adIsMissing) {
@@ -370,9 +418,11 @@ export function AdSetupPage() {
     // The last step. What the API refused to publish for (if it did) is shown over what was worked out here, since it checked for real.
     const refusedFor = publish.error instanceof ApiError && publish.error.code === 'AD_NOT_READY_TO_PUBLISH' ? blockersFromApiFields(publish.error.fields) : [];
     const blockers = refusedFor.length > 0 ? refusedFor : findPublishBlockers(detail, schedule.today);
+    // Publish puts the saved version on air, so it waits until changes made in this visit are saved.
+    const unsavedSteps = [...(buttons.isDirty ? (['buttons'] as const) : []), ...(schedule.isDirty ? (['schedule'] as const) : [])];
     body = (
       <div className="flex flex-col gap-4">
-        <ReviewStep ad={detail} station={station} blockers={blockers} />
+        <ReviewStep ad={detail} station={station} blockers={blockers} unsavedSteps={unsavedSteps} />
         {publish.isError && refusedFor.length === 0 ? <ErrorNotice error={publish.error} title="We couldn't publish this ad" /> : null}
       </div>
     );
@@ -383,7 +433,7 @@ export function AdSetupPage() {
             Back
           </Button>
         }
-        primary={<Button onClick={() => leave()}>Close</Button>}
+        primary={<Button onClick={askToLeave}>Close</Button>}
       />
     ) : (
       <WizardFooter
@@ -398,7 +448,7 @@ export function AdSetupPage() {
           </Button>
         }
         primary={
-          <Button disabled={blockers.length > 0} isBusy={publish.isPending} busyLabel="Publishing…" onClick={() => setIsConfirmingPublish(true)}>
+          <Button disabled={blockers.length > 0 || unsavedSteps.length > 0} isBusy={publish.isPending} busyLabel="Publishing…" onClick={() => setIsConfirmingPublish(true)}>
             Publish
           </Button>
         }
@@ -418,6 +468,7 @@ export function AdSetupPage() {
         currentStep={currentStep}
         completedSteps={completedSteps}
         saveStatus={saveStatus}
+        exitLabel={saveStatus === 'saved' ? 'Exit (your draft is saved)' : 'Exit'}
         onExit={askToLeave}
         footer={footer}
       >
@@ -431,6 +482,21 @@ export function AdSetupPage() {
           </p>
         </ConfirmDialog>
       ) : null}
+      {blocker.state === 'blocked' && !createAd.isPending ? (
+        <ConfirmDialog
+          title={hasUnsavedNewAd ? 'Leave without saving?' : 'Leave without saving your changes?'}
+          confirmLabel="Leave"
+          cancelLabel="Keep working"
+          onConfirm={() => blocker.proceed()}
+          onClose={() => blocker.reset()}
+        >
+          <p className="text-body text-muted">
+            {hasUnsavedNewAd
+              ? 'Nothing is saved until you upload the ad. If you leave now, you will need to choose the client and the file again.'
+              : "The changes you made haven't been saved. If you leave now, they will be lost."}
+          </p>
+        </ConfirmDialog>
+      ) : null}
       {leaveWarning ? (
         <ConfirmDialog
           title={leaveWarning === 'unsaved-changes' ? 'Leave without saving your changes?' : 'Leave without saving?'}
@@ -438,7 +504,7 @@ export function AdSetupPage() {
           cancelLabel="Keep working"
           onConfirm={() => {
             setLeaveWarning(null);
-            void navigate(isEditing && adId ? `${adsPath}/${adId}` : adId ? `${adsPath}?view=drafts` : adsPath);
+            goTo(isEditing && adId ? `${adsPath}/${adId}` : adId ? `${adsPath}?view=drafts` : adsPath);
           }}
           onClose={() => setLeaveWarning(null)}
         >

@@ -5,7 +5,8 @@ let adCounter = 0;
 /** A campaign that is on air every day from 07:00 to 09:00, for building ads in tests. */
 export function campaignSummary(overrides: Partial<AdCampaignSummary> = {}): AdCampaignSummary {
   return {
-    id: `0190f1a2-0000-7000-8000-00000000ca${String(++adCounter).padStart(2, '0')}`,
+    // Always a well-formed id (12 characters in the last group), however many a test file makes.
+    id: `0190f1a2-0000-7000-8000-${String(++adCounter).padStart(10, '0')}ca`,
     displayStatus: 'LIVE_NOW',
     startsOn: '2026-10-01',
     endsOn: '2026-10-31',
@@ -18,7 +19,7 @@ export function campaignSummary(overrides: Partial<AdCampaignSummary> = {}): AdC
 export function adSummary(overrides: Partial<AdSummary> = {}): AdSummary {
   const number = ++adCounter;
   return {
-    id: `0190f1a2-0000-7000-8000-00000000ad${String(number).padStart(2, '0')}`,
+    id: `0190f1a2-0000-7000-8000-${String(number).padStart(10, '0')}ad`,
     title: `Ad number ${number}`,
     client: { id: '0190f1a2-0000-7000-8000-0000000000a1', name: 'Brand A' },
     status: 'PROCESSING',

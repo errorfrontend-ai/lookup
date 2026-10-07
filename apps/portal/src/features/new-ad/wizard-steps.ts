@@ -26,7 +26,8 @@ export function isWizardStepId(value: string | null): value is WizardStepId {
 export function firstIncompleteStep(ad: Pick<AdDetail, 'status' | 'actionCard' | 'schedule'> | null, upload: Pick<UploadState, 'phase'> | undefined): WizardStepId {
   if (!ad) return 'client';
   const audioIsOnItsWay = upload?.phase === 'uploading' || upload?.phase === 'checking' || upload?.phase === 'checked';
-  if ((ad.status === 'AWAITING_UPLOAD' && !audioIsOnItsWay) || ad.status === 'FAILED') return 'audio';
+  // A new file on its way wins over an earlier refusal the ad may still show.
+  if ((ad.status === 'AWAITING_UPLOAD' || ad.status === 'FAILED') && !audioIsOnItsWay) return 'audio';
   if (!ad.actionCard) return 'buttons';
   if (!ad.schedule) return 'schedule';
   return 'review';
