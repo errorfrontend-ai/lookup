@@ -1,28 +1,15 @@
-import { buildActionUri, formatPhoneNumberForDisplay, type ReadAction, readActionCard } from '@lookup/contracts';
+import { buildActionUri, type ReadAction, readActionCard } from '@lookup/contracts';
 import { useState } from 'react';
 import type { AdDetail } from '@lookup/contracts';
 import { ButtonLink } from '../../../components/button';
 import { Icon, type IconName } from '../../../components/icons';
 import { ListenerCardPreview } from '../../../components/listener-card-preview';
 import { PhoneWidthToggle, type PhoneWidth } from '../../../components/phone-width-toggle';
+import { describeButtonDestination } from '../../ad-buttons/describe-button-destination';
 import { canChangeStationContent, type MemberStation } from '../../stations/use-current-station';
 
 const TYPE_WORDS: Record<ReadAction['type'], string> = { CALL: 'Call', WHATSAPP: 'WhatsApp', MAP: 'Directions', LINK: 'Website' };
 const TYPE_ICONS: Record<ReadAction['type'], IconName> = { CALL: 'phone', WHATSAPP: 'chat', MAP: 'pin', LINK: 'link' };
-
-/** Where a button takes the listener, written out for the station to check. */
-function describeDestination(action: ReadAction): string {
-  switch (action.type) {
-    case 'CALL':
-      return formatPhoneNumberForDisplay(action.phoneNumberE164);
-    case 'WHATSAPP':
-      return action.prefilledText ? `${formatPhoneNumberForDisplay(action.phoneNumberE164)} · first message: “${action.prefilledText}”` : formatPhoneNumberForDisplay(action.phoneNumberE164);
-    case 'MAP':
-      return action.placeName ? `${action.placeName} (${action.latitude.toFixed(4)}, ${action.longitude.toFixed(4)})` : `${action.latitude.toFixed(4)}, ${action.longitude.toFixed(4)}`;
-    case 'LINK':
-      return action.url;
-  }
-}
 
 /** The buttons: a picture of what listeners see at two phone widths, and each button written out with a way to try it. */
 export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: MemberStation }) {
@@ -70,7 +57,7 @@ export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: MemberSta
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span className="text-label">{action.label}</span>
                   <span className="text-caption text-muted">{TYPE_WORDS[action.type]}</span>
-                  <span className="break-words text-body">{describeDestination(action)}</span>
+                  <span className="break-words text-body">{describeButtonDestination(action)}</span>
                 </div>
                 {address ? (
                   <a

@@ -362,12 +362,13 @@ describe('Setting up an ad', () => {
       await waitFor(() => expect(router.state.location.search).toBe('?step=schedule'));
     });
 
-    it('stops before the review for now, with an honest note, when the times are done too', async () => {
+    it('resumes at the review when the buttons and the times are done too', async () => {
       installSetup({
         draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString(), actionCard: actionCardFixture(), schedule: scheduleFixture(), campaign: campaignSummary({ displayStatus: 'DRAFT' }) }),
+        extra: { [`GET /stations/${stationId}`]: () => jsonResponse(200, { timeZone: 'Africa/Lusaka' }) },
       });
       const { router } = renderPortalAt(`/stations/${stationId}/ads/${adId}/setup`);
-      expect(await screen.findByRole('heading', { name: 'This step is coming next' })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { level: 1, name: 'Review and publish' })).toBeInTheDocument();
       expect(screen.getByText('Step 5 of 5 · Review')).toBeInTheDocument();
       await waitFor(() => expect(router.state.location.search).toBe('?step=review'));
     });

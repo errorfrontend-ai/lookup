@@ -4,11 +4,16 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
+import { describeScheduleSummary, formatDateRange } from '../../formatting/describe-schedule';
 import { ConfirmDialog } from '../../components/modal-dialog';
 import { Skeleton } from '../../components/skeleton';
 import { useToast } from '../../components/toast-region';
+import { describePublished } from '../../plain-words/publish-words';
 import { ButtonsStep } from '../ad-buttons/buttons-step';
 import { useButtonsDraft } from '../ad-buttons/use-buttons-draft';
+import { blockersFromApiFields, findPublishBlockers } from '../ad-review/find-publish-blockers';
+import { ReviewStep } from '../ad-review/review-step';
+import { usePublishAd } from '../ad-review/use-publish-ad';
 import { ScheduleStep } from '../ad-schedule/schedule-step';
 import { useScheduleDraft } from '../ad-schedule/use-schedule-draft';
 import { useAd } from '../ads/use-ad-detail';
@@ -58,6 +63,7 @@ export function AdSetupPage() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [step, setStep] = useState<'client' | 'audio'>('client');
   const [leaveWarning, setLeaveWarning] = useState<LeaveWarning | null>(null);
+  const [isConfirmingPublish, setIsConfirmingPublish] = useState(false);
 
   const adsPath = `/stations/${station.id}/ads`;
   const detail: AdDetail | undefined = ad.data;
@@ -69,8 +75,9 @@ export function AdSetupPage() {
 
   const buttons = useButtonsDraft(station.id, adId, detail);
   // The station's time zone is only needed to know "today" for a new schedule.
-  const profile = useStationProfile(station.id, currentStep === 'schedule' && Boolean(adId));
+  const profile = useStationProfile(station.id, (currentStep === 'schedule' || currentStep === 'review') && Boolean(adId));
   const schedule = useScheduleDraft(station.id, adId, detail, profile.data?.timeZone);
+  const publish = usePublishAd(station.id, adId ?? '');
 
   const chosenClientId = detail?.client.id ?? clientId;
   const clientName = detail?.client.name ?? clients.data?.find((client) => client.id === chosenClientId)?.name ?? null;
@@ -151,14 +158,33 @@ export function AdSetupPage() {
     else leave(isEditing ? 'Buttons saved.' : 'Buttons saved. Continue setup from Drafts any time.');
   };
 
-  const finishSchedule = async () => {
+  /** Saves the schedule when it needs it, then goes on or closes. An ended ad given new dates becomes a new draft, which still has to be published, so it goes on to the review. */
+  const finishSchedule = async (then: 'close' | 'continue') => {
+    let current = detail;
     if (schedule.isDirty || !schedule.hasSavedSchedule) {
-      if (!(await schedule.save())) {
+      const saved = await schedule.save();
+      if (!saved) {
         focusFirstProblem();
         return;
       }
+      current = saved;
     }
-    leave('Schedule saved.');
+    if (then === 'continue') goToStep('review');
+    else if (isEditing && current?.campaign?.displayStatus === 'DRAFT') {
+      showToast('Schedule saved. Publish it when you are ready.');
+      goToStep('review');
+    } else leave('Schedule saved.');
+  };
+
+  const publishAd = () => {
+    publish.mutate(undefined, {
+      onSuccess: (published) => {
+        setIsConfirmingPublish(false);
+        showToast(describePublished(published, schedule.today));
+        void navigate(`${adsPath}/${published.id}`);
+      },
+      onError: () => setIsConfirmingPublish(false),
+    });
   };
 
   const adIsMissing = ad.error instanceof ApiError && ad.error.httpStatus === 404;
@@ -308,7 +334,7 @@ export function AdSetupPage() {
         {schedule.saveError ? <ErrorNotice error={schedule.saveError} title="We couldn't save the schedule" /> : null}
       </div>
     );
-    footer = (
+    footer = isEditing ? (
       <WizardFooter
         back={
           <Button variant="secondary" onClick={() => goToStep('buttons')}>
@@ -316,31 +342,71 @@ export function AdSetupPage() {
           </Button>
         }
         primary={
-          <Button disabled={!schedule.isReady} isBusy={schedule.isSaving} busyLabel="Saving…" onClick={() => void finishSchedule()}>
+          <Button disabled={!schedule.isReady} isBusy={schedule.isSaving} busyLabel="Saving…" onClick={() => void finishSchedule('close')}>
             Save and close
           </Button>
         }
       />
+    ) : (
+      <WizardFooter
+        back={
+          <Button variant="secondary" onClick={() => goToStep('buttons')}>
+            Back
+          </Button>
+        }
+        secondary={
+          <Button variant="secondary" disabled={!schedule.isReady || schedule.isSaving} onClick={() => void finishSchedule('close')}>
+            Save and close
+          </Button>
+        }
+        primary={
+          <Button disabled={!schedule.isReady} isBusy={schedule.isSaving} busyLabel="Saving…" onClick={() => void finishSchedule('continue')}>
+            Save and continue
+          </Button>
+        }
+      />
     );
-  } else {
+  } else if (detail) {
+    // The last step. What the API refused to publish for (if it did) is shown over what was worked out here, since it checked for real.
+    const refusedFor = publish.error instanceof ApiError && publish.error.code === 'AD_NOT_READY_TO_PUBLISH' ? blockersFromApiFields(publish.error.fields) : [];
+    const blockers = refusedFor.length > 0 ? refusedFor : findPublishBlockers(detail, schedule.today);
     body = (
-      <div className="mx-auto flex max-w-xl flex-col gap-3">
-        <h1 className="text-display">This step is coming next</h1>
-        <p className="text-body text-muted">Reviewing the ad and publishing it are the next things we are building. Your draft is saved.</p>
-        <Link to={adsPath} className="text-label text-accent underline underline-offset-4">
-          Go to your ads
-        </Link>
+      <div className="flex flex-col gap-4">
+        <ReviewStep ad={detail} station={station} blockers={blockers} />
+        {publish.isError && refusedFor.length === 0 ? <ErrorNotice error={publish.error} title="We couldn't publish this ad" /> : null}
       </div>
     );
-    footer = (
+    footer = isEditing ? (
       <WizardFooter
         back={
           <Button variant="secondary" onClick={() => goToStep('schedule')}>
             Back
           </Button>
         }
+        primary={<Button onClick={() => leave()}>Close</Button>}
+      />
+    ) : (
+      <WizardFooter
+        back={
+          <Button variant="secondary" onClick={() => goToStep('schedule')}>
+            Back
+          </Button>
+        }
+        secondary={
+          <Button variant="secondary" onClick={askToLeave}>
+            Save and close
+          </Button>
+        }
+        primary={
+          <Button disabled={blockers.length > 0} isBusy={publish.isPending} busyLabel="Publishing…" onClick={() => setIsConfirmingPublish(true)}>
+            Publish
+          </Button>
+        }
       />
     );
+  } else {
+    body = <Skeleton className="mx-auto h-64 w-full max-w-xl" />;
+    footer = <WizardFooter />;
   }
 
   return (
@@ -357,6 +423,14 @@ export function AdSetupPage() {
       >
         {body}
       </WizardLayout>
+      {isConfirmingPublish && detail ? (
+        <ConfirmDialog title={`Publish “${detail.title}”?`} confirmLabel="Publish" cancelLabel="Not yet" tone="primary" isBusy={publish.isPending} onConfirm={publishAd} onClose={() => setIsConfirmingPublish(false)}>
+          <p>
+            It goes on air by the schedule you set
+            {detail.schedule ? `: ${describeScheduleSummary(detail.schedule.timeWindows)}, ${formatDateRange(detail.schedule.startsOn, detail.schedule.endsOn)}` : ''}. You can still change its buttons and times afterwards.
+          </p>
+        </ConfirmDialog>
+      ) : null}
       {leaveWarning ? (
         <ConfirmDialog
           title={leaveWarning === 'unsaved-changes' ? 'Leave without saving your changes?' : 'Leave without saving?'}

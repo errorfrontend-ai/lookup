@@ -11,8 +11,8 @@ export const WIZARD_STEPS = [
 
 export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];
 
-/** The steps that can be used so far. The review step is added next; nothing links to a step that is not here. */
-export const BUILT_WIZARD_STEPS: ReadonlySet<WizardStepId> = new Set<WizardStepId>(['client', 'audio', 'buttons', 'schedule']);
+/** Every step can be used. Anything that links into setup still asks this first, so a step that is ever withdrawn leaves no dead link. */
+export const BUILT_WIZARD_STEPS: ReadonlySet<WizardStepId> = new Set<WizardStepId>(['client', 'audio', 'buttons', 'schedule', 'review']);
 
 export function isWizardStepId(value: string | null): value is WizardStepId {
   return WIZARD_STEPS.some((step) => step.id === value);

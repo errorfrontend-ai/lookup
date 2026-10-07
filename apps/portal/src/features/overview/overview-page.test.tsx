@@ -57,6 +57,38 @@ describe('Overview', () => {
     expect(within(attention).getByRole('link', { name: 'See all in Ads' })).toHaveAttribute('href', `/stations/${stationId}/ads?view=attention`);
   });
 
+  it('says what to do about each problem, with a link to the step that fixes it', async () => {
+    const refused = adSummary({ title: 'Festive greetings', status: 'FAILED', campaign: null, attentionReasons: ['upload_refused'] });
+    const lateDraft = adSummary({ title: 'Late draft', hasActionCard: true, campaign: campaignSummary({ displayStatus: 'DRAFT' }), attentionReasons: ['start_date_passed'] });
+    const endsSoon = adSummary({ title: 'Ends soon', campaign: campaignSummary({ displayStatus: 'LIVE_NOW' }), attentionReasons: ['ending_soon'] });
+    const checking = adSummary({ title: 'Being checked', status: 'NEEDS_REVIEW', attentionReasons: ['needs_review'] });
+    installOverview(overviewFor([refused, lateDraft, endsSoon, checking]));
+    renderPortalAt(overviewPath);
+
+    const attention = await screen.findByRole('region', { name: 'Needs attention' });
+    const adPath = (ad: { id: string }) => `/stations/${stationId}/ads/${ad.id}`;
+    expect(within(attention).getByRole('link', { name: 'Upload again: Festive greetings' })).toHaveAttribute('href', `${adPath(refused)}/setup?step=audio`);
+    expect(within(attention).getByRole('link', { name: 'Review and publish: Late draft' })).toHaveAttribute('href', `${adPath(lateDraft)}/setup?step=review`);
+    expect(within(attention).getByRole('link', { name: 'Extend the dates: Ends soon' })).toHaveAttribute('href', `${adPath(endsSoon)}/setup?step=schedule`);
+    // Look Up's own check is not the station's to fix: it just opens the ad.
+    expect(within(attention).getByRole('link', { name: 'View ad: Being checked' })).toHaveAttribute('href', adPath(checking));
+  });
+
+  it('only opens the ad for someone who cannot change ads', async () => {
+    const analyst = signedInUserWith([{ role: 'ANALYST', name: 'Radio Phoenix', frequencyLabel: '89.5 FM' }]);
+    const analystStation = analyst.stations[0]?.id as string;
+    const refused = adSummary({ title: 'Festive greetings', status: 'FAILED', campaign: null, attentionReasons: ['upload_refused'] });
+    installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, analyst),
+      [`GET /stations/${analystStation}/overview`]: () => jsonResponse(200, overviewFor([refused])),
+      [`GET /stations/${analystStation}/clients`]: () => jsonResponse(200, []),
+    });
+    renderPortalAt(`/stations/${analystStation}/overview`);
+    const attention = await screen.findByRole('region', { name: 'Needs attention' });
+    expect(within(attention).getByRole('link', { name: 'View ad: Festive greetings' })).toHaveAttribute('href', `/stations/${analystStation}/ads/${refused.id}`);
+    expect(within(attention).queryByRole('link', { name: /Upload again/ })).not.toBeInTheDocument();
+  });
+
   it('says plainly when nothing is on air and nothing needs attention', async () => {
     installOverview(overviewFor([adSummary({ campaign: campaignSummary({ displayStatus: 'SCHEDULED' }) })]));
     renderPortalAt(overviewPath);

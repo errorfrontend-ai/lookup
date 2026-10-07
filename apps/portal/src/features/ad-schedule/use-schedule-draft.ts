@@ -84,19 +84,19 @@ export function useScheduleDraft(stationId: string, adId: string | undefined, de
     [resetSave],
   );
 
-  /** Saves the schedule. Returns whether it is now saved; if not, the problems are shown and nothing was sent (or the API's problems are shown). */
-  const save = useCallback(async (): Promise<boolean> => {
+  /** Saves the schedule and returns the ad as it is now. Null when it was not saved: the problems are shown, and nothing was sent (or the API's problems are shown). */
+  const save = useCallback(async (): Promise<AdDetail | null> => {
     if (!validation.input) {
       setShowAllProblems(true);
-      return false;
+      return null;
     }
     try {
-      await saveSchedule.mutateAsync(validation.input);
+      const updated = await saveSchedule.mutateAsync(validation.input);
       setApiProblems(NO_PROBLEMS);
-      return true;
+      return updated;
     } catch (error) {
       if (error instanceof ApiError) setApiProblems(problemsFromApiFields(currentDraft, error.fields));
-      return false;
+      return null;
     }
   }, [validation.input, saveSchedule, currentDraft]);
 

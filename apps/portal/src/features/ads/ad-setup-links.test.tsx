@@ -113,12 +113,29 @@ describe('the way into setting up an ad', () => {
       expect(link).toHaveAttribute('href', `/stations/${stationId}/ads/${needsSchedule.id}/setup?step=schedule`);
     });
 
-    it('is not shown for a step that does not exist yet, so nothing leads to a dead end', async () => {
+    it('goes to the review for an ad with buttons and a schedule that is not published', async () => {
       const readyToReview = adSummary({ title: 'Ready to review', status: 'PROCESSING', hasActionCard: true, campaign: campaignSummary({ displayStatus: 'DRAFT' }) });
       const stationId = installStation(owner, [readyToReview]);
       renderPortalAt(`/stations/${stationId}/ads`);
-      await screen.findByText('Ready to review');
-      expect(screen.queryByRole('link', { name: /Continue setup/ })).not.toBeInTheDocument();
+      const link = await screen.findByRole('link', { name: 'Continue setup: Ready to review' });
+      expect(link).toHaveAttribute('href', `/stations/${stationId}/ads/${readyToReview.id}/setup?step=review`);
+    });
+
+    it('is not shown for an ad that is published and has nothing wrong', async () => {
+      const live = adSummary({ title: 'Weekday spot', status: 'PROCESSING', hasActionCard: true });
+      const stationId = installStation(owner, [live]);
+      renderPortalAt(`/stations/${stationId}/ads`);
+      await screen.findByText('Weekday spot');
+      expect(screen.queryByRole('link', { name: /Continue setup|Upload again|Review and publish|Extend/ })).not.toBeInTheDocument();
+    });
+
+    it('says what to do about a problem: review and publish a draft that should have started, extend an ad that ends soon', async () => {
+      const lateDraft = adSummary({ title: 'Late draft', status: 'PROCESSING', hasActionCard: true, campaign: campaignSummary({ displayStatus: 'DRAFT' }), attentionReasons: ['start_date_passed'] });
+      const endsSoon = adSummary({ title: 'Ends soon', status: 'PROCESSING', hasActionCard: true, attentionReasons: ['ending_soon'] });
+      const stationId = installStation(owner, [lateDraft, endsSoon]);
+      renderPortalAt(`/stations/${stationId}/ads`);
+      expect(await screen.findByRole('link', { name: 'Review and publish: Late draft' })).toHaveAttribute('href', `/stations/${stationId}/ads/${lateDraft.id}/setup?step=review`);
+      expect(screen.getByRole('link', { name: 'Extend the dates: Ends soon' })).toHaveAttribute('href', `/stations/${stationId}/ads/${endsSoon.id}/setup?step=schedule`);
     });
 
     it('is not shown to an analyst', async () => {

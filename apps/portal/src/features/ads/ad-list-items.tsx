@@ -9,6 +9,7 @@ import { describeScheduleSummary, formatDateRange, formatStationDate } from '../
 import { formatRelativeTime } from '../../formatting/format-relative-time';
 import { describeAttentionReason } from '../../plain-words/ad-status-words';
 import { BUILT_WIZARD_STEPS, setupStepForSummary } from '../new-ad/wizard-steps';
+import { attentionLink } from './attention-links';
 
 /** Whether this ad has audio to play: only once its upload has arrived. */
 function hasPlayableAudio(ad: AdSummary): boolean {
@@ -62,11 +63,15 @@ function WhenItAirs({ ad }: { ad: AdSummary }) {
 
 /** For an ad that is not finished: the way back into setup, at the step it needs (owners and managers only, and only to steps that exist). */
 function SetupLink({ ad, stationId, canChange }: { ad: AdSummary; stationId: string; canChange: boolean }) {
+  if (!canChange) return null;
+  // A problem has its own first thing to do (upload again, review and publish, extend the dates); otherwise carry on where setup stopped.
+  const attention = attentionLink(ad, stationId, canChange);
   const step = setupStepForSummary(ad);
-  if (!canChange || !step || !BUILT_WIZARD_STEPS.has(step)) return null;
+  const link = attention?.isSetup ? attention : step && BUILT_WIZARD_STEPS.has(step) ? { label: 'Continue setup', to: `/stations/${stationId}/ads/${ad.id}/setup?step=${step}` } : null;
+  if (!link) return null;
   return (
-    <ButtonLink variant="secondary" to={`/stations/${stationId}/ads/${ad.id}/setup?step=${step}`} aria-label={`${ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}: ${ad.title}`} className="self-start whitespace-nowrap">
-      {ad.status === 'FAILED' ? 'Upload again' : 'Continue setup'}
+    <ButtonLink variant="secondary" to={link.to} aria-label={`${link.label}: ${ad.title}`} className="self-start whitespace-nowrap">
+      {link.label}
     </ButtonLink>
   );
 }

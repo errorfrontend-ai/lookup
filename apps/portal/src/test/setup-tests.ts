@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterEach } from 'vitest';
+
+// How long findBy… and waitFor keep looking before failing. The 1 s default is too short for a whole
+// page to draw on the build machine (4 CPUs, little memory) while every test file runs at once; a real
+// failure still fails, only a few seconds later.
+configure({ asyncUtilTimeout: 4_000 });
 
 afterEach(() => {
   cleanup();

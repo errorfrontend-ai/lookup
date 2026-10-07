@@ -9,6 +9,7 @@ import { Skeleton } from '../../components/skeleton';
 import { OnAirBadge } from '../../components/status-badges';
 import { describeScheduleSummary, formatDateRange, formatStationDate } from '../../formatting/describe-schedule';
 import { describeAttentionReason } from '../../plain-words/ad-status-words';
+import { attentionLink } from '../ads/attention-links';
 import { useClients } from '../clients/use-clients';
 import { canChangeStationContent, useRequiredCurrentStation } from '../stations/use-current-station';
 import { useStationOverview } from '../stations/use-station-overview';
@@ -42,9 +43,10 @@ function LiveNowRow({ ad }: { ad: AdSummary }) {
   );
 }
 
-function AttentionRow({ ad, stationId }: { ad: AdSummary; stationId: string }) {
+function AttentionRow({ ad, stationId, canChange }: { ad: AdSummary; stationId: string; canChange: boolean }) {
   const reason = ad.attentionReasons[0];
-  if (!reason) return null;
+  const link = attentionLink(ad, stationId, canChange);
+  if (!reason || !link) return null;
   const words = describeAttentionReason(reason, ad.client.name, ad.campaign ? formatStationDate(ad.campaign.endsOn) : null);
   return (
     <li className="flex items-start gap-3 py-2">
@@ -55,8 +57,8 @@ function AttentionRow({ ad, stationId }: { ad: AdSummary; stationId: string }) {
           {ad.title} · {words.detail}
         </span>
       </div>
-      <Link to={`/stations/${stationId}/ads/${ad.id}`} aria-label={`View ${ad.title}`} className="ml-auto flex min-h-11 shrink-0 items-center rounded-md px-3 text-label text-accent hover:bg-accent-soft">
-        View ad
+      <Link to={link.to} aria-label={`${link.label}: ${ad.title}`} className="ml-auto flex min-h-11 shrink-0 items-center rounded-md px-3 text-label text-accent hover:bg-accent-soft">
+        {link.label}
       </Link>
     </li>
   );
@@ -152,7 +154,7 @@ export function OverviewPage() {
                 <>
                   <ul className="divide-y divide-line-soft">
                     {overview.data.attentionAds.map((ad) => (
-                      <AttentionRow key={ad.id} ad={ad} stationId={station.id} />
+                      <AttentionRow key={ad.id} ad={ad} stationId={station.id} canChange={canUpload} />
                     ))}
                   </ul>
                   <Link to={`${adsPath}?view=attention`} className="self-start text-label text-accent underline underline-offset-4">

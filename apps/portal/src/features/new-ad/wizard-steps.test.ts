@@ -53,7 +53,7 @@ describe('where an unfinished ad in the list resumes', () => {
 });
 
 describe('the steps that exist so far', () => {
-  it('are the client, audio, buttons and schedule, so nothing links to a step that is not built', () => {
-    expect([...BUILT_WIZARD_STEPS]).toEqual(['client', 'audio', 'buttons', 'schedule']);
+  it('are all five, so every step can be linked to', () => {
+    expect([...BUILT_WIZARD_STEPS]).toEqual(['client', 'audio', 'buttons', 'schedule', 'review']);
   });
 });

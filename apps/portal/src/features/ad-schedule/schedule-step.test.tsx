@@ -431,6 +431,23 @@ describe('The schedule step', () => {
       expect(await screen.findByText('Schedule saved.')).toBeInTheDocument();
     });
 
+    it('goes on to the review after saving, with Save and continue', async () => {
+      const { savedSchedules, router } = await openStep();
+      await person.click(cell('Monday', 7));
+      await person.click(screen.getByRole('button', { name: 'Save and continue' }));
+      await waitFor(() => expect(savedSchedules).toHaveLength(1));
+      await waitFor(() => expect(router.state.location.search).toBe('?step=review'));
+      expect(await screen.findByRole('heading', { level: 1, name: 'Review and publish' })).toBeInTheDocument();
+    });
+
+    it('does not go on while there are problems', async () => {
+      const { router, calls } = await openStep();
+      await person.click(screen.getByRole('button', { name: 'Save and continue' }));
+      expect(await screen.findByText('Choose when this ad airs: at least one day and a time.')).toBeInTheDocument();
+      expect(router.state.location.search).toBe('?step=schedule');
+      expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+    });
+
     it('splits an all-day choice in two windows, which is how the API takes it', async () => {
       const { savedSchedules } = await openStep();
       await person.click(screen.getByRole('button', { name: 'Switch all of Sunday on or off' }));
@@ -539,6 +556,32 @@ describe('The schedule step', () => {
       await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${stationId}/ads/${ad.id}`));
       expect(router.state.location.search).toBe('?tab=schedule');
       expect(await screen.findByText('Schedule saved.')).toBeInTheDocument();
+    });
+
+    it('offers no Save and continue for a published ad: there is nothing left to publish', async () => {
+      await openStep({ ad: published() });
+      expect(screen.queryByRole('button', { name: 'Save and continue' })).not.toBeInTheDocument();
+    });
+
+    it('takes an ended ad given new dates on to the review, because that makes a new draft that must be published', async () => {
+      const ended = adWithoutSchedule({
+        campaign: campaignSummary({ displayStatus: 'ENDED', startsOn: '2026-08-01', endsOn: '2026-08-31' }),
+        schedule: scheduleFixture({ displayStatus: 'ENDED', startsOn: '2026-08-01', endsOn: '2026-08-31' }),
+      });
+      const { router, savedSchedules } = await openStep({
+        ad: ended,
+        onSave: (body) => {
+          const input = body as ScheduleInput;
+          return jsonResponse(200, { ...ended, campaign: campaignSummary({ displayStatus: 'DRAFT', startsOn: input.startsOn, endsOn: input.endsOn, timeWindows: input.timeWindows }), schedule: scheduleFixture({ displayStatus: 'DRAFT', startsOn: input.startsOn, endsOn: input.endsOn, timeWindows: input.timeWindows }) });
+        },
+      });
+      setDate('First day', '2026-10-06');
+      setDate('Last day', '2026-11-02');
+      await person.click(screen.getByRole('button', { name: 'Save and close' }));
+
+      await waitFor(() => expect(savedSchedules).toHaveLength(1));
+      await waitFor(() => expect(router.state.location.search).toBe('?step=review'));
+      expect(await screen.findByText('Schedule saved. Publish it when you are ready.')).toBeInTheDocument();
     });
 
     it('asks before leaving with unsaved changes', async () => {
