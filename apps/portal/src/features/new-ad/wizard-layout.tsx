@@ -87,7 +87,7 @@ export function WizardLayout({
         {children}
       </main>
 
-      <footer className="sticky bottom-0 z-20 flex items-center justify-between gap-3 border-t border-line-soft bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:px-7">
+      <footer className="sticky bottom-0 z-20 border-t border-line-soft bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 md:px-7">
         {footer}
       </footer>
     </div>

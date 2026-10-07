@@ -97,7 +97,7 @@ export function AdDetailPage() {
 
       {currentTab === 'overview' ? <AdOverviewTab ad={detail} station={station} /> : null}
       {currentTab === 'buttons' ? <AdButtonsTab ad={detail} station={station} /> : null}
-      {currentTab === 'schedule' ? <AdScheduleTab ad={detail} /> : null}
+      {currentTab === 'schedule' ? <AdScheduleTab ad={detail} station={station} /> : null}
       {currentTab === 'history' ? <AdHistoryTab stationId={station.id} adId={detail.id} /> : null}
 
       {openDialog === 'rename' ? <RenameAdDialog stationId={station.id} adId={detail.id} currentTitle={detail.title} onClose={() => setOpenDialog(null)} /> : null}

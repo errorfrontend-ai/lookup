@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/portal-api';
-import { actionCardFixture, adDetail, overviewFor } from '../../test/ad-fixtures';
+import { actionCardFixture, adDetail, campaignSummary, overviewFor, scheduleFixture } from '../../test/ad-fixtures';
 import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
 import { clearAllUploads, replaceStorageTransport } from './ad-upload-store';
@@ -351,12 +351,25 @@ describe('Setting up an ad', () => {
       await waitFor(() => expect(router.state.location.search).toBe('?step=buttons'));
     });
 
-    it('stops before the schedule for now, with an honest note, when the buttons are done', async () => {
-      installSetup({ draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString(), actionCard: actionCardFixture() }) });
+    it('resumes at the schedule once the buttons are done and there are no times yet', async () => {
+      installSetup({
+        draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString(), actionCard: actionCardFixture() }),
+        extra: { [`GET /stations/${stationId}`]: () => jsonResponse(200, { timeZone: 'Africa/Lusaka' }) },
+      });
       const { router } = renderPortalAt(`/stations/${stationId}/ads/${adId}/setup`);
-      expect(await screen.findByRole('heading', { name: 'This step is coming next' })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { level: 1, name: 'Set when it airs' })).toBeInTheDocument();
       expect(screen.getByText('Step 4 of 5 · Schedule')).toBeInTheDocument();
       await waitFor(() => expect(router.state.location.search).toBe('?step=schedule'));
+    });
+
+    it('stops before the review for now, with an honest note, when the times are done too', async () => {
+      installSetup({
+        draft: newDraft({ status: 'PROCESSING', uploadedAt: new Date().toISOString(), actionCard: actionCardFixture(), schedule: scheduleFixture(), campaign: campaignSummary({ displayStatus: 'DRAFT' }) }),
+      });
+      const { router } = renderPortalAt(`/stations/${stationId}/ads/${adId}/setup`);
+      expect(await screen.findByRole('heading', { name: 'This step is coming next' })).toBeInTheDocument();
+      expect(screen.getByText('Step 5 of 5 · Review')).toBeInTheDocument();
+      await waitFor(() => expect(router.state.location.search).toBe('?step=review'));
     });
   });
 

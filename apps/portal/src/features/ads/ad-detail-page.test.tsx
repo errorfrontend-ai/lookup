@@ -214,6 +214,31 @@ describe('Ad page', () => {
   });
 
   describe('schedule tab', () => {
+    it('offers to edit the schedule, or to set one, in the same editor as setup', async () => {
+      const withSchedule = installAdPage();
+      const { unmount } = renderPortalAt(`${withSchedule.adPath}?tab=schedule`);
+      expect(await screen.findByRole('link', { name: 'Edit schedule' })).toHaveAttribute('href', `/stations/${stationId}/ads/${withSchedule.ad.id}/setup?step=schedule`);
+      unmount();
+
+      const without = installAdPage({ ad: adDetail({ schedule: null, campaign: null }) });
+      renderPortalAt(`${without.adPath}?tab=schedule`);
+      expect(await screen.findByRole('link', { name: 'Set the schedule' })).toHaveAttribute('href', `/stations/${stationId}/ads/${without.ad.id}/setup?step=schedule`);
+    });
+
+    it('offers neither to an analyst, who can only look', async () => {
+      const analyst = signedInUserWith([{ role: 'ANALYST' }]);
+      const withSchedule = installAdPage({ user: analyst });
+      const { unmount } = renderPortalAt(`${withSchedule.adPath}?tab=schedule`);
+      await screen.findByRole('heading', { name: 'Details' });
+      expect(screen.queryByRole('link', { name: 'Edit schedule' })).not.toBeInTheDocument();
+      unmount();
+
+      const without = installAdPage({ user: analyst, ad: adDetail({ schedule: null, campaign: null }) });
+      renderPortalAt(`${without.adPath}?tab=schedule`);
+      await screen.findByRole('heading', { name: 'Not scheduled yet' });
+      expect(screen.queryByRole('link', { name: 'Set the schedule' })).not.toBeInTheDocument();
+    });
+
     it('draws the week and writes the schedule out', async () => {
       const ad = adDetail({ schedule: scheduleFixture({ gracePeriodMinutes: 0, engagementLimit: 250, timeWindows: [{ daysOfWeek: [6, 7], localStartTime: '10:00', localEndTime: '14:00' }] }) });
       const { adPath } = installAdPage({ ad });

@@ -53,6 +53,7 @@ function installButtonsPage({ ad = adWithoutButtons(), user = owner, onSave }: P
   const savedCards: unknown[] = [];
   const fakeApi = installFakeApi({
     'GET /auth/me': () => jsonResponse(200, user),
+    [`GET /stations/${stationId}`]: () => jsonResponse(200, { id: stationId, timeZone: 'Africa/Lusaka' }),
     [`GET /stations/${stationId}/clients`]: () => jsonResponse(200, []),
     [`GET /stations/${stationId}/overview`]: () => jsonResponse(200, overviewFor([])),
     [`GET /stations/${stationId}/ads`]: () => jsonResponse(200, { ads: [], nextCursor: null }),
@@ -280,6 +281,41 @@ describe('The buttons step', () => {
       expect(await screen.findByText('Buttons saved. Continue setup from Drafts any time.')).toBeInTheDocument();
     });
 
+    it('saves the buttons and goes on to the schedule with Save and continue', async () => {
+      const { stepPath, savedCards } = installButtonsPage();
+      const { router } = renderPortalAt(stepPath);
+      await screen.findByRole('heading', { name: 'Add the buttons' });
+      await addButton('Call');
+      await typeInto(rowNumber(1), 'Phone number', '0977 123 456');
+
+      await person.click(screen.getByRole('button', { name: 'Save and continue' }));
+
+      await waitFor(() => expect(savedCards).toHaveLength(1));
+      await waitFor(() => expect(router.state.location.search).toBe('?step=schedule'));
+      expect(await screen.findByRole('heading', { level: 1, name: 'Set when it airs' })).toBeInTheDocument();
+      expect(screen.getByText('Step 4 of 5 · Schedule')).toBeInTheDocument();
+    });
+
+    it('goes on without asking the API when the saved buttons were not changed', async () => {
+      const { stepPath, calls } = installButtonsPage({ ad: adDetail({ title: 'Summer service offer', status: 'PROCESSING', campaign: null, schedule: null }) });
+      const { router } = renderPortalAt(stepPath);
+      await screen.findByRole('heading', { name: 'Add the buttons' });
+      await person.click(screen.getByRole('button', { name: 'Save and continue' }));
+      await waitFor(() => expect(router.state.location.search).toBe('?step=schedule'));
+      expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+    });
+
+    it('stays on the buttons when they have problems, and shows them', async () => {
+      const { stepPath, calls } = installButtonsPage();
+      const { router } = renderPortalAt(stepPath);
+      await screen.findByRole('heading', { name: 'Add the buttons' });
+      await addButton('Call');
+      await person.click(screen.getByRole('button', { name: 'Save and continue' }));
+      expect(await within(rowNumber(1)).findByText('Enter the phone number.')).toBeInTheDocument();
+      expect(router.state.location.search).toBe('?step=buttons');
+      expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+    });
+
     it('shows every problem after a failed save, takes the person to the first one, and sends nothing', async () => {
       const { stepPath, calls } = installButtonsPage();
       renderPortalAt(stepPath);
@@ -416,7 +452,7 @@ describe('The buttons step', () => {
 
       await person.click(screen.getByRole('button', { name: 'Exit (your draft is saved)' }));
       const dialog = await screen.findByRole('dialog', { name: 'Leave without saving your changes?' });
-      expect(dialog).toHaveTextContent("The changes you made to the buttons haven't been saved");
+      expect(dialog).toHaveTextContent("The changes you made haven't been saved");
       await person.click(within(dialog).getByRole('button', { name: 'Keep working' }));
       expect(labelsInOrder()).toEqual(['Call us']);
 

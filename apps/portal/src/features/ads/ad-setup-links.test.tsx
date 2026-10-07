@@ -2,7 +2,7 @@ import type { AdSummary } from '@lookup/contracts';
 import { screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/portal-api';
-import { adSummary, overviewFor } from '../../test/ad-fixtures';
+import { adSummary, campaignSummary, overviewFor } from '../../test/ad-fixtures';
 import { installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
 import { setWideScreen } from '../../test/screen-size';
@@ -105,11 +105,19 @@ describe('the way into setting up an ad', () => {
       expect(link).toHaveAttribute('href', `/stations/${stationId}/ads/${noButtons.id}/setup?step=buttons`);
     });
 
-    it('is not shown for a step that does not exist yet, so nothing leads to a dead end', async () => {
+    it('goes to the schedule for an ad with buttons that has no times yet', async () => {
       const needsSchedule = adSummary({ title: 'Needs a schedule', status: 'PROCESSING', hasActionCard: true, campaign: null });
       const stationId = installStation(owner, [needsSchedule]);
       renderPortalAt(`/stations/${stationId}/ads`);
-      await screen.findByText('Needs a schedule');
+      const link = await screen.findByRole('link', { name: 'Continue setup: Needs a schedule' });
+      expect(link).toHaveAttribute('href', `/stations/${stationId}/ads/${needsSchedule.id}/setup?step=schedule`);
+    });
+
+    it('is not shown for a step that does not exist yet, so nothing leads to a dead end', async () => {
+      const readyToReview = adSummary({ title: 'Ready to review', status: 'PROCESSING', hasActionCard: true, campaign: campaignSummary({ displayStatus: 'DRAFT' }) });
+      const stationId = installStation(owner, [readyToReview]);
+      renderPortalAt(`/stations/${stationId}/ads`);
+      await screen.findByText('Ready to review');
       expect(screen.queryByRole('link', { name: /Continue setup/ })).not.toBeInTheDocument();
     });
 
