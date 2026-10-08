@@ -37,6 +37,9 @@ class LevelBars extends StatelessWidget {
     4,
   ];
 
+  /// The height of the bars' row, which Identifying keeps empty (design §2.5).
+  static double rowHeight(LookUpSpacing spacing) => spacing.space12;
+
   /// How many bars are lit at [levelFraction].
   static int litBarCount(double levelFraction) {
     final level = levelFraction.isNaN ? 0.0 : levelFraction.clamp(0.0, 1.0);
@@ -54,7 +57,7 @@ class LevelBars extends StatelessWidget {
     final litCount = litBarCount(levelFraction);
     return ExcludeSemantics(
       child: SizedBox(
-        height: spacing.space12,
+        height: rowHeight(spacing),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

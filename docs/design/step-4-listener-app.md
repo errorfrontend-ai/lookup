@@ -117,7 +117,9 @@ or dead control for them exists.
 - **System back** does what the screen's own Back or Close does.
 - **Less motion.** When the phone asks for it ("Remove animations", `MediaQuery.disableAnimations`),
   nothing moves: screen changes, the Listening rings, the Identifying bar, and the copy sheet and
-  the "copied" snackbars, which appear and go at once (`AnimationStyle.noAnimation`).
+  the "copied" snackbars, which appear and go at once (`AnimationStyle.noAnimation`). Otherwise
+  the copy sheet slides in over motion.slow and out over motion.base, and the snackbars in and out
+  over motion.base, never Material's own durations (S4-ACCESSIBILITY-04).
 - **No ads list** anywhere (D8).
 
 ### 2.2 Home — state `idle`, route `/`
@@ -131,7 +133,7 @@ Wireframe *Main* (360 × 800). Top to bottom:
 | Main area | Aligned to the **bottom** of the screen (thumb zone), centred, 24 dp sides, 48 dp bottom, 32 dp between groups | — |
 | Heading | "Heard an ad on the radio?" (display token, 30/36, 700) | Marked as a heading |
 | Instruction | "Tap the button and hold your phone near the radio while the ad plays." (body, muted) | Serves as the first-open "how it works" note (gap 44) |
-| Identify control | Round, 200 dp across, accent fill; microphone icon (56 dp) above the label "Tap to identify" (18, 700), both in the on-accent colour; two soft concentric halo rings (14 dp and 28 dp wide) | Screen-reader label "Identify the ad playing now", role button. Tap → Listening if the microphone is allowed, else Permission (T1, T2). Ignored while an identify is already under way |
+| Identify control | Round, 200 dp across at normal text and 200 dp × the text scale at larger text, no wider than the screen less a halo ring on each side, so the label is drawn at the listener's size (it shrinks only when even that widest disc cannot hold it, and never breaks inside a word; S4-RESPONSIVE-03), accent fill; microphone icon (56 dp) above the label "Tap to identify" (18, 700), both in the on-accent colour; two soft concentric halo rings (14 dp and 28 dp wide) | Screen-reader label "Identify the ad playing now", role button. Tap → Listening if the microphone is allowed, else Permission (T1, T2). Ignored while an identify is already under way |
 | Data note | "About 8 seconds of listening · about 25 KB of data" (caption, muted), 12 dp above | The "8" comes from the clip-length setting (S4-LISTENING-03); what "25 KB" counts is S4-D31 |
 | ~~Bottom navigation~~ | Wireframe: Identify · History · Settings | **Not in Step 4** (S4-D1; P6-NAVIGATION-01) |
 
@@ -192,6 +194,10 @@ Error, phone failure (T14).
 Proposed (S4-D28): the Listening layout with the ring still and no level bars; heading
 "Identifying…" (live region); text "This usually takes a few seconds."; an indeterminate progress bar
 (still when animations are off); footer "Cancel" → aborts the request, deletes the clip, Home (T28).
+The ring stays exactly where Listening had it, so nothing jumps when the clip is sent: both screens
+use one layout (`ListeningLayout`), Identifying keeps the rows of the level bars and the countdown
+empty, and each screen's heading and line of text keep the room the other screen's words would take
+there (laid out, never drawn or read out).
 It covers getting an install token when one is needed, the send, and the silent resends after a 409
 or a 401 (T15, T22, T23). The slow-upload "still working" state is Phase 6 (P6-LISTENING-01).
 
@@ -403,9 +409,9 @@ apps/mobile/
     features/
       identify/
         presentation/ recognition_flow.dart (RecognitionFlow), home_screen.dart, permission_screen.dart,
-                      listening_screen.dart, identifying_screen.dart, no_match_screen.dart,
-                      busy_screen.dart, error_screen.dart, level_ring.dart, level_bars.dart,
-                      reference_code_panel.dart
+                      listening_screen.dart, identifying_screen.dart, listening_layout.dart,
+                      no_match_screen.dart, busy_screen.dart, error_screen.dart, level_ring.dart,
+                      level_bars.dart, reference_code_panel.dart
         domain/       recognition_state.dart, recognition_failure.dart, captured_clip.dart,
                       clip_settings.dart, microphone_access.dart, recognition_answer.dart,
                       recognition_outcome.dart, send_policy.dart
@@ -529,8 +535,7 @@ final class NewerAppNeededFailure extends RecognitionFailure { final bool isSeve
 | `apiClientProvider` | `Provider<ApiClient>` | the one Dio-backed client (built in `bootstrap`, also used by the reporter) | yes (fake adapter) |
 | `clockProvider` | `Provider<Clock>` | wall-clock time and timers | yes (fake clock) |
 | `randomUuidProvider` | `Provider<RandomUuid>` | UUID source | yes (fixed ids) |
-| `listenerInstallRepositoryProvider` | `Provider` | install id, token, registration | yes |
-| `listenerInstallRegistrationProvider` | `AsyncNotifierProvider<ListenerInstallRegistration, ListenerInstallCredentials>` | the first-launch registration (S4-STATE-01's `AsyncNotifier`) | yes |
+| `listenerInstallRepositoryProvider` | `Provider<ListenerInstallRepository>` | install id, token, and the one registration in progress (`ensureRegistered`, `registerAgainAfterRefusal`) | yes |
 | `clientErrorReporterProvider` | `Provider<ClientErrorReporter>` | crash reports | yes (recording fake) |
 | `recognitionRepositoryProvider` | `Provider<RecognitionRepository>` | `POST /recognize` | yes |
 | `clipRecorderProvider` | `Provider<ClipRecorder>` | the microphone | yes (fake levels and bytes) |
@@ -542,6 +547,14 @@ final class NewerAppNeededFailure extends RecognitionFailure { final bool isSeve
 - `RecognitionFlow` is a `Notifier` over the sealed state, not an `AsyncNotifier`: the sealed state
   already models waiting and failure, and `AsyncValue` would add a second, conflicting channel
   (S4-STATE-01 allows either; S4-D4).
+- **Registration is not a provider of its own.** It is built inside `ListenerInstallRepository`,
+  behind the plain `listenerInstallRepositoryProvider`: the repository keeps the one registration
+  in progress as a `Future` that every concurrent caller shares (the background registration after
+  the first frame, a fast first tap, two 401s), so the install never registers twice at once
+  (§3.9, S4-D14). No screen shows registration state, so there is nothing for an `AsyncNotifier`'s
+  `AsyncValue` to drive; a failed registration reaches the listener through the identify that
+  needed it, as that identify's failure (§3.11). An `AsyncNotifier` was planned here and dropped for
+  this reason (S4-D4).
 - **Riverpod 3 retries a failing provider automatically by default.** That would resend clips and
   registrations silently, so `ProviderScope(retry: (retryCount, error) => null)` turns it off for
   the whole app (S4-D4). After every `await`, the notifier checks `ref.mounted` before setting state.
@@ -1170,7 +1183,10 @@ text scales × two themes).
   size (`cacheWidth`, or `cacheHeight` for an image wider than its box); no `Image.network` or
   `NetworkImage`, which follow a redirect to `http` (images load through `HttpsImageProvider`);
   every animation duration in widget code (`app/`, `core/widgets/`, `presentation/`) is a motion
-  token, `Duration.zero`, or a value the same file sets only from those; only a transform or the
+  token, `Duration.zero`, or a value the same file sets only from those, and every
+  `showModalBottomSheet`, `showBottomSheet` and `showSnackBar` call passes an animation style read
+  from the motion tokens (`AnimationStyle.noAnimation` for less motion; left out or `null`, Material's
+  own durations apply); only a transform or the
   opacity animates (`ScaleTransition`, `AnimatedScale`, `FadeTransition`, `AnimatedOpacity`: any
   other `Animated…` widget, `…Transition`, `TweenAnimationBuilder` or `Hero` fails); no campaign
   label or phone number written in `lib/` (S4-RENDERER-01): no literal of eight digits or more, none
@@ -1208,8 +1224,12 @@ text scales × two themes).
   answers with the next scenario. Answers are the shared fixtures
   (`recognize-response/valid/*.json`, with `request_id` replaced by the echoed id) and the shared
   envelope fixtures, so the fake cannot drift from the contract.
-- Scenarios: `match`, `fallback`, `no-match`, `choose-station`, `busy` (503 `RECOGNITION_BUSY`,
-  `Retry-After: 2`), `timeout` (503 `RECOGNITION_TIMEOUT`), `error` (500 `INTERNAL` with the id),
+- Scenarios: `match`, `fallback`, `no-match`, `choose-station`, `match-more-options`
+  (`match-campaign`'s card plus the buttons of `action-card/valid/six-actions.json` it does not hold,
+  by id: six buttons, so "More options" shows), `busy` (503 `RECOGNITION_BUSY`, `Retry-After: 6`,
+  long enough to be seen between two screen reads), `busy-without-request-id` (the same with no
+  `X-Request-Id` header and no `request_id` in the body: four of them end in the phone failure, T21),
+  `timeout` (503 `RECOGNITION_TIMEOUT`, `Retry-After: 6`), `error` (500 `INTERNAL` with the id),
   `rate-limited`, `token-invalid-once`, `invalid-audio`, `unreadable` (200, not JSON), `drop`
   (closes the connection: no answer).
 - `POST /api/v1/client-errors`: checks `ClientErrorReport` → 202, kept for inspection.
@@ -1238,14 +1258,17 @@ non-zero on any failure:
    Home → Permission → "Allow microphone" → the real system dialog → "Allow" → Listening (8 s, the
    real recorder) → Result with the fake's card; tap "Call us": the image has no dialler, so the
    open fails and the copy sheet shows "+260 97 712 3456" (the app tried `tel:+260977123456`);
-   no match; busy then automatic retry → Result, and the fake's request log shows the same
-   idempotency key on both sends; error → the code derived from the fake's echoed id; a dropped
+   no match; busy then automatic retry → Busy, which must be seen on screen (the fake's
+   `Retry-After` is 6 s, longer than two screen reads), then Result, and the fake's request log
+   shows the same idempotency key on both sends; error → the code derived from the fake's echoed id; a dropped
    connection → No connection → "Send again" → Result; "Send a test error" → one report at
    `/client-errors` with its id (S4-ERRORREPORTING-07); a second start of the same installed app
    makes no new `/installs` call.
-4. The clip the fake received from the real recorder is checked by
+4. Every recognize request of step 3 is measured from the fake's request log (S4-REQUEST-02): the
+   whole body ≤ 32,768 bytes, carrying at least 16,000 bytes of audio (a real 8-second clip is about
+   25–27 KB). Then the last clip the fake received from the real recorder is checked by
    `services/fingerprinter/.venv` Python running `tool/check_received_clip.py` (PyAV): AAC, 16,000
-   Hz, one channel, 7.5–8.5 s, file and request body ≤ 32,768 bytes.
+   Hz, one channel, 7.5–8.5 s, file ≤ 32,768 bytes.
 5. A production-flavour release APK built with an `http://` address shows the set-up problem screen,
    and the fake receives nothing (S4-SECURITY-02). Its define file has a valid support number (the
    development fake's), so the `http` address is the only thing wrong with it
@@ -1337,7 +1360,7 @@ cannot, and why); **No** (why). 235 items.
 | S4-STRUCTURE-06 | §3.7 | Partly — Android flavours build here; iOS has no flavours in the MVP |
 | S4-STRUCTURE-07 | §3.7, `source_scan_test` | Yes |
 | S4-STRUCTURE-08 | §3.1, §3.20 | Partly — `flutter build ios` needs macOS (gap 32) |
-| S4-STATE-01 | §3.5 (Notifier over the sealed state; AsyncNotifier for registration) | Yes |
+| S4-STATE-01 | §3.5 (Notifier over the sealed state; registration a shared `Future` in the repository, no state to show) | Yes |
 | S4-STATE-02 | §3.4 | Yes |
 | S4-STATE-03 | §2.12, §3.4, `recognition_state_test` | Yes |
 | S4-STATE-04 | §3.4, T9–T11, `recognition_flow_test` | Yes |
@@ -1565,7 +1588,7 @@ Fully verifiable here: 214. Partly: 19. No: 2 (S4-RESULT-08, S4-TESTS-09).
 | S4-D1 | **Step 4 leaves out the parts of the wireframed screens that belong to later phases**: Home's bottom navigation and "My station" chip; the Permission screen's offline bullet; the Result footer ("Saved to History", "Report this"); the Result offer text (no data field; S4-RESULT-08 deferred until the card builder adds one); the Listening ring's tap-to-finish. Nothing replaces them; the Home instruction line is the first-open note. | S4-SCOPE-05 forbids half-built History, Settings, My station, offline and reporting; dead tabs or a false offline promise would break S4-USABILITY-02 (gaps 2, 3, 6, 30, 44). |
 | S4-D2 | **Layers**: calls flow presentation → domain → data; presentation may use repositories and providers but never Dio, the local store, the recorder, permission or launcher packages, or `dart:io`; domain is pure Dart; data never imports presentation. Shared infrastructure lives in `lib/core/`; the features are `identify` and `result`. | Makes S4-STRUCTURE-03 checkable by a test; the common Riverpod feature-first shape without a use-case layer (ALL-STRUCTURE-06). |
 | S4-D3 | **Dependencies**: the seven pins plus `path_provider` 2.1.6 (already cached; `record` needs a file path); test tools from the SDK; no code generation, no `uuid` package, no font files. | Fewest downloads on a metered line, every package checked on 3.41.9, nothing the plan did not ask for. |
-| S4-D4 | **State model**: `RecognitionFlow` is a `Notifier` over the sealed nine-state `RecognitionState`; the error state carries a sealed `RecognitionFailure` with six variants; registration is an `AsyncNotifier`; Riverpod 3's automatic retry is switched off app-wide. | One channel for waiting and failure; each state holds only its own data; an automatic provider retry would resend clips silently. |
+| S4-D4 | **State model**: `RecognitionFlow` is a `Notifier` over the sealed nine-state `RecognitionState`; the error state carries a sealed `RecognitionFailure` with six variants; registration is one shared `Future` inside `ListenerInstallRepository` (behind a plain `Provider`), not an `AsyncNotifier`; Riverpod 3's automatic retry is switched off app-wide. | One channel for waiting and failure; each state holds only its own data; concurrent callers share one registration and no screen shows its state, so an `AsyncValue` would hold nothing anyone reads; an automatic provider retry would resend clips silently. |
 | S4-D5 | **Navigation follows the state**: go_router's `redirect` maps each state to one route (exhaustive switch); screens only call the notifier; every move replaces the page; system back goes through the notifier. | Screen and state can never disagree; Back always leads Home. |
 | S4-D6 | **Recorder**: AAC-LC, 16 kHz, mono, 24 kbit/s, noise suppression, automatic gain and echo cancellation off, `mic` source, Bluetooth not managed, other audio left playing (S4-D34), no recording service; Android minimum SDK 24. | The Phase 0 capture app's settings and ADR-001's measurement (25.7 kB per 8 s); `record_android` 1.5.2 needs SDK 23, and `url_launcher` and `shared_preferences` need 24 (gaps 40, 41). |
 | S4-D7 | **Clip lifetime**: recorded to `<cache>/clips/<key>.m4a`, read into memory and the file deleted at once; leftovers swept at start and on Home; the in-memory clip is kept only while uploading, busy or "no connection", and dropped on every outcome and way out. | "We don't keep the recording" and "We kept your clip" are both true; a crash leaves no file (gap 35). |

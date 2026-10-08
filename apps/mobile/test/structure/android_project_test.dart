@@ -25,10 +25,12 @@ void main() {
     expect(AndroidProjectChecks.problemsWithAppBuildFile(buildFile), isEmpty);
   });
 
-  test('the main manifest: exactly INTERNET and RECORD_AUDIO, backup and cleartext off, the '
-      'button queries, no service', () {
-    expect(AndroidProjectChecks.problemsWithMainManifest(mainManifest), isEmpty);
-  });
+  test(
+    'the main manifest: exactly INTERNET and RECORD_AUDIO, backup and cleartext off, the button queries, no service',
+    () {
+      expect(AndroidProjectChecks.problemsWithMainManifest(mainManifest), isEmpty);
+    },
+  );
 
   test('backup and device transfer exclude everything', () {
     expect(AndroidProjectChecks.problemsWithDataExtractionRules(dataExtractionRules), isEmpty);

@@ -107,6 +107,44 @@ AnimationController plantedBreathing(TickerProvider vsync, LookUpTokens tokens) 
       );
     });
 
+    test(
+      'a sheet or snackbar styled from the motion tokens, or not animated, passes the duration rule',
+      () {
+        copy.writeFile('features/result/presentation/planted_allowed_styles.dart', '''
+Future<void> plantedSheet(BuildContext context, bool isStill) {
+  final motion = context.lookUpTokens.motion;
+  return showModalBottomSheet<void>(
+    context: context,
+    sheetAnimationStyle: isStill
+        ? AnimationStyle.noAnimation
+        : AnimationStyle(duration: motion.slow, reverseDuration: motion.base),
+    builder: (context) => const SizedBox(),
+  );
+}
+
+void plantedConfirm(ScaffoldMessengerState messenger, LookUpTokens tokens, bool isStill) {
+  final confirmationStyle = isStill
+      ? AnimationStyle.noAnimation
+      : AnimationStyle(duration: tokens.motion.base, reverseDuration: tokens.motion.base);
+  messenger.showSnackBar(const SnackBar(content: Text('Saved')),
+      snackBarAnimationStyle: confirmationStyle);
+  messenger.showSnackBar(const SnackBar(content: Text('Saved')),
+      snackBarAnimationStyle: AnimationStyle.noAnimation);
+}
+''');
+        final rule = SourceRules.library.singleWhere(
+          (rule) => rule.name == 'animation duration not from the motion tokens',
+        );
+        expect(
+          rule
+              .findViolationsIn(DartSourceTree.read(copy.folder))
+              .violations
+              .where((violation) => violation.contains('planted_allowed_styles')),
+          isEmpty,
+        );
+      },
+    );
+
     test('the campaign rule knows the labels of the shared card fixtures', () {
       for (final label in ['Call us', 'WhatsApp us', 'Find our shop', 'Chat on WhatsApp']) {
         expect(SourceRules.campaignLiteralPattern.hasMatch(label), isTrue, reason: label);
@@ -262,6 +300,21 @@ final List<_PlantedViolation> _plantedViolations = [
     'const Duration plantedWait = Duration(milliseconds: 400);\n\n'
         'Widget plantedFade(Widget child) =>\n'
         '    AnimatedOpacity(opacity: 1, duration: plantedWait, child: child);\n',
+  ),
+  const _PlantedViolation(
+    'animation duration not from the motion tokens',
+    'features/result/presentation/planted_snack_bar.dart',
+    'void plantedConfirm(BuildContext context) =>\n'
+        "    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));\n",
+  ),
+  const _PlantedViolation(
+    'animation duration not from the motion tokens',
+    'core/widgets/planted_sheet.dart',
+    'Future<void> plantedSheet(BuildContext context, bool isStill) => showModalBottomSheet<void>(\n'
+        '  context: context,\n'
+        '  sheetAnimationStyle: isStill ? AnimationStyle.noAnimation : null,\n'
+        '  builder: (context) => const SizedBox(),\n'
+        ');\n',
   ),
   const _PlantedViolation(
     'animation other than scale or opacity',

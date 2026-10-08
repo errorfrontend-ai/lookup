@@ -15,7 +15,7 @@ import uuid
 from http.client import RemoteDisconnected
 from typing import Any
 
-from fake_listener_api import make_server
+from fake_listener_api import make_server, read_fixture
 
 CLIP = b'\x00\x00\x00\x20ftypM4A ' + bytes(4_000)
 
@@ -133,9 +133,12 @@ class FakeListenerApiTest(unittest.TestCase):
 
     def test_scenarios_answer_with_the_shared_fixtures_and_their_status_codes(self) -> None:
         token = self.register()
-        self.queue('busy', 'no-match', 'fallback', 'error', 'rate-limited', 'invalid-audio', 'choose-station')
+        self.queue('busy', 'timeout', 'no-match', 'fallback', 'error', 'rate-limited', 'invalid-audio', 'choose-station')
+        # 6 s, so Busy stays on screen across two or more uiautomator reads and the emulator run can require it.
         status, headers, body = self.recognize(token)
-        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'RECOGNITION_BUSY', '2'))
+        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'RECOGNITION_BUSY', '6'))
+        status, headers, body = self.recognize(token)
+        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'RECOGNITION_TIMEOUT', '6'))
         self.assertEqual(self.recognize(token)[2]['status'], 'NO_MATCH')
         self.assertEqual(self.recognize(token)[2]['result']['kind'], 'CLIENT_DEFAULT')
         request_id = str(uuid.uuid4())
@@ -145,6 +148,38 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertEqual(self.recognize(token)[2]['error']['code'], 'INVALID_AUDIO')
         self.assertEqual(self.recognize(token)[2]['status'], 'CHOOSE_STATION')
         self.assertEqual(self.recognize(token)[2]['status'], 'MATCH')  # the queue is empty: the default
+
+    def test_more_options_serves_the_campaign_card_with_six_actions_from_the_shared_fixtures(self) -> None:
+        token = self.register()
+        self.queue('match-more-options')
+        request_id = str(uuid.uuid4())
+        status, headers, body = self.recognize(token, request_id=request_id)
+
+        self.assertEqual((status, body['status'], body['request_id'], headers['X-Request-Id']),
+                         (200, 'MATCH', request_id, request_id))
+        actions = body['result']['card']['actions']
+        campaign = read_fixture('recognition/recognize-response/valid/match-campaign.json')['response']['result']
+        six_actions = read_fixture('action-card/valid/six-actions.json')['card']['actions']
+        # Five or six buttons reach "More options"; here the six a card may hold, every one a shared fixture's own.
+        self.assertEqual(len(actions), 6)
+        self.assertEqual(actions[:4], campaign['card']['actions'])
+        self.assertEqual(actions[4:], [action for action in six_actions if action['id'].endswith(('05', '06'))])
+        self.assertEqual(len({action['id'] for action in actions}), 6, 'action ids must be unique on a card')
+        self.assertEqual({key: value for key, value in body['result'].items() if key != 'card'},
+                         {key: value for key, value in campaign.items() if key != 'card'})
+        self.assertEqual(self.recognize(token)[2]['result']['card']['actions'], campaign['card']['actions'])
+
+    def test_busy_without_a_request_id_carries_no_id_in_its_header_or_its_body(self) -> None:
+        token = self.register()
+        self.queue(*['busy-without-request-id'] * 4)
+        for send in range(1, 5):
+            status, headers, body = self.recognize(token)
+            self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'RECOGNITION_BUSY', '6'), send)
+            self.assertNotIn('X-Request-Id', headers, send)
+            self.assertNotIn('request_id', body['error'], send)
+        status, headers, body = self.recognize(token)   # the queue is empty again: the default, with its id
+        self.assertEqual((status, body['status']), (200, 'MATCH'))
+        self.assertIn('X-Request-Id', headers)
 
     def test_an_invalid_token_answer_withdraws_the_token_so_the_app_must_register_again(self) -> None:
         token = self.register()

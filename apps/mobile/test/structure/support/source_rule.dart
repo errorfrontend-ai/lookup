@@ -91,18 +91,32 @@ final class SourceRule {
   /// §4.5, §3.18). Each `duration:`, `reverseDuration:`, `transitionDuration:` or
   /// `reverseTransitionDuration:` argument must read a motion token (`….motion.fast`), be
   /// `Duration.zero` (no motion), or name a value that the same file sets only from those.
+  ///
+  /// A bottom sheet or a snackbar animates with Material's own durations unless it is given an
+  /// animation style, so every `showModalBottomSheet`, `showBottomSheet` and `showSnackBar` call
+  /// must pass one (`sheetAnimationStyle:`, `snackBarAnimationStyle:`) that reads a motion token,
+  /// is `AnimationStyle.noAnimation`, or names a value the same file sets only from those. A style
+  /// that can be `null` falls back to Material's durations, so it fails too (S4-ACCESSIBILITY-04).
   factory SourceRule.animationDurationsFromMotionTokens({RegExp? onlyPathsMatching}) =>
       SourceRule._(
         name: 'animation duration not from the motion tokens',
         reason:
             'every animation lasts motion.fast, motion.base or motion.slow, or nothing when the '
-            'phone asks for less motion (§3.18, §4.5)',
+            'phone asks for less motion; a sheet or snackbar is given its animation style '
+            '(§3.18, §4.5)',
         onlyPathsMatching: onlyPathsMatching,
         findIn: (file) => [
           for (final match in _durationArgument.allMatches(file.code))
-            if (!_isMotionDuration(file.code, _expressionAt(file.code, match.end)))
+            if (!_isFromMotionTokens(
+              file.code,
+              _expressionAt(file.code, match.end),
+              _readsOnlyMotionTokens,
+            ))
               'line ${file.lineNumberAt(match.start)}: ${match.group(0)!.trim()} '
                   '${_expressionAt(file.code, match.end).trim()}',
+          for (final match in _animationStyleCall.allMatches(file.code))
+            if (_animationStyleProblem(file.code, match) case final problem?)
+              'line ${file.lineNumberAt(match.start)}: ${match.group(1)} $problem',
         ],
       );
 
@@ -152,24 +166,61 @@ final class SourceRule {
   );
   static final RegExp _motionToken = RegExp(r'\bmotion\.\w+');
   static final RegExp _plainName = RegExp(r'^[A-Za-z_$][\w$]*$');
+  static final RegExp _nullLiteral = RegExp(r'(?<![\w$.])null(?![\w$])');
 
-  /// Whether [expression], an animation's duration in [code], comes from the motion tokens.
-  static bool _isMotionDuration(String code, String expression) {
+  /// A call that shows a sheet or a snackbar, which animates with Material's own durations unless
+  /// it is given an animation style; [_animationStyleParameters] names the argument that sets it.
+  static final RegExp _animationStyleCall = RegExp(
+    r'(?<![\w$])(showModalBottomSheet|showBottomSheet|showSnackBar)\s*(?:<[^<>()]*>)?\s*\(',
+  );
+  static const Map<String, String> _animationStyleParameters = {
+    'showModalBottomSheet': 'sheetAnimationStyle',
+    'showBottomSheet': 'sheetAnimationStyle',
+    'showSnackBar': 'snackBarAnimationStyle',
+  };
+
+  /// What is wrong with the animation style of the call [match] found in [code], or null when the
+  /// style comes from the motion tokens.
+  static String? _animationStyleProblem(String code, RegExpMatch match) {
+    final parameter = _animationStyleParameters[match.group(1)]!;
+    final openingIndex = match.end - 1;
+    final argument = RegExp(
+      '(?<![\\w\$.])$parameter\\s*:(?!:)',
+    ).firstMatch(_argumentsOf(code, openingIndex));
+    if (argument == null) return 'without $parameter (Material\'s own durations)';
+    final expression = _expressionAt(code, openingIndex + argument.end);
+    return _isFromMotionTokens(code, expression, _readsOnlyMotionStyle)
+        ? null
+        : '$parameter: ${expression.trim()}';
+  }
+
+  /// Whether [expression], an animation's duration or style in [code], comes from the motion
+  /// tokens: it is no motion at all, [readsOnlyMotion] accepts it, or it names a value that [code]
+  /// sets only from what [readsOnlyMotion] accepts.
+  static bool _isFromMotionTokens(
+    String code,
+    String expression,
+    bool Function(String text) readsOnlyMotion,
+  ) {
     final text = expression.trim();
-    if (text == 'Duration.zero') return true;
+    if (text == 'Duration.zero' || text == 'AnimationStyle.noAnimation') return true;
     if (_plainName.hasMatch(text)) {
       final settings = RegExp(
         '(?<![\\w\$.])${RegExp.escape(text)}\\s*=(?![=>])([^;]*);',
       ).allMatches(code).toList();
-      return settings.isNotEmpty &&
-          settings.every((setting) => _readsOnlyMotionTokens(setting.group(1)!));
+      return settings.isNotEmpty && settings.every((setting) => readsOnlyMotion(setting.group(1)!));
     }
-    return _readsOnlyMotionTokens(text);
+    return readsOnlyMotion(text);
   }
 
   /// A motion token, possibly beside `Duration.zero`, and no duration written out.
   static bool _readsOnlyMotionTokens(String text) =>
       _motionToken.hasMatch(text) && !text.contains('Duration(');
+
+  /// Motion tokens, possibly beside `AnimationStyle.noAnimation`, and never `null`, which means
+  /// Material's own durations.
+  static bool _readsOnlyMotionStyle(String text) =>
+      _readsOnlyMotionTokens(text) && !_nullLiteral.hasMatch(text);
 
   /// The expression that starts at [start] in [code]: up to the comma, bracket or semicolon that
   /// ends it at its own nesting level.

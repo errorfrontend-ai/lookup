@@ -47,18 +47,20 @@ class LaunchFailureSheet extends ConsumerWidget {
   /// What can be copied instead.
   final CopyOffer offer;
 
-  /// Shows the sheet over [context]'s screen; completes when it closes. It slides in and out unless
-  /// the phone asks for less motion ("Remove animations"), when it appears and goes at once.
+  /// Shows the sheet over [context]'s screen; completes when it closes. It slides in over
+  /// motion.slow and out over motion.base (S4-ACCESSIBILITY-04), unless the phone asks for less
+  /// motion ("Remove animations"), when it appears and goes at once.
   static Future<void> show(BuildContext context, CopyOffer offer) {
+    final tokens = context.lookUpTokens;
     return showModalBottomSheet<void>(
       context: context,
       // Lets the sheet grow and scroll when the text is large, instead of being cut at half height.
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: context.lookUpTokens.colours.surface,
+      backgroundColor: tokens.colours.surface,
       sheetAnimationStyle: MediaQuery.disableAnimationsOf(context)
           ? AnimationStyle.noAnimation
-          : null,
+          : AnimationStyle(duration: tokens.motion.slow, reverseDuration: tokens.motion.base),
       builder: (context) => LaunchFailureSheet(offer: offer),
     );
   }
@@ -106,6 +108,7 @@ class LaunchFailureSheet extends ConsumerWidget {
   Future<void> _copy(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final motion = context.lookUpTokens.motion;
     final disablesAnimations = MediaQuery.disableAnimationsOf(context);
     final confirmation = switch (offer) {
       PhoneNumberCopyOffer() => 'Number copied',
@@ -117,8 +120,10 @@ class LaunchFailureSheet extends ConsumerWidget {
     navigator.pop();
     messenger.showSnackBar(
       SnackBar(content: Text(confirmation)),
-      // No slide when the phone asks for less motion.
-      snackBarAnimationStyle: disablesAnimations ? AnimationStyle.noAnimation : null,
+      // In and out over motion.base; no slide when the phone asks for less motion.
+      snackBarAnimationStyle: disablesAnimations
+          ? AnimationStyle.noAnimation
+          : AnimationStyle(duration: motion.base, reverseDuration: motion.base),
     );
   }
 }

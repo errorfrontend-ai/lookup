@@ -138,57 +138,63 @@ void main() {
       expect(tester.getRect(find.text('Summer service offer')).top, greaterThan(logo.bottom));
     });
 
-    testWidgets('a white card: surface fill, a line-soft border over the banner, 16 dp corners, '
-        'clipped (S4-RESULT-03)', (tester) async {
-      await ResultScreenHarness().pumpResultScreen(tester, resultWith(headerImage: fixtureBanner));
-      const colours = LookUpColours.light;
-      final card = tester.widget<Container>(_card);
+    testWidgets(
+      'a white card: surface fill, a line-soft border over the banner, 16 dp corners, clipped (S4-RESULT-03)',
+      (tester) async {
+        await ResultScreenHarness().pumpResultScreen(
+          tester,
+          resultWith(headerImage: fixtureBanner),
+        );
+        const colours = LookUpColours.light;
+        final card = tester.widget<Container>(_card);
 
-      final fill = card.decoration! as BoxDecoration;
-      expect(fill.color, colours.surface);
-      expect(fill.borderRadius, BorderRadius.circular(16));
-      final edge = card.foregroundDecoration! as BoxDecoration;
-      expect(edge.border, Border.all(color: colours.lineSoft));
-      expect(edge.borderRadius, BorderRadius.circular(16));
-      expect(card.clipBehavior, Clip.antiAlias);
-      // The card holds the banner, the client row and the title.
-      for (final part in [find.byType(BannerBox), find.byType(ClientLogo)]) {
-        expect(find.descendant(of: _card, matching: part), findsOneWidget);
-      }
-      expect(find.descendant(of: _card, matching: find.text('Summer service offer')), findsOne);
-    });
+        final fill = card.decoration! as BoxDecoration;
+        expect(fill.color, colours.surface);
+        expect(fill.borderRadius, BorderRadius.circular(16));
+        final edge = card.foregroundDecoration! as BoxDecoration;
+        expect(edge.border, Border.all(color: colours.lineSoft));
+        expect(edge.borderRadius, BorderRadius.circular(16));
+        expect(card.clipBehavior, Clip.antiAlias);
+        // The card holds the banner, the client row and the title.
+        for (final part in [find.byType(BannerBox), find.byType(ClientLogo)]) {
+          expect(find.descendant(of: _card, matching: part), findsOneWidget);
+        }
+        expect(find.descendant(of: _card, matching: find.text('Summer service offer')), findsOne);
+      },
+    );
 
     for (final (phoneScreen, space, titleSize, logoSize) in [
       (PhoneScreen.standard, 16.0, 22.0, 40.0),
       (_narrowPhone, 12.0, 20.0, 36.0),
     ]) {
-      testWidgets('on $phoneScreen: banner, client row, title, then the buttons, with $space dp '
-          'sides, card padding and gap, a $titleSize dp title and a $logoSize dp logo '
-          '(S4-RESULT-15)', (tester) async {
-        await ResultScreenHarness().pumpResultScreen(
-          tester,
-          resultWith(headerImage: fixtureBanner),
-          phoneScreen: phoneScreen,
-        );
-        final card = tester.getRect(_card);
-        final banner = tester.getRect(find.byType(BannerBox));
-        final logo = tester.getRect(find.byType(ClientLogo));
-        final clientRow = tester.getRect(
-          find.ancestor(of: find.byType(ClientLogo), matching: find.byType(Row)).first,
-        );
-        final title = tester.getRect(find.text('Summer service offer'));
-        final firstButton = tester.getRect(find.byType(ActionButton).first);
+      testWidgets(
+        'on $phoneScreen: banner, client row, title, then the buttons, with $space dp sides, card padding and gap, a $titleSize dp title and a $logoSize dp logo (S4-RESULT-15)',
+        (tester) async {
+          await ResultScreenHarness().pumpResultScreen(
+            tester,
+            resultWith(headerImage: fixtureBanner),
+            phoneScreen: phoneScreen,
+          );
+          final card = tester.getRect(_card);
+          final banner = tester.getRect(find.byType(BannerBox));
+          final logo = tester.getRect(find.byType(ClientLogo));
+          final clientRow = tester.getRect(
+            find.ancestor(of: find.byType(ClientLogo), matching: find.byType(Row)).first,
+          );
+          final title = tester.getRect(find.text('Summer service offer'));
+          final firstButton = tester.getRect(find.byType(ActionButton).first);
 
-        expect(card.left, space);
-        expect(card.right, phoneScreen.width - space);
-        expect(banner.top, card.top);
-        expect(clientRow.top, banner.bottom + space);
-        expect(logo.left, card.left + space);
-        expect(title.top, greaterThan(clientRow.bottom));
-        expect(firstButton.top, card.bottom + space);
-        expect(tester.widget<Text>(find.text('Summer service offer')).style!.fontSize, titleSize);
-        expect(logo.size, Size.square(logoSize));
-      });
+          expect(card.left, space);
+          expect(card.right, phoneScreen.width - space);
+          expect(banner.top, card.top);
+          expect(clientRow.top, banner.bottom + space);
+          expect(logo.left, card.left + space);
+          expect(title.top, greaterThan(clientRow.bottom));
+          expect(firstButton.top, card.bottom + space);
+          expect(tester.widget<Text>(find.text('Summer service offer')).style!.fontSize, titleSize);
+          expect(logo.size, Size.square(logoSize));
+        },
+      );
     }
 
     testWidgets('without a logo the circle shows the first letter of the client\'s name', (
@@ -227,8 +233,7 @@ void main() {
 
     for (final (phoneScreen, cardWidth) in [(PhoneScreen.standard, 328.0), (_narrowPhone, 296.0)]) {
       testWidgets(
-        'on $phoneScreen the banner box is the card\'s width, 2:1, the same size before and after '
-        'the image, and nothing else is downloaded (S4-RESULT-04, -16, -18)',
+        'on $phoneScreen the banner box is the card\'s width, 2:1, the same size before and after the image, and nothing else is downloaded (S4-RESULT-04, -16, -18)',
         (tester) async {
           final client = FakeImageHttpClient(imageBytes: await encodeTestImage(tester));
           await withFakeImageServer(client, () async {
@@ -627,22 +632,24 @@ void main() {
       });
     }
 
-    testWidgets('meets the tap target, label and contrast guidelines; every control but Back shows '
-        'words (S4-USABILITY-01)', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await ResultScreenHarness().pumpResultScreen(
-        tester,
-        resultWith(
-          kind: RecognitionResultKind.clientDefault,
-          card: fixtureCard('action-card/valid/six-actions.json'),
-        ),
-      );
-      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-      await expectLater(tester, meetsGuideline(textContrastGuideline));
-      expectEveryControlShowsText(tester);
-      semantics.dispose();
-    });
+    testWidgets(
+      'meets the tap target, label and contrast guidelines; every control but Back shows words (S4-USABILITY-01)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        await ResultScreenHarness().pumpResultScreen(
+          tester,
+          resultWith(
+            kind: RecognitionResultKind.clientDefault,
+            card: fixtureCard('action-card/valid/six-actions.json'),
+          ),
+        );
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        expectEveryControlShowsText(tester);
+        semantics.dispose();
+      },
+    );
 
     testWidgets('keeps every control inside the safe area of a notched phone', (tester) async {
       PhoneScreen.standard.applyTo(tester);

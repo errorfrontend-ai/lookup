@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/result/presentation/launch_failure_sheet.dart';
 
 import '../../../support/expect_no_technical_text.dart';
@@ -217,5 +218,34 @@ void main() {
       );
       await tester.pumpAndSettle();
     });
+
+    testWidgets(
+      'with animations on, the sheet slides in over motion.slow and out over motion.base, and "Number copied" over motion.base (S4-ACCESSIBILITY-04)',
+      (tester) async {
+        const motion = LookUpMotion.standard;
+        await ResultScreenHarness().pump(tester, _screenThatOpens(offer));
+        await tester.tap(find.text('Open the sheet'));
+        await tester.pump();
+        final sheetMotion = tester
+            .widget<BottomSheet>(find.byType(BottomSheet))
+            .animationController!;
+        expect(sheetMotion.duration, motion.slow);
+        expect(sheetMotion.reverseDuration, motion.base);
+        // Still sliding half-way through, in place once motion.slow is over.
+        await tester.pump(motion.slow ~/ 2);
+        expect(sheetMotion.status, AnimationStatus.forward);
+        await tester.pump(motion.slow);
+        expect(sheetMotion.status, AnimationStatus.completed);
+
+        await tester.tap(find.text('Copy number'));
+        await tester.pump();
+        await tester.pump();
+        final snackBarMotion =
+            tester.widget<SnackBar>(find.byType(SnackBar)).animation! as AnimationController;
+        expect(snackBarMotion.duration, motion.base);
+        expect(snackBarMotion.reverseDuration, motion.base);
+        await tester.pumpAndSettle();
+      },
+    );
   });
 }

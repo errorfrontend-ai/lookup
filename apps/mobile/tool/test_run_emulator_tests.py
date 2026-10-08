@@ -20,8 +20,8 @@ import run_emulator_tests as runner  # noqa: E402  (the tool folder is put on th
 from run_emulator_tests import (  # noqa: E402
     LABELS, RECOGNIZE_PATH, CardExpectation, Driver, RunContext, Screen, StepFailed, docker_process_names,
     emulator_serials, find_nodes, find_permission_allow_button, node_to_tap, parse_screen_dump, parse_window_size,
-    phone_number_display, problems_with_sends, process_names_from_tasklist, reference_code_for_request_id,
-    refused_requests, requests_to, run_journeys)
+    phone_number_display, problems_with_request_sizes, problems_with_sends, process_names_from_tasklist,
+    reference_code_for_request_id, refused_requests, requests_to, run_journeys)
 
 APP = 'zm.lookup.listener.development'
 SYSTEM_DIALOG = 'com.android.permissioncontroller'
@@ -204,6 +204,28 @@ class MachineChecksTest(unittest.TestCase):
         self.assertEqual(parse_window_size('Physical size: 1080x1920\nOverride size: 720x1280\n'), (720, 1280))
         self.assertIsNone(parse_window_size('error: no devices'))
 
+    def test_the_device_keeps_the_window_size_until_told_to_forget_it(self) -> None:
+        class SizedDevice(runner.AdbDevice):
+            def __init__(self) -> None:
+                super().__init__('adb', 'emulator-5584', Path('evidence'))
+                self.wm_size_output = 'Physical size: 1080x2400\n'
+                self.size_reads = 0
+
+            def adb(self, *arguments: str, timeout_seconds: float = 60, check: bool = True) -> str:
+                self.size_reads += 1
+                return self.wm_size_output
+
+        device = SizedDevice()
+        self.assertEqual(device.screen_size(), (1080, 2400))
+        device.wm_size_output = 'Physical size: 1080x2400\nOverride size: 720x1600\n'
+        self.assertEqual(device.screen_size(), (1080, 2400))   # kept: wm size is not asked again
+        self.assertEqual(device.size_reads, 1)
+
+        device.forget_screen_size()
+
+        self.assertEqual(device.screen_size(), (720, 1600))
+        self.assertEqual(device.size_reads, 2)
+
 
 class RequestLogTest(unittest.TestCase):
     def test_refused_requests_are_kept_apart_with_their_reasons(self) -> None:
@@ -229,6 +251,50 @@ class RequestLogTest(unittest.TestCase):
     def test_answers_in_another_order_are_a_problem(self) -> None:
         self.assertIn("not ['busy', 'match']", problems_with_sends([recognize_request('match', 'key-1', 'id-1')],
                                                                    ['busy', 'match'])[0])
+
+
+class RequestSizeTest(unittest.TestCase):
+    """S4-REQUEST-02: every recognize request at most 32,768 bytes, carrying at least 16,000 bytes of audio."""
+
+    @staticmethod
+    def log_of(*sizes: tuple[int, int]) -> dict[str, Any]:
+        return {'requests': [{**recognize_request('match', 'key-1', f'id-{number}'), 'body_bytes': body_bytes,
+                              'audio_bytes': audio_bytes}
+                             for number, (body_bytes, audio_bytes) in enumerate(sizes, start=1)]}
+
+    def test_requests_of_real_clips_inside_the_limit_pass(self) -> None:
+        self.assertEqual(problems_with_request_sizes(self.log_of((26_310, 25_120), (32_768, 16_000))), [])
+
+    def test_a_body_over_32_768_bytes_fails_with_its_size(self) -> None:
+        problems = problems_with_request_sizes(self.log_of((26_310, 25_120), (32_769, 31_500)))
+
+        self.assertEqual(len(problems), 1)
+        self.assertIn('recognize request 2', problems[0])
+        self.assertIn('a body of 32769 bytes, over 32,768', problems[0])
+
+    def test_a_clip_under_16_000_bytes_fails_with_its_size(self) -> None:
+        problems = problems_with_request_sizes(self.log_of((17_000, 15_999)))
+
+        self.assertEqual(len(problems), 1)
+        self.assertIn('15999 bytes of audio, under 16,000', problems[0])
+
+    def test_a_request_with_no_sizes_or_no_request_at_all_fails(self) -> None:
+        self.assertIn('no recognize request', problems_with_request_sizes({'requests': []})[0])
+        unmeasured = {'requests': [recognize_request('match', 'key-1', 'id-1')]}
+        self.assertEqual(len(problems_with_request_sizes(unmeasured)), 2)
+
+    def test_the_step_reports_the_sizes_it_measured_and_fails_with_the_numbers(self) -> None:
+        fake_api = ScriptedFakeApi()
+        fake_api.requests = self.log_of((26_310, 25_120), (27_002, 25_801))['requests']
+
+        detail = runner.check_recognize_request_sizes(fake_api)
+
+        self.assertIn('2 recognize requests: bodies 26,310-27,002 bytes', detail)
+        self.assertIn('audio 25,120-25,801 bytes', detail)
+        fake_api.requests[1]['body_bytes'] = 40_000
+        with self.assertRaises(StepFailed) as failure:
+            runner.check_recognize_request_sizes(fake_api)
+        self.assertIn('a body of 40000 bytes', str(failure.exception))
 
 
 # ---- A scripted phone, a scripted fake API and a fake clock ----------------------------------------------
@@ -426,7 +492,7 @@ class JourneyTest(unittest.TestCase):
     def busy_phone(self, fake_api: ScriptedFakeApi, second_key: str) -> ScriptedPhone:
         return ScriptedPhone(
             screens={'home': HOME, 'listening': [app(LABELS['listening heading'])],
-                     'busy': [app('Close'), app(LABELS['busy heading']), app('2 s')], 'result': RESULT},
+                     'busy': [app('Close'), app(LABELS['busy heading']), app('6 s')], 'result': RESULT},
             taps={('home', LABELS['identify control']): 'listening', ('result', LABELS['result back']): 'home'},
             moves_after_reads={'listening': (1, 'busy'), 'busy': (1, 'result')},
             on_enter={'busy': lambda: fake_api.receive_recognize('key-1', '11111111-0000-4000-8000-000000000000'),
@@ -441,6 +507,26 @@ class JourneyTest(unittest.TestCase):
         self.assertEqual(fake_api.queued, [])
         self.assertIn('Busy seen', detail)
         self.assertIn('key-1', detail)
+
+    def test_busy_then_retry_fails_when_busy_never_shows(self) -> None:
+        fake_api = ScriptedFakeApi()
+
+        def answer_busy_then_match() -> None:
+            fake_api.receive_recognize('key-1', '11111111-0000-4000-8000-000000000000')
+            fake_api.receive_recognize('key-1', '22222222-0000-4000-8000-000000000000')
+
+        phone = ScriptedPhone(
+            screens={'home': HOME, 'listening': [app(LABELS['listening heading'])], 'result': RESULT},
+            taps={('home', LABELS['identify control']): 'listening', ('result', LABELS['result back']): 'home'},
+            moves_after_reads={'listening': (1, 'result')},
+            on_enter={'result': answer_busy_then_match})
+        context, _ = context_for(phone, fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.identify_when_busy(context)
+
+        self.assertIn('Busy never showed', str(failure.exception))
+        self.assertIn(f'Retry-After {runner.BUSY_RETRY_AFTER_SECONDS} s', str(failure.exception))
 
     def test_busy_then_retry_fails_when_the_resend_carries_another_key(self) -> None:
         fake_api = ScriptedFakeApi()

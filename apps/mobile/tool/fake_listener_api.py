@@ -31,6 +31,7 @@ from typing import Any
 FIXTURES = Path(__file__).resolve().parents[3] / 'packages' / 'contracts' / 'fixtures'
 MAXIMUM_CLIP_BYTES = 262_144
 MAXIMUM_BODY_BYTES = 278_528
+MAXIMUM_ACTIONS_PER_CARD = 6   # the contract's MAXIMUM_ACTIONS_PER_CARD (packages/contracts/src/action-card)
 
 # The contract's rules (packages/contracts/src/recognition/*.ts), written out for the standard library.
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', re.IGNORECASE)
@@ -40,14 +41,28 @@ INSTALL_FIELDS = {'install_id', 'platform', 'app_version'}
 RECOGNIZE_FIELDS = {'clip_duration_milliseconds', 'codec', 'idempotency_key', 'captured_at', 'sent_at', 'is_deferred'}
 CLIENT_ERROR_FIELDS = {'source', 'kind', 'message', 'stack', 'location', 'relatedRequestId', 'appVersion'}
 
-# Each scenario's answer, from the shared fixtures. Retry-After is shortened for busy so the run is quick.
+# How long busy and timeout answers ask the app to wait. Long enough that Busy stays on screen across two or more
+# uiautomator reads (about 2-3 s each), so the emulator run can require seeing it; short enough to keep the run
+# quick. The app accepts 1-60 s (design S4-D11).
+BUSY_RETRY_AFTER_SECONDS = 6
+
+# Each scenario's answer, from the shared fixtures.
 SCENARIOS: dict[str, dict[str, Any]] = {
     'match': {'response': 'recognition/recognize-response/valid/match-campaign.json'},
     'fallback': {'response': 'recognition/recognize-response/valid/match-client-default.json'},
     'no-match': {'response': 'recognition/recognize-response/valid/no-match.json'},
     'choose-station': {'response': 'recognition/recognize-response/valid/choose-station.json'},
-    'busy': {'envelope': 'errors/envelopes/recognition-busy.json', 'retry_after_seconds': 2},
-    'timeout': {'envelope': 'errors/envelopes/recognition-timeout.json', 'retry_after_seconds': 2},
+    # match-campaign.json's card with the buttons of six-actions.json it does not already hold (by id), up to the six
+    # a card may have: four buttons, then "More options" for the rest (design §2.6, S4-D18).
+    'match-more-options': {'response': 'recognition/recognize-response/valid/match-campaign.json',
+                           'extra_actions_from': 'action-card/valid/six-actions.json'},
+    'busy': {'envelope': 'errors/envelopes/recognition-busy.json', 'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
+    # A busy answer with no X-Request-Id header and no request_id in the body, as a proxy in front of the API might
+    # send. The app waits as for busy; the 4th such answer to one clip is a phone failure, reported, because the
+    # screen shows a code only for an id the API logged (T21; SendPolicy._serverFailure in send_policy.dart).
+    'busy-without-request-id': {'envelope': 'errors/envelopes/recognition-busy.json',
+                                'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS, 'without_request_id': True},
+    'timeout': {'envelope': 'errors/envelopes/recognition-timeout.json', 'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
     'error': {'envelope': 'errors/envelopes/internal.json'},
     'rate-limited': {'envelope': 'errors/envelopes/rate-limited.json'},
     'token-invalid-once': {'envelope': 'errors/envelopes/install-token-invalid.json'},
@@ -81,6 +96,14 @@ class FakeState:
 
 def read_fixture(relative_path: str) -> dict[str, Any]:
     return json.loads((FIXTURES / relative_path).read_text(encoding='utf-8'))
+
+
+def add_actions(card: dict[str, Any], extra_actions: list[dict[str, Any]]) -> None:
+    """Adds to [card] the [extra_actions] whose ids it does not hold yet, in order, up to MAXIMUM_ACTIONS_PER_CARD:
+    the buttons stay the shared fixtures' own, and every id on the card stays unique, as the contract requires."""
+    held_ids = {action['id'] for action in card['actions']}
+    new_actions = [action for action in extra_actions if action['id'] not in held_ids]
+    card['actions'] = (card['actions'] + new_actions)[:MAXIMUM_ACTIONS_PER_CARD]
 
 
 def check_uuid(value: Any, name: str) -> None:
@@ -273,16 +296,23 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if 'response' in plan:
             response = read_fixture(plan['response'])['response']
             response['request_id'] = request_id
+            if 'extra_actions_from' in plan:
+                add_actions(response['result']['card'], read_fixture(plan['extra_actions_from'])['card']['actions'])
             self.answer_json(200, response, request_id)
             return
         envelope = read_fixture(plan['envelope'])
         body = envelope['body']
-        body['error']['request_id'] = request_id
+        answered_request_id: str | None = request_id
+        if plan.get('without_request_id'):
+            del body['error']['request_id']
+            answered_request_id = None
+        else:
+            body['error']['request_id'] = request_id
         if scenario == 'token-invalid-once':
             with self.state.lock:
                 self.state.issued_tokens.discard(token)
         retry_after = plan.get('retry_after_seconds', envelope.get('retry_after_seconds'))
-        self.answer_json(envelope['http_status'], body, request_id, retry_after)
+        self.answer_json(envelope['http_status'], body, answered_request_id, retry_after)
 
     def handle_client_error(self, request_id: str) -> None:
         if self.headers.get('Authorization'):

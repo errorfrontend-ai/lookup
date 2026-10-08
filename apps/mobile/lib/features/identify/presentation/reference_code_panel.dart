@@ -92,14 +92,18 @@ class ReferenceCodePanel extends ConsumerWidget {
 
   Future<void> _copy(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
+    final motion = context.lookUpTokens.motion;
     final disablesAnimations = MediaQuery.disableAnimationsOf(context);
     final hasCopied = await ref.read(clipboardWriterProvider).copyText(referenceCode);
     // Confirm only a copy that happened.
     if (!hasCopied) return;
     messenger.showSnackBar(
       const SnackBar(content: Text(copiedConfirmation)),
-      // No slide when the phone asks for less motion ("Remove animations").
-      snackBarAnimationStyle: disablesAnimations ? AnimationStyle.noAnimation : null,
+      // In and out over motion.base (S4-ACCESSIBILITY-04); no slide when the phone asks for less
+      // motion ("Remove animations").
+      snackBarAnimationStyle: disablesAnimations
+          ? AnimationStyle.noAnimation
+          : AnimationStyle(duration: motion.base, reverseDuration: motion.base),
     );
   }
 }

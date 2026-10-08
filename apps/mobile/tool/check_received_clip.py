@@ -1,6 +1,8 @@
-"""Checks the clip the real recorder sent from the emulator to the fake API (design §4.7 step 4):
-AAC in an MP4/M4A container, 16,000 Hz, one channel, 7.5 to 8.5 seconds, and no more than 32,768
-bytes, so the identify request stays inside the wireframe's "about 25 KB of data".
+"""Checks the clip file the real recorder sent from the emulator to the fake API (design §4.7 step 4):
+AAC in an MP4/M4A container, 16,000 Hz, one channel, 7.5 to 8.5 seconds, and a file of no more than
+32,768 bytes. It reads only the last clip the fake saved, not the request that carried it: the size of
+every whole recognize request (S4-REQUEST-02) is checked by run_emulator_tests.py from the fake's
+request log.
 
 Run with the fingerprinter's Python, which has PyAV:
     ..\\..\\services\\fingerprinter\\.venv\\Scripts\\python tool/check_received_clip.py <clip.m4a>

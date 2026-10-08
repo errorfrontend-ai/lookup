@@ -7,13 +7,14 @@ schedule when each ad airs.
 **Status:** building the thin slice: a station signs in and publishes an ad, the engine
 fingerprints it, and the listener app identifies it. Step 1 (foundations), step 2 (the station
 portal) and step 3 (the fingerprint workers and `POST /api/v1/recognize`) are built; step 4, the
-listener app, is next. What each requirement rests on is in
+listener app, is built and tested on the emulator, and its check on a real phone is still to do. What each requirement rests on is in
 [docs/requirements-checklist.md](docs/requirements-checklist.md).
 
 | Path | What |
 |---|---|
 | `apps/api/` | NestJS API: the station portal's routes, listener installs and `POST /recognize`, the job queues, database access with row-level security |
 | `apps/portal/` | The station portal (React): sign in, ads, the new-ad wizard, clients, station profile |
+| `apps/mobile/` | The listener app (Flutter): tap to identify, then the station's buttons |
 | `packages/contracts/` | Shapes shared by the API, the portal, the workers and the app (zod, emitted as JSON Schema) |
 | `services/fingerprinter/` | Python fingerprint engine (`lookup_fingerprint`), its queue workers (`workers`) and its benchmark (`bench`) |
 | `packages/design-tokens/tokens.json` | Colours (light/dark), type, spacing, radii, breakpoints — one source for the portal and the app |
@@ -48,6 +49,28 @@ They use the compose Postgres and Valkey (start them first) and read their passw
 `apps/api/.env`; none is skipped. The API's own tests also start these workers for the end-to-end
 recognition tests (`apps/api/test/fingerprint-workers.test.ts`), so the Python environment above is
 needed for `npm test` too.
+
+## Run the listener app's tests
+
+Needs Flutter 3.41.9 (as installed; never upgraded for this app). No Docker and no device:
+
+```powershell
+cd apps/mobile
+flutter analyze
+flutter test                                           # unit, widget, journey and structure tests
+cd tool; python -m unittest test_fake_listener_api.py test_run_emulator_tests.py
+```
+
+On the emulator, against a Python fake API, with Docker **closed** (this PC cannot run both):
+
+```powershell
+python tool/run_emulator_tests.py                     # builds release APKs, boots lookup_test, drives the app
+```
+
+It refuses to start while Docker or another emulator runs, and writes a run record with a screen dump
+and screenshot of any failure. Only release builds are used, because only the release Flutter engines
+are on this PC. The app's design and decisions are in
+[docs/design/step-4-listener-app.md](docs/design/step-4-listener-app.md).
 
 ## Run the whole system
 

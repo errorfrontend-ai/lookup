@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/presentation/reference_code_panel.dart';
 
 import '../../../support/phone_screen.dart';
@@ -64,6 +65,28 @@ void main() {
     );
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+    'with animations on, "Code copied" slides in and out over motion.base (S4-ACCESSIBILITY-04)',
+    (tester) async {
+      const motion = LookUpMotion.standard;
+      await IdentifyScreenHarness().pump(tester, _panel());
+      await tester.tap(find.text('Copy'));
+      await tester.pump();
+      await tester.pump();
+
+      final snackBarMotion =
+          tester.widget<SnackBar>(find.byType(SnackBar)).animation! as AnimationController;
+      expect(snackBarMotion.duration, motion.base);
+      expect(snackBarMotion.reverseDuration, motion.base);
+      // Still sliding half-way through, in place once motion.base is over.
+      await tester.pump(motion.base ~/ 2);
+      expect(snackBarMotion.status, AnimationStatus.forward);
+      await tester.pump(motion.base);
+      expect(snackBarMotion.status, AnimationStatus.completed);
+      await tester.pumpAndSettle();
+    },
+  );
 
   for (final phoneScreen in PhoneScreen.layoutChecks) {
     testWidgets('fits on $phoneScreen, "Copy" moving under the code when needed', (tester) async {

@@ -13,7 +13,9 @@ each answer from its scenario queue and records every request. In order, exiting
   3. Starts the fake API on 127.0.0.1:3999 and the lookup_test virtual device (headless, audio on), waits
      for boot and installs the development APK fresh, with no permission granted.
   4. Drives the journeys of §4.7 step 3, checking each against the fake's request log.
-  5. Checks the clip the real recorder sent, with the fingerprinter's Python (PyAV).
+  5. Checks the size of every recognize request the fake received (S4-REQUEST-02: the body at most 32,768
+     bytes, the audio at least 16,000), then the clip the real recorder sent, with the fingerprinter's Python
+     (PyAV).
   6. Installs the production APK: the set-up problem screen shows and the fake receives nothing.
   7. Stops the emulator and the fake, writes the run record (JSON, next to the temporary folder: device,
      image, each step's outcome, the screen dumps of any failure) and prints its path.
@@ -45,6 +47,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any, Callable, Protocol, Sequence, TypeVar
 from xml.etree import ElementTree
+
+from fake_listener_api import BUSY_RETRY_AFTER_SECONDS
 
 # ---- The words the driver reads and taps --------------------------------------------------------------
 # Copied from design §2 (docs/design/step-4-listener-app.md). A label matches a node when it equals the
@@ -104,6 +108,10 @@ MAIN_ACTIVITY = 'zm.lookup.listener.MainActivity'
 INSTALLS_PATH = '/api/v1/installs'
 RECOGNIZE_PATH = '/api/v1/recognize'
 DOCKER_PROCESS_NAMES = ('com.docker.backend', 'docker desktop')
+# S4-REQUEST-02: the request for an 8-second clip never goes over 32 KB (design §3.10). Its audio is at least
+# 16,000 bytes: a real 8-second clip at 24,000 bit/s is about 25-27 KB, so less means the recorder sent too little.
+LARGEST_RECOGNIZE_BODY_BYTES = 32_768
+SMALLEST_CLIP_BYTES = 16_000
 UUID_PATTERN = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}', re.IGNORECASE)
 
 
@@ -299,6 +307,25 @@ def problems_with_sends(new_requests: Sequence[dict[str, Any]], expected_scenari
     request_ids = [request.get('request_id') for request in new_requests]
     if len(set(request_ids)) != len(request_ids):
         problems.append('two sends carried the same request id; each HTTP attempt needs its own')
+    return problems
+
+
+def problems_with_request_sizes(log: dict[str, Any]) -> list[str]:
+    """Checks every recognize request the fake accepted (S4-REQUEST-02; design §3.10): the whole body at most
+    LARGEST_RECOGNIZE_BODY_BYTES, so "about 25 KB of data" on Home is true, and the audio at least
+    SMALLEST_CLIP_BYTES, so a small body cannot pass because the recorder sent next to nothing."""
+    recognize_requests = requests_to(log, RECOGNIZE_PATH)
+    if not recognize_requests:
+        return ['the fake received no recognize request to measure']
+    problems = []
+    for number, request in enumerate(recognize_requests, start=1):
+        name = f"recognize request {number} ({request.get('scenario')}, request id {request.get('request_id')})"
+        body_bytes, audio_bytes = request.get('body_bytes'), request.get('audio_bytes')
+        if not isinstance(body_bytes, int) or body_bytes > LARGEST_RECOGNIZE_BODY_BYTES:
+            problems.append(f'{name}: a body of {body_bytes} bytes, over {LARGEST_RECOGNIZE_BODY_BYTES:,}')
+        if not isinstance(audio_bytes, int) or audio_bytes < SMALLEST_CLIP_BYTES:
+            problems.append(f'{name}: {audio_bytes} bytes of audio, under {SMALLEST_CLIP_BYTES:,} '
+                            f'(a real 8-second clip is about 25 KB)')
     return problems
 
 
@@ -561,15 +588,18 @@ def identify_when_busy(context: RunContext) -> str:
     count_before = context.recognize_count()
     context.fake_api.queue(['busy', 'match'])
     context.driver.tap(IDENTIFY_LABELS)
-    # Busy shows for Retry-After (2 s), so it may come and go between two reads; the request log is the proof.
+    # The fake's busy answer says Retry-After 6 s, so Busy stays on screen across two or more reads (a uiautomator
+    # read takes about 2-3 s, then the driver waits poll_seconds): it must be seen, not only inferred from the log.
     first_seen, _ = context.driver.wait_for_any([LABELS['busy heading'], LABELS['result header']],
                                                 SECONDS_FOR_AN_IDENTIFY)
-    if first_seen == LABELS['busy heading']:
-        context.driver.wait_for(LABELS['result header'], 30)
+    if first_seen != LABELS['busy heading']:
+        raise StepFailed(f'Busy never showed: the app reached Result first, though the fake answered busy with '
+                         f'Retry-After {BUSY_RETRY_AFTER_SECONDS} s; '
+                         f'{describe_screen(context.driver.last_screen, context.app_package)}')
+    context.driver.wait_for(LABELS['result header'], 30)
     sends = check_sends(context, count_before, ['busy', 'match'])
     context.back_home_from(LABELS['result back'])
-    busy_seen = 'Busy seen' if first_seen == LABELS['busy heading'] else 'Busy not caught between two reads'
-    return f"{busy_seen}; both sends carried idempotency key {sends[0].get('idempotency_key')}"
+    return f"Busy seen; both sends carried idempotency key {sends[0].get('idempotency_key')}"
 
 
 def identify_with_server_error(context: RunContext) -> str:
@@ -764,9 +794,15 @@ class AdbDevice:
         self.adb('shell', 'input', 'swipe', str(start[0]), str(start[1]), str(end[0]), str(end[1]), '300')
 
     def screen_size(self) -> tuple[int, int]:
+        """The window size in pixels, read once and kept: `wm size` is slow, and the size rarely changes."""
         if self._screen_size is None:
             self._screen_size = parse_window_size(self.adb('shell', 'wm', 'size')) or (1080, 1920)
         return self._screen_size
+
+    def forget_screen_size(self) -> None:
+        """Forgets the kept window size, so the next screen_size() reads it again: call it after `wm size` or
+        `wm density` changed the screen."""
+        self._screen_size = None
 
     def launch_app(self, package_name: str) -> None:
         output = self.adb('shell', 'am', 'start', '-W', '-n', f'{package_name}/{MAIN_ACTIVITY}')
@@ -1025,6 +1061,20 @@ def install_fresh(device: AdbDevice, apk_path: Path) -> str:
     return f'{apk_path.name} installed with no permission granted'
 
 
+def check_recognize_request_sizes(fake_api: FakeApiControl) -> str:
+    """S4-REQUEST-02 on the emulator: every recognize request of the journeys, measured by the fake."""
+    log = fake_api.request_log()
+    problems = problems_with_request_sizes(log)
+    if problems:
+        raise StepFailed('; '.join(problems))
+    requests = requests_to(log, RECOGNIZE_PATH)
+    bodies = [request['body_bytes'] for request in requests]
+    clips = [request['audio_bytes'] for request in requests]
+    return (f'{len(requests)} recognize requests: bodies {min(bodies):,}-{max(bodies):,} bytes (at most '
+            f'{LARGEST_RECOGNIZE_BODY_BYTES:,}), audio {min(clips):,}-{max(clips):,} bytes (at least '
+            f'{SMALLEST_CLIP_BYTES:,})')
+
+
 def check_received_clip(clip_path: Path) -> str:
     if not clip_path.exists():
         raise StepFailed('the fake API saved no clip: no recognize request reached it')
@@ -1164,6 +1214,8 @@ def run(tools: Tools, record: RunRecord, skip_build: bool) -> None:
         context = RunContext(Driver(device, DEVELOPMENT_PACKAGE), device, fake_api,
                              CardExpectation.from_fixture(MATCH_FIXTURE))
         record.steps.extend(run_journeys(context, JOURNEYS, first_number=len(record.steps) + 1))
+        record.step('every recognize request is at most 32,768 bytes and carries a real clip (S4-REQUEST-02)',
+                    lambda: check_recognize_request_sizes(fake_api), is_required=False)
         record.step('the clip the real recorder sent', lambda: check_received_clip(clip_path), is_required=False)
         production_driver = Driver(device, PRODUCTION_PACKAGE)
         record.step('a production build given an http address refuses to start',

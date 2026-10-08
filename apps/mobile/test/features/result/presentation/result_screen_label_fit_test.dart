@@ -50,18 +50,20 @@ Future<void> _showButtonsLabelled(WidgetTester tester, List<String> labels) asyn
 /// Android phone draws the labels in. They have a file of their own because a loaded font stays
 /// loaded for every later test in the same file.
 void main() {
-  testWidgets('a 32-character label fits on one line at 320 × 640 dp and text scale 1.0, in '
-      'every button style (S4-RESULT-14)', (tester) async {
-    await loadRobotoBold(tester);
-    await _showButtonsLabelled(tester, _placeholderLabels);
+  testWidgets(
+    'a 32-character label fits on one line at 320 × 640 dp and text scale 1.0, in every button style (S4-RESULT-14)',
+    (tester) async {
+      await loadRobotoBold(tester);
+      await _showButtonsLabelled(tester, _placeholderLabels);
 
-    expect(tester.takeException(), isNull);
-    for (final label in _placeholderLabels) {
-      expect(label.runes, hasLength(ActionButton.longestWholeLabelCodePoints));
-      expect(find.text(label), findsOneWidget);
-      expect(_lineCountOf(tester, label), 1, reason: '"$label" wrapped');
-    }
-  });
+      expect(tester.takeException(), isNull);
+      for (final label in _placeholderLabels) {
+        expect(label.runes, hasLength(ActionButton.longestWholeLabelCodePoints));
+        expect(find.text(label), findsOneWidget);
+        expect(_lineCountOf(tester, label), 1, reason: '"$label" wrapped');
+      }
+    },
+  );
 
   testWidgets(
     'the check sees wrapping: 32 wide letters take two lines (gap 14), with no overflow',
