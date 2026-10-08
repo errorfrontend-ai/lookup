@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
@@ -65,6 +66,40 @@ void main() {
   });
 
   group('the ring, the bars and the bar of time', () {
+    testWidgets('a 164 dp accent disc with the 52 dp microphone in on-accent, inside three soft '
+        'rings 20, 40 and 60 dp wide (S4-LISTENING-06)', (tester) async {
+      await _harness().pump(tester, _screen());
+      const colours = LookUpColours.light;
+      final boxes = find.descendant(
+        of: find.byType(LevelRing),
+        matching: find.byType(DecoratedBox),
+      );
+
+      final face = tester.widget<DecoratedBox>(boxes.last).decoration as BoxDecoration;
+      expect(face.color, colours.accent);
+      expect(face.shape, BoxShape.circle);
+      expect(tester.getSize(boxes.last), const Size.square(164));
+      final microphone = tester.widget<Icon>(
+        find.descendant(of: find.byType(LevelRing), matching: find.byIcon(Icons.mic_none)),
+      );
+      expect(microphone.size, 52);
+      expect(microphone.color, colours.onAccent);
+
+      final rings = tester.widget<DecoratedBox>(boxes.first).decoration as BoxDecoration;
+      expect(rings.shape, BoxShape.circle);
+      expect(rings.boxShadow!.map((ring) => ring.spreadRadius), [60, 40, 20]);
+      expect(rings.boxShadow!.map((ring) => ring.color), [
+        colours.accentSoft.withValues(alpha: 0.5),
+        colours.accentSoft,
+        colours.accent.withValues(alpha: 0.08),
+      ]);
+      // Only the rings are inside the scaling; the disc and its microphone stay still.
+      expect(
+        find.descendant(of: find.byType(AnimatedScale), matching: find.byIcon(Icons.mic_none)),
+        findsNothing,
+      );
+    });
+
     testWidgets('a louder level gives a larger ring: scale = 1 + 0.15 × level', (tester) async {
       final harness = _harness();
       await harness.pump(tester, _screen(levelFraction: 0.2));
@@ -74,7 +109,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 150));
     });
 
-    testWidgets('16 bars, the first round(level × 16) of them lit', (tester) async {
+    testWidgets('a row of 16 bars, and litBarCount lights 8 of them at half the level', (
+      tester,
+    ) async {
       await _harness().pump(tester, _screen(levelFraction: 0.5));
       expect(LevelBars.litBarCount(0.5), 8);
       final bars = tester.widgetList<DecoratedBox>(

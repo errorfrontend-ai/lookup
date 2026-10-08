@@ -57,7 +57,7 @@ class ClientLogo extends StatelessWidget {
                 if (logo != null)
                   PublicImageView(
                     image: logo,
-                    displayWidth: diameter,
+                    displaySize: Size.square(diameter),
                     loadedBackgroundColour: colours.surface,
                   ),
               ],

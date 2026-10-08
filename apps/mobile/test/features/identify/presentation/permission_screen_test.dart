@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -48,6 +49,20 @@ void main() {
       expect(find.text(PermissionScreen.refusedOnceNote), findsNothing);
       expect(find.text(PermissionScreen.refusedForGoodNote), findsNothing);
     });
+
+    for (final access in _variants) {
+      testWidgets('${access.name}: a microphone in the accent colour, in an accent-soft circle '
+          '(S4-PERMISSION-06)', (tester) async {
+        await _harnessFor(access).pump(tester, PermissionScreen(microphoneAccess: access));
+        const colours = LookUpColours.light;
+        expectStateIcon(
+          tester,
+          icon: Icons.mic_none,
+          iconColour: colours.accent,
+          circleColour: colours.accentSoft,
+        );
+      });
+    }
 
     testWidgets('refused once: says so, and "Allow microphone" asks again', (tester) async {
       await _harnessFor(

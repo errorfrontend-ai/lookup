@@ -6,16 +6,24 @@ import 'dart:ui' as ui;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Serves images to `Image.network` in widget tests, with no network: every address answers with
-/// [imageBytes], or with 404 when they are null. It records every address asked for, so a test can
-/// prove the screen downloads nothing but its images (S4-RESULT-18).
+/// Serves images to the app's image loader in widget tests, with no network: every address answers
+/// with [imageBytes], or with 404 when they are null, except the addresses in [redirects], which
+/// answer 302 with the `Location` given. It records every address asked for, so a test can prove
+/// the screen downloads nothing but its images (S4-RESULT-18) and never follows a redirect to plain
+/// http.
+///
+/// Like Dart's own client, a request left with `followRedirects` on has its redirects followed by
+/// the client itself, to whatever address they name, each one recorded as asked for.
 class FakeImageHttpClient extends Fake implements HttpClient {
-  FakeImageHttpClient({this.imageBytes});
+  FakeImageHttpClient({this.imageBytes, this.redirects = const {}});
 
   /// A real encoded image (see [encodeTestImage]), or null to answer 404.
   final Uint8List? imageBytes;
 
-  /// Every address requested, in order.
+  /// Address → the `Location` its 302 answer names (absolute, or relative to the address).
+  final Map<Uri, String> redirects;
+
+  /// Every address requested, in order, including those the client followed by itself.
   final List<Uri> requestedAddresses = [];
 
   @override
@@ -24,26 +32,59 @@ class FakeImageHttpClient extends Fake implements HttpClient {
   @override
   Future<HttpClientRequest> getUrl(Uri url) async {
     requestedAddresses.add(url);
-    return _FakeImageRequest(imageBytes);
+    return _FakeImageRequest(this, url);
   }
 }
 
 class _FakeImageRequest extends Fake implements HttpClientRequest {
-  _FakeImageRequest(this._imageBytes);
+  _FakeImageRequest(this._client, this._address);
 
-  final Uint8List? _imageBytes;
+  final FakeImageHttpClient _client;
+  final Uri _address;
 
   @override
-  Future<HttpClientResponse> close() async => _FakeImageResponse(_imageBytes);
+  bool followRedirects = true;
+
+  @override
+  int maxRedirects = 5;
+
+  @override
+  Future<HttpClientResponse> close() async {
+    var address = _address;
+    var redirectCount = 0;
+    while (true) {
+      final location = _client.redirects[address];
+      if (location == null) return _FakeImageResponse(_client.imageBytes);
+      if (!followRedirects) return _FakeImageResponse.redirect(location);
+      if (redirectCount++ >= maxRedirects) {
+        throw const RedirectException('Redirect limit exceeded', []);
+      }
+      address = address.resolve(location);
+      _client.requestedAddresses.add(address);
+    }
+  }
 }
 
 class _FakeImageResponse extends Fake implements HttpClientResponse {
-  _FakeImageResponse(this._imageBytes);
+  _FakeImageResponse(this._imageBytes) : _location = null;
+
+  _FakeImageResponse.redirect(String location) : _imageBytes = null, _location = location;
 
   final Uint8List? _imageBytes;
+  final String? _location;
 
   @override
-  int get statusCode => _imageBytes == null ? HttpStatus.notFound : HttpStatus.ok;
+  int get statusCode => _location != null
+      ? HttpStatus.found
+      : _imageBytes == null
+      ? HttpStatus.notFound
+      : HttpStatus.ok;
+
+  @override
+  bool get isRedirect => _location != null;
+
+  @override
+  HttpHeaders get headers => _FakeLocationHeaders(_location);
 
   @override
   int get contentLength => _imageBytes?.length ?? 0;
@@ -68,7 +109,17 @@ class _FakeImageResponse extends Fake implements HttpClientResponse {
   }
 }
 
-/// Runs [body] with `Image.network` fetching through [client], with an empty image cache, and puts
+/// A redirect's headers: only `Location`.
+class _FakeLocationHeaders extends Fake implements HttpHeaders {
+  _FakeLocationHeaders(this._location);
+
+  final String? _location;
+
+  @override
+  String? value(String name) => name.toLowerCase() == HttpHeaders.locationHeader ? _location : null;
+}
+
+/// Runs [body] with the app's images (and `Image.network`) fetched through [client], with an empty image cache, and puts
 /// the real client back before the test ends (Flutter checks that it was).
 Future<void> withFakeImageServer(FakeImageHttpClient client, Future<void> Function() body) async {
   PaintingBinding.instance.imageCache

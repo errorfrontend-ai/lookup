@@ -1,3 +1,4 @@
+import '../../support/contract_fixtures.dart';
 import 'source_rule.dart';
 
 /// The source scans of design §4.5, as data: one list for `lib/` and one for `test/`.
@@ -115,10 +116,84 @@ abstract final class SourceRules {
       pattern: secretPattern,
       reason: 'no secret is in the source (§3.7, S4-SECURITY-01)',
     ),
-    SourceRule.imagesSetCacheWidth(),
+    SourceRule.imagesSetDecodeSize(),
+    SourceRule.codePattern(
+      'image that may follow a redirect to http',
+      pattern: RegExp(r'(?<![\w$.])(?:Image\.network|NetworkImage)\s*\('),
+      reason:
+          'images load through HttpsImageProvider, which follows a redirect only to another https '
+          'address; Image.network lets the client follow one to plain http (§3.7, S4-D15)',
+    ),
+    SourceRule.animationDurationsFromMotionTokens(onlyPathsMatching: _widgetCode),
+    SourceRule.codePattern(
+      'animation other than scale or opacity',
+      pattern: RegExp(
+        r'(?<![\w$.])(?:Animated(?!Scale\b|Opacity\b)[A-Z]\w*|'
+        r'(?!(?:Scale|Fade)Transition\b)[A-Z]\w*Transition\b|TweenAnimationBuilder\b|'
+        r'ImplicitlyAnimatedWidget\b|Hero\s*\()',
+      ),
+      reason:
+          'only a transform or the opacity animates (ScaleTransition, AnimatedScale, '
+          'FadeTransition, AnimatedOpacity): they cost a cheap phone no layout (§4.5)',
+    ),
+    SourceRule.stringPattern(
+      'campaign label or phone number',
+      pattern: campaignLiteralPattern,
+      reason:
+          'every button, label and number on a result comes from the action card in the answer; '
+          'the app writes none of its own (S4-RENDERER-01)',
+      allowedLiterals: allowedCampaignLikeLiterals,
+    ),
     SourceRule.bannedDomainWords(),
     ..._sharedWithTests,
   ];
+
+  /// The files that build widgets, where every animation lives: `app/`, `core/widgets/` and each
+  /// feature's `presentation/`.
+  static final RegExp _widgetCode = RegExp(r'^(?:app/|core/widgets/|features/\w+/presentation/)');
+
+  /// The app's own words that look like a campaign button: the Error screen's support link
+  /// (S4-D32), the only WhatsApp label the app writes itself.
+  static const Map<String, Set<String>> allowedCampaignLikeLiterals = {
+    'features/identify/domain/support_chat_address.dart': {'Message support on WhatsApp'},
+    'features/identify/presentation/support_chat_button.dart': {'Message support on WhatsApp'},
+  };
+
+  /// A literal that is a campaign's own words (S4-RENDERER-01): a phone number (eight digits or
+  /// more, spaced or not), a button label the shared card fixtures or the wireframes use, or text
+  /// worded like a campaign button ("Call …", "Chat on …", "Visit …", anything with WhatsApp).
+  static final RegExp campaignLiteralPattern = RegExp(
+    r'(?<![\w.])\+?\d(?:[ \-]?\d){7,}(?![\w.])|'
+    '^(?:${_campaignLabels().map(RegExp.escape).join('|')})\$|'
+    r'^(?:Call|Chat|Visit|Find|Get directions|Book|Order|Shop|Buy)\b|WhatsApp',
+  );
+
+  /// The labels of every action in the shared card and answer fixtures, and the wireframes' own.
+  static Set<String> _campaignLabels() {
+    final labels = {'Call Brand A', 'Chat on WhatsApp', 'Get directions', 'Visit website'};
+    void collect(Object? json) {
+      if (json is Map<String, Object?>) {
+        final label = json['label'];
+        if (label is String && label.trim().length > 1) labels.add(label);
+        json.values.forEach(collect);
+      } else if (json is List<Object?>) {
+        json.forEach(collect);
+      }
+    }
+
+    for (final folder in [
+      'action-card/valid',
+      'action-card/invalid',
+      'action-card/reader',
+      'recognition/recognize-response/valid',
+      'recognition/recognize-response/invalid',
+    ]) {
+      for (final fixture in ContractFixtures.readFolder(folder)) {
+        collect(fixture.content);
+      }
+    }
+    return labels;
+  }
 
   /// The rules for `test/`.
   static final List<SourceRule> tests = [..._sharedWithTests];

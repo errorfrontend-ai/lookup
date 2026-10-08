@@ -112,10 +112,13 @@ class ListenerInstallRepository {
         detail: error.runtimeType.toString(),
         stackTrace: stackTrace,
       );
+      // A fault on the phone, not the network: the identify shows the phone failure and reports
+      // the fault's type, never its text (§3.11).
       return ListenerInstallNotRegistered(
         answer: ApiAnswerNotReceived(
           sentRequestId: _randomUuid.generate(),
           reason: ApiNoAnswerReason.unexpectedFailure,
+          faultTypeName: error.runtimeType.toString(),
         ),
       );
     } finally {

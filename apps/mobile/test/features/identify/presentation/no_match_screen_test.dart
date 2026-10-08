@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/no_match_screen.dart';
@@ -35,6 +35,17 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Try again'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Back to home'), findsOneWidget);
       expect(find.byIcon(Icons.search), findsOneWidget);
+    });
+
+    testWidgets('a magnifying glass, muted, in a line-soft circle (S4-NOMATCH-03)', (tester) async {
+      await _harness().pump(tester, const NoMatchScreen());
+      const colours = LookUpColours.light;
+      expectStateIcon(
+        tester,
+        icon: Icons.search,
+        iconColour: colours.muted,
+        circleColour: colours.lineSoft,
+      );
     });
 
     testWidgets('the heading is announced as a status', (tester) async {
@@ -78,13 +89,18 @@ void main() {
       expect(harness.flow.calls, ['tryAgain']);
     });
 
-    testWidgets('"Back to home", Close × and system Back call backToHome() (T38)', (tester) async {
+    testWidgets('"Back to home", the × labelled "Close" and system Back call backToHome() (T38, '
+        'S4-ACCESSIBILITY-11)', (tester) async {
+      final semantics = tester.ensureSemantics();
       final harness = _harness();
       await harness.pump(tester, const NoMatchScreen());
       await scrollToAndTap(tester, find.text('Back to home'));
-      await scrollToAndTap(tester, find.byType(ScreenExitButton));
+      // Found by what a screen reader announces, so the label is proven to be "Close".
+      expect(find.bySemanticsLabel('Close'), findsOneWidget);
+      await scrollToAndTap(tester, find.bySemanticsLabel('Close'));
       await pressSystemBack(tester);
       expect(harness.flow.calls, ['backToHome', 'backToHome', 'backToHome']);
+      semantics.dispose();
     });
 
     testWidgets('with the real flow, no match → "Try again" → Listening, with a new key', (

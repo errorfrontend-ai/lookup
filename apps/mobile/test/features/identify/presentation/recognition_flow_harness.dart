@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
@@ -34,13 +35,15 @@ const String flowTestStoredToken = 'stored.install.token';
 /// The recognition flow wired as the app wires it, in fake time: the real repository, API client
 /// and install repository over a fake HTTP adapter, a fake recorder and permission, a clock that
 /// follows the fake time, and a recording crash reporter. Every state the flow passes through is
-/// kept in [states].
+/// kept in [states]. The API client uses the production configuration unless [configuration]
+/// replaces it.
 class RecognitionFlowHarness {
   RecognitionFlowHarness(
     this.fakeAsync, {
     bool hasStoredToken = true,
     MicrophoneAccess? microphoneAccess,
     RecordingClientErrorReporter? reporter,
+    AppConfiguration? configuration,
   }) : reporter = reporter ?? RecordingClientErrorReporter() {
     final storedTokenExpiry = DateTime.utc(2026, 11, 7, 12);
     SharedPreferences.setMockInitialValues({
@@ -51,7 +54,7 @@ class RecognitionFlowHarness {
     if (microphoneAccess != null) permission.access = microphoneAccess;
     final randomUuid = RandomUuid();
     final apiClient = ApiClient(
-      configuration: ExampleAppConfigurations.production(),
+      configuration: configuration ?? ExampleAppConfigurations.production(),
       randomUuid: randomUuid,
       clock: clock,
       httpClientAdapter: adapter,
@@ -198,6 +201,7 @@ void runFlowTest(
   bool hasStoredToken = true,
   MicrophoneAccess? microphoneAccess,
   RecordingClientErrorReporter? reporter,
+  AppConfiguration? configuration,
 }) {
   TestWidgetsFlutterBinding.instance.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   fakeAsync((fakeAsync) {
@@ -206,6 +210,7 @@ void runFlowTest(
       hasStoredToken: hasStoredToken,
       microphoneAccess: microphoneAccess,
       reporter: reporter,
+      configuration: configuration,
     );
     try {
       body(harness);

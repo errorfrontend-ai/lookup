@@ -234,11 +234,9 @@ void main() {
         for (final answer in [json, multipart]) {
           expect(
             answer,
-            isA<ApiAnswerNotReceived>().having(
-              (answer) => answer.reason,
-              'reason',
-              ApiNoAnswerReason.plainHttpRefused,
-            ),
+            isA<ApiAnswerNotReceived>()
+                .having((answer) => answer.reason, 'reason', ApiNoAnswerReason.plainHttpRefused)
+                .having((answer) => answer.faultTypeName, 'faultTypeName', isNull),
           );
         }
         expect(adapter.requests, isEmpty);
@@ -331,35 +329,39 @@ void main() {
       },
     );
 
-    test('a whole 8-second recognize request stays within 32,768 bytes (S4-REQUEST-02)', () async {
-      // 24 kbit/s for 8 s is 24,000 bytes of audio; 26,000 allows for the MP4 header and more.
-      final clip = CapturedClip(
-        audioBytes: List<int>.generate(26000, (index) => index % 251),
-        idempotencyKey: RandomUuid().generate(),
-        capturedAt: DateTime.utc(2026, 10, 8, 9, 15, 2, 123),
-        settings: ClipSettings.standard,
-      );
-      final parts = const RecognizeRequestBuilder().build(
-        clip,
-        sentAt: DateTime.utc(2026, 10, 8, 9, 15, 11, 456),
-      );
-      adapter.answerJson(200, {});
-      await _clientFor(adapter).postMultipart(
-        'recognize',
-        fields: parts.textFields,
-        file: ApiMultipartFile(
-          fieldName: parts.audioPart.fieldName,
-          fileName: parts.audioPart.fileName,
-          contentType: parts.audioPart.contentType,
-          bytes: parts.audioPart.bytes,
-        ),
-        installToken: _installToken,
-      );
-      final request = adapter.requests.single;
-      expect(request.bodyBytes.length, lessThanOrEqualTo(32768));
-      expect(request.bodyBytes.length, greaterThan(26000));
-      expect(request.header('content-length'), '${request.bodyBytes.length}');
-    });
+    test(
+      'the form around a 26,000-byte clip and the request fields stays within 32,768 bytes: the overhead '
+      'is small (the real clip is measured on the emulator, S4-REQUEST-02)',
+      () async {
+        // 24 kbit/s for 8 s is 24,000 bytes of audio; 26,000 allows for the MP4 header and more.
+        final clip = CapturedClip(
+          audioBytes: List<int>.generate(26000, (index) => index % 251),
+          idempotencyKey: RandomUuid().generate(),
+          capturedAt: DateTime.utc(2026, 10, 8, 9, 15, 2, 123),
+          settings: ClipSettings.standard,
+        );
+        final parts = const RecognizeRequestBuilder().build(
+          clip,
+          sentAt: DateTime.utc(2026, 10, 8, 9, 15, 11, 456),
+        );
+        adapter.answerJson(200, {});
+        await _clientFor(adapter).postMultipart(
+          'recognize',
+          fields: parts.textFields,
+          file: ApiMultipartFile(
+            fieldName: parts.audioPart.fieldName,
+            fileName: parts.audioPart.fileName,
+            contentType: parts.audioPart.contentType,
+            bytes: parts.audioPart.bytes,
+          ),
+          installToken: _installToken,
+        );
+        final request = adapter.requests.single;
+        expect(request.bodyBytes.length, lessThanOrEqualTo(32768));
+        expect(request.bodyBytes.length, greaterThan(26000));
+        expect(request.header('content-length'), '${request.bodyBytes.length}');
+      },
+    );
 
     test('a file type that cannot be read is a fault on the phone, and nothing is sent', () async {
       final answer = await _clientFor(adapter).postMultipart(
@@ -374,11 +376,9 @@ void main() {
       );
       expect(
         answer,
-        isA<ApiAnswerNotReceived>().having(
-          (answer) => answer.reason,
-          'reason',
-          ApiNoAnswerReason.unexpectedFailure,
-        ),
+        isA<ApiAnswerNotReceived>()
+            .having((answer) => answer.reason, 'reason', ApiNoAnswerReason.unexpectedFailure)
+            .having((answer) => answer.faultTypeName, 'faultTypeName', 'SourceSpanFormatException'),
       );
       expect(adapter.requests, isEmpty);
     });
@@ -542,8 +542,22 @@ void main() {
           isA<ApiAnswerNotReceived>().having((answer) => answer.reason, 'reason', reason),
         );
         expect(answer.toString(), isNot(contains('secret detail')));
+        if (reason != ApiNoAnswerReason.unexpectedFailure) {
+          expect((answer as ApiAnswerNotReceived).faultTypeName, isNull, reason: 'not a fault');
+        }
       });
     }
+
+    test('a fault on the phone keeps its type name only, never its text', () async {
+      adapter.failWith(StateError(_technicalDetail));
+      final answer = await _clientFor(adapter).postJson('recognize', {});
+      expect(
+        answer,
+        isA<ApiAnswerNotReceived>()
+            .having((answer) => answer.reason, 'reason', ApiNoAnswerReason.unexpectedFailure)
+            .having((answer) => answer.faultTypeName, 'faultTypeName', 'StateError'),
+      );
+    });
 
     test('a cancel while waiting for the answer gives cancelled', () async {
       adapter.waitUntilCancelled();

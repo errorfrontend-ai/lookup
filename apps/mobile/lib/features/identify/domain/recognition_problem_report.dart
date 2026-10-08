@@ -21,6 +21,8 @@ final class RecognitionProblemReport {
   final String? relatedRequestId;
 
   /// What happened, for developers, e.g. "Recognize answer HTTP 400 VALIDATION_FAILED (fields:
-  /// captured_at invalid_format): the API refused what the app sent."
+  /// captured_at invalid_format): the API refused what the app sent." It names the request, so a
+  /// failed install registration reads "Install registration answer …", and a request the phone
+  /// itself stopped reads "Recognize request stopped on the phone: a fault in the app (StateError)."
   final String summary;
 }

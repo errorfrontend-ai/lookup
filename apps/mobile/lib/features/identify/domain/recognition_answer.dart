@@ -15,6 +15,21 @@ final class NoAnswer extends RecognitionAnswer {
   const NoAnswer();
 }
 
+/// No HTTP answer, because the phone itself stopped the request: a fault in the app (an error while
+/// building or reading it), or a plain `http` address outside the development flavour (S4-D25).
+/// Not the network, so not "No connection": the listener sees the phone failure, and a developer
+/// gets a crash report (§3.11).
+final class PhoneFaultAnswer extends RecognitionAnswer {
+  const PhoneFaultAnswer({required this.problem, this.answeredRequest = AnsweredRequest.recognize});
+
+  /// What stopped the request, in the app's own words and type names only (never an exception's
+  /// text), for the crash report; never shown.
+  final String problem;
+
+  /// The request the phone stopped: the clip's own, or the registration before it.
+  final AnsweredRequest answeredRequest;
+}
+
 /// The listener cancelled the send on the Identifying screen (T28); whatever the server does with
 /// it no longer matters.
 final class CancelledAnswer extends RecognitionAnswer {
@@ -56,13 +71,20 @@ final class UnknownStatusAnswer extends ReceivedAnswer {
 }
 
 /// 200 whose body cannot be read: not a JSON object, no status, or `MATCH` without a readable
-/// result.
+/// result; or a 200 to the install registration without a token the app can use.
 final class UnreadableAnswer extends ReceivedAnswer {
-  const UnreadableAnswer({required this.problem, required super.apiRequestId});
+  const UnreadableAnswer({
+    required this.problem,
+    required super.apiRequestId,
+    this.answeredRequest = AnsweredRequest.recognize,
+  });
 
   /// What could not be read, in field names only, for the crash report (never shown, never the
   /// body's own text).
   final String problem;
+
+  /// The request this answers: the clip's own, or the registration before it.
+  final AnsweredRequest answeredRequest;
 }
 
 /// An answer with any status other than 200, which this route never uses for success, read as the
@@ -74,9 +96,13 @@ final class ErrorStatusAnswer extends ReceivedAnswer {
     this.errorCode,
     this.retryAfterSeconds,
     this.fieldProblems = const [],
+    this.answeredRequest = AnsweredRequest.recognize,
   });
 
   final int httpStatus;
+
+  /// The request this answers: the clip's own, or the registration before it.
+  final AnsweredRequest answeredRequest;
 
   /// The envelope's `error.code` when it is well formed (`^[A-Z][A-Z0-9_]{1,63}$`); null when the
   /// body has no envelope or a malformed code. Only steers the decision, never shown: an unknown
@@ -92,6 +118,11 @@ final class ErrorStatusAnswer extends ReceivedAnswer {
   /// only, so a developer sees what the app sent wrong; never shown.
   final List<FieldProblem> fieldProblems;
 }
+
+/// Which request an answer is to: the clip's own `POST /recognize`, or the install registration
+/// that must come before it (T15, T23). A failed registration leads where the same answer to the
+/// clip would (§3.9); only the crash report's summary names which request it was.
+enum AnsweredRequest { recognize, installRegistration }
 
 /// One refused request field from an error envelope, e.g. `captured_at` / `invalid_format`.
 final class FieldProblem {

@@ -115,6 +115,9 @@ or dead control for them exists.
 - **Words.** Text in double quotes is shown exactly; text in [brackets] is filled from data. The app
   never shows exception text, a status line, a file path or the API's `message` (S4-D13).
 - **System back** does what the screen's own Back or Close does.
+- **Less motion.** When the phone asks for it ("Remove animations", `MediaQuery.disableAnimations`),
+  nothing moves: screen changes, the Listening rings, the Identifying bar, and the copy sheet and
+  the "copied" snackbars, which appear and go at once (`AnimationStyle.noAnimation`).
 - **No ads list** anywhere (D8).
 
 ### 2.2 Home — state `idle`, route `/`
@@ -198,9 +201,9 @@ Wireframes *Result* (360 × 800) and *Result320* (320 × 720).
 
 | Part | Content | Behaviour |
 |---|---|---|
-| Header | Back arrow (label "Back to home") + "Found it" (16, 700) | → Home (T35) |
+| Header | Back arrow (label "Back to home") + "Found it" (16, 700) | → Home (T35). "Found it" is read as a heading and announced as the screen appears (a live region with the status role, as the state headings of §2.4–§2.10), because the result arrives without a tap |
 | Card | Surface fill, line-soft border, radius 16 (lg), clipped | — |
-| Banner box | Only when the card has `header_image`: card width × half the card width (2:1), line-soft fill while loading and if loading fails; image fills the box (cover), decoded at box width × device pixel ratio (`cacheWidth`); `https` addresses only | Nothing moves when the image arrives. No box at all when there is no banner (S4-D20). The wireframe placeholder "[Ad image · 2:1]" is never shown |
+| Banner box | Only when the card has `header_image`: card width × half the card width (2:1), line-soft fill while loading and if loading fails; image fills the box (cover), decoded at box width × device pixel ratio (`cacheWidth`), or at box height (`cacheHeight`) when the answer's `width_pixels`/`height_pixels` say it is wider than 2:1, so it still covers the box sharply; `https` addresses only, at every hop: the image loader turns the HTTP client's own redirects off and follows one only to another `https` address (at most 5) | Nothing moves when the image arrives. No box at all when there is no banner (S4-D20). The wireframe placeholder "[Ad image · 2:1]" is never shown |
 | Client row | Round logo, 40 dp (36 dp below 360 dp): the client's logo if the answer has one, else the first letter of the client's name, upper case, in the surface colour (white) on ink. Beside it: client name (16, 700) and "via [station name] · [frequency label]" (13, muted), e.g. "Brand A" / "via Station A · 98.1 FM" | Logo hidden from screen readers; the name is read |
 | Title | The ad title (cardTitle token 22/28; cardTitleCompact 20/26 below 360 dp) | Marked as the main heading |
 | ~~Offer text~~ | Wireframe: "[Short offer text written by the station — two lines at most.]" | **Not in Step 4**: the answer has no field for it (S4-D1; gap 6) |
@@ -280,7 +283,9 @@ heading; body; an optional reference-code panel; footer.
 **Support** (S4-D32): when the build has a support WhatsApp number, the server-failure, phone-failure
 and recording-unusable variants show a secondary link under the code panel, "Message support on
 WhatsApp", which opens a chat with "Hello Look Up support, my reference code is 6F1C-2D3E." filled
-in. With no number in the build the link is not shown, and the code with "Copy" stands alone.
+in. Staging and production builds always have the number: without it they refuse to start (§3.7),
+so the body's "share this code with support" is never shown with no way to reach support. Only a
+development build may lack it; there the link is not shown, and the code with "Copy" stands alone.
 
 **Reference-code panel** (wireframe): surface, border, radius 16; label "Reference code" (12, 600,
 muted); the code in the system monospace font (18, 700, letter spacing 1), e.g. "6F1C-2D3E"; a "Copy"
@@ -297,7 +302,8 @@ only)" section under the panel shows the failure's type and text. Never in stagi
   couldn't be shown." in place of Flutter's red screen, in every build. The development flavour with
   the details flag shows the error text instead. The error is reported once (§3.19).
 - **A build that is set up wrongly** (no or malformed API address, `http` outside the development
-  flavour, a Gradle flavour that disagrees with the defined one): one full screen, "This copy of
+  flavour, no support number in a staging or production build, a Gradle flavour that disagrees with
+  the defined one; §3.7): one full screen, "This copy of
   Look Up isn't set up correctly." No request is made and nothing is reported (there is nowhere
   safe to send it). This only happens to a mis-built app, never to a listener's correct install.
 
@@ -321,7 +327,7 @@ Nine top-level states (S4-STATE-03): `idle`, `permissionNeeded`, `recording`, `u
 | T11 | recording | 8 seconds reached | — | recording(level, 0), then uploading | stops the recorder, reads the clip into memory, deletes the file, sends |
 | T12 | recording | Close ×, "Cancel", system back | — | idle | cancels the recorder (file deleted); sends nothing |
 | T13 | recording | app hidden or paused; recorder paused by a call or another app | — | idle | as T12 |
-| T14 | recording | recorder cannot start or finish; clip file missing or empty | — | error(phone failure) | reports it (§3.19) |
+| T14 | recording | recorder cannot start or finish, reports an error, or stops on its own before the clip ends; clip file missing or empty | — | error(phone failure), at once | reports it (§3.19); recording cancelled, file deleted, nothing sent |
 | T15 | uploading | — | no usable install token | uploading | registers first (§3.9) |
 | T16 | uploading | 200 `MATCH`, kind `CAMPAIGN` (or a kind the app doesn't know) | — | matched | deletes the clip; one haptic tick |
 | T17 | uploading | 200 `MATCH`, kind `CLIENT_DEFAULT` | — | fallback | deletes the clip; one haptic tick |
@@ -334,7 +340,7 @@ Nine top-level states (S4-STATE-03): `idle`, `permissionNeeded`, `recording`, `u
 | T24 | uploading | 429 `RATE_LIMITED` | — | error(too many tries) | deletes the clip |
 | T25 | uploading | 400 `INVALID_AUDIO` | — | error(recording unusable) | deletes the clip; reports it |
 | T26 | uploading | any other 4xx or 5xx; a 409 or 401 past its limit; a 200 the app cannot read | — | error(server failure) | deletes the clip; reports app-side causes (§3.11) |
-| T27 | uploading | no answer (no connection, timeout, dropped) | — | error(no connection) | keeps the clip |
+| T27 | uploading | no answer from the network (no connection, timeout, dropped); a request the phone itself stopped (a fault in the app, or plain http outside development) is a reported phone failure instead, and drops the clip (§3.11) | — | error(no connection) | keeps the clip |
 | T28 | uploading | "Cancel", system back | — | idle | cancels the request; deletes the clip |
 | T29 | busy | one second passes | in the foreground, seconds > 1 | busy(delay, seconds − 1) | — |
 | T30 | busy | countdown reaches 0 | in the foreground | uploading | sends the same clip and key (new request id, new send time) |
@@ -412,10 +418,10 @@ apps/mobile/
         domain/       recognition_result.dart, ui_action.dart, read_action_card.dart,
                       action_card_reader.dart, action_uri_builder.dart, canonical_https_link.dart,
                       phone_number_display.dart
-        data/         action_launcher.dart, clipboard_writer.dart
+        data/         action_launcher.dart, clipboard_writer.dart, https_image_provider.dart
   android/  ios/                  one codebase, both platform projects (S4-STRUCTURE-08)
   test/                           mirrors lib/; support/ (fakes, fixture loader, schema checker);
-                                  structure/ (import, folder and source scans); goldens/
+                                  structure/ (import, folder and source scans)
   tool/                           generate_design_tokens.dart, fake_listener_api.py,
                                   test_fake_listener_api.py, check_received_clip.py,
                                   run_emulator_tests.py
@@ -581,18 +587,29 @@ final class NewerAppNeededFailure extends RecognitionFailure { final bool isSeve
   | `LOOKUP_SHOW_ERROR_DETAILS` | development only: error details on screen |
   | `LOOKUP_SHOW_DEVELOPER_TOOLS` | development only: the "Send a test error" control |
   | `LOOKUP_VERBOSE_LOGS` | development only: request lines in the device log (§3.19) |
-  | `LOOKUP_SUPPORT_WHATSAPP_NUMBER` | optional: the support WhatsApp number in E.164 (S4-D32); checked at start-up like the address |
+  | `LOOKUP_SUPPORT_WHATSAPP_NUMBER` | the support WhatsApp number in E.164 (S4-D32): required in staging and production, optional in development; checked at start-up like the address |
 
   Example: `flutter run --flavor development --dart-define-from-file=config/development-fake.json`.
 - **Fails closed** (`AppConfiguration.fromEnvironment`): the app refuses to start (the screen in
   §2.11) when the address is missing or malformed, when it is not `https` outside the development
-  flavour, when a development-only flag is set outside development, or when Flutter's `appFlavor`
-  (the Gradle flavour) differs from `LOOKUP_FLAVOUR`. iOS has no flavours in the MVP, so there only
-  the define is used.
+  flavour, when a development-only flag is set outside development, when a staging or production
+  build has no support number (the Error screen asks the listener to share a code with support, so
+  a build for listeners must say how to reach support, as it must say where the API is), when the
+  number is not E.164, or when Flutter's `appFlavor` (the Gradle flavour) differs from
+  `LOOKUP_FLAVOUR`. iOS has no flavours in the MVP, so there only the define is used.
+- **The staging and production files are placeholders until deployment (P8).** `config/staging.json`
+  and `config/production.json` hold `https` addresses on `.invalid` hosts and an empty
+  `LOOKUP_SUPPORT_WHATSAPP_NUMBER`, so a build made from them shows the set-up screen instead of
+  starting; deployment fills in the real address and the support number (asked for at the gate,
+  Q1). JSON has no comments, so this paragraph is where that is written. The emulator run's
+  production APK (§4.7 step 5) is given a valid support number, so the only thing wrong with it is
+  its `http` address.
 - **Cleartext only in development.** Dart's HTTP client cannot be relied on to obey Android's
   network-security configuration, so the rule is enforced in Dart first: `ApiClient` refuses any
   request whose address is not `https` unless the flavour is development, and images are loaded only
-  from `https` addresses. The Android settings are the second line: the main manifest sets
+  from `https` addresses, at every hop: `HttpsImageProvider` (in `result/data`) turns the HTTP
+  client's own redirects off and follows a redirect itself only to another `https` address, where
+  `Image.network` would follow one to plain `http`. The Android settings are the second line: the main manifest sets
   `usesCleartextTraffic="false"` (Android 6, which has no network-security configuration) and a
   network-security configuration with cleartext off and system certificate authorities only (no
   user-installed ones); the `development` source set overrides both to allow cleartext, so the
@@ -709,6 +726,7 @@ overshoots, the bit rate is the setting to lower.
 | any other status (403, 404, 405, 3xx …) | error, server failure | deleted | yes | when it has an API id |
 | an error code the app doesn't know | handled by its HTTP status as above; the code is never shown | | | |
 | no answer: no connection, DNS failure, timeout, connection dropped | error, no connection (T27) | kept | — | — |
+| no answer because the phone itself stopped the request: a fault in the app (`unexpectedFailure`), or plain `http` refused outside development (`plainHttpRefused`) | error, phone failure | deleted | yes: "Recognize request stopped on the phone: a fault in the app (StateError).", the fault's type name only, never its text | the report's id, once accepted |
 | the listener cancels | idle (T28) | deleted | — | — |
 
 **When a code may be shown** (S4-ERRORHANDLING-03, S4-ERRORREPORTING-08): only for an API id (the
@@ -719,6 +737,19 @@ is only ever said when support can find it.
 The clip rule follows the plan's acknowledgement rule (delete on 200, 422 and `INVALID_AUDIO`; keep
 on 409, 429, 503 and network errors), except that Step 4 has nowhere to keep a clip after a 429, so
 it is deleted (P6's outbox keeps it).
+
+**Network or phone** (S4-D12): only the network's reasons for no answer (no connection, a timeout, a
+dropped connection) are "No connection", because only there can "Send again" help. A request the
+phone stopped itself would fail the same way on every resend and would never reach a developer, so
+it is the phone failure, reported, with the clip dropped. The API client keeps the fault's type
+name (`ApiAnswerNotReceived.faultTypeName`, e.g. `StateError`) and never its text, which can quote
+addresses or answers; a fault inside the install check is kept the same way.
+
+**A failed install registration** leads where the same answer to the clip would (§3.9), but its
+crash report names the registration: "Install registration answer HTTP 400 VALIDATION_FAILED …",
+"Install registration answer HTTP 200: the body could not be read: …" or "Install registration
+request stopped on the phone: …" (the answer's `answeredRequest`), so a developer never looks for a
+recognize request that was not sent.
 
 ### 3.12 Reading the card: the Dart mirror of the shared reader (S4-RENDERER-12; S4-D17)
 
@@ -823,12 +854,18 @@ RecordConfig(
   noiseSuppress: false,            // set explicitly, in one place (ClipSettings)
   autoGain: false,
   echoCancel: false,
-  audioInterruption: AudioInterruptionMode.pause,   // a call pauses it; the flow then cancels (T13)
+  audioInterruption: AudioInterruptionMode.none,    // other audio keeps playing (S4-D34)
   androidConfig: AndroidRecordConfig(
     audioSource: AndroidAudioSource.mic,
     manageBluetooth: false,        // a paired headset must not replace the phone's microphone
     muteAudio: false,
     service: null,                 // no background recording service, ever
+  ),
+  iosConfig: IosRecordConfig(      // S4-D34: mix with what plays, keep it on the speaker,
+    categoryOptions: [             // and no allowBluetooth (a headset's microphone)
+      IosAudioCategoryOption.mixWithOthers,
+      IosAudioCategoryOption.defaultToSpeaker,
+    ],
   ),
 )
 ```
@@ -838,6 +875,16 @@ These are the Phase 0 capture app's defaults (`mic`, noise suppression off, auto
 gap 41). The voice-recognition audio source is the first thing to compare at the pilot.
 
 - A new `AudioRecorder` per capture, disposed after it, so the microphone is released at once.
+- **Other audio keeps playing** (S4-D34). Listeners mostly hear the station on the same phone (a
+  radio app or a stream), so recording must not stop it: with any interruption mode but `none`,
+  `record_android` 1.5.2 takes the audio focus for good (`AUDIOFOCUS_GAIN`), which pauses that app
+  for the whole clip and after it; on iOS, `record_ios` 1.2.1 sets `.playAndRecord` with exactly the
+  options given, and its default list has no `mixWithOthers` and does have `allowBluetooth`, which
+  would record from a headset's microphone. A call still ends the recording: the call screen hides
+  the app, which cancels the clip (T13). A pause the platform reports anyway still cancels it.
+- **A recorder that breaks while recording** (an error on `record`'s state stream, or the recorder
+  stopping before the flow finishes it) is T14 at once: the phone failure, reported, the recording
+  cancelled and its file deleted, nothing sent. The flow does not wait for the 8 seconds to end.
 - Before starting: `isEncoderSupported(AudioEncoder.aacLc)`; false → phone failure.
 - The file: `<getTemporaryDirectory()>/clips/<idempotency key>.m4a`. On stop, the bytes are read into
   memory and **the file is deleted at once**. On cancel, `cancel()` deletes it. Every app start and
@@ -867,8 +914,12 @@ gap 41). The voice-recognition audio source is the first thing to compare at the
 ### 3.17 Lifecycle and privacy (S4-PRIVACY-01 to -04; S4-D7, S4-D23)
 
 - An `AppLifecycleListener` in `RecognitionFlow`: on hide or pause during recording → cancel and
-  discard (T13); during busy → pause the countdown (T31), resume on show; on resume during
+  discard (T13); during busy → pause the countdown (T31), resume on show; during the wait after a
+  409 → pause it too, and go on with the seconds left on show (T22); on resume during
   permissionNeeded → re-check (T7). `inactive` alone (the notification shade) changes nothing.
+- No timed resend leaves a hidden app (S4-D23): Busy's countdown and the 409 wait count only in the
+  foreground, and an answer that starts either while the app is hidden waits for it to be shown. A
+  send already under way when the app is hidden finishes.
 - No background recording: no recorder service, no `FOREGROUND_SERVICE` permission.
 - The clip lives in memory only while uploading, busy or "no connection"; it is dropped on every
   outcome and every way out (§2.12). If the app is killed, it is gone. "We kept your clip" is true
@@ -1027,7 +1078,9 @@ the device log (S4-PRIVACY-04).
 
 | File | Proves |
 |---|---|
-| `core/configuration/app_configuration_test.dart` | flavour parsing; `https` required outside development; address must end `/api/v1`; development flags refused elsewhere; `appFlavor` mismatch refused |
+| `core/configuration/app_configuration_test.dart` | flavour parsing; `https` required outside development; address must end `/api/v1`; development flags refused elsewhere; `appFlavor` mismatch refused; staging and production without a support number refused; the staging and production placeholders refused for that alone, and accepted once a number is filled in |
+| `widget_test.dart` (start-up) | a refused configuration starts nothing; an accepted one installs the handlers, sweeps old clips, shows Home and registers; `bootstrap` tells the isolate error listener to listen to `Isolate.current` (seen through its `createIsolateErrorListener` parameter), and an error message on that port reaches the app's reporter with the route (S4-ERRORHANDLING-07) |
+| `features/result/data/https_image_provider_test.dart` | an `https` image loads with one request; a redirect to another `https` address is followed by the app; a redirect to plain `http` fails the image and `http` is never asked for; more than five redirects fail; a non-`https` address is never asked for |
 | `core/configuration/app_version_test.dart` | the version constant equals `pubspec.yaml`'s `version` and matches the contract pattern |
 | `core/identifiers/random_uuid_test.dart` | version-4 shape accepted by the API's pattern; 10,000 draws all different |
 | `core/identifiers/reference_code_test.dart` | every case in `fixtures/errors/reference-codes.json` |
@@ -1054,34 +1107,42 @@ the device log (S4-PRIVACY-04).
 | `features/result/domain/phone_number_display_test.dart` | `+260977123456` → `+260 97 712 3456`; foreign numbers unchanged |
 | `features/result/data/action_launcher_test.dart` | `launchUrl` with external mode; `canLaunchUrl` never called; `false` and exceptions → "couldn't open" |
 
-### 4.3 Widget and golden tests
+### 4.3 Widget tests (decorations asserted in place of golden images)
 
 Each screen test checks its wording, controls, transitions (through a fake-backed notifier),
 semantics (headings, live regions, labels, hidden decorations), `androidTapTargetGuideline` and
-`labeledTapTargetGuideline`, 8 dp gaps between targets, no overflow at 360 × 800 and 320 × 640, no
-overflow and no clipped text at text scale 2.0, a notch and gesture-bar `MediaQuery` padding (controls
-inside the safe area), `disableAnimations` (no pending frames), and `expectNoTechnicalText` with
-hostile exceptions on every failure path.
+`labeledTapTargetGuideline`, 8 dp gaps between targets (in logical pixels), visible words on every
+control other than Back and Close (S4-USABILITY-01; `expectEveryControlShowsText`, itself proven to
+fail on an icon-only button), no overflow at 360 × 800 and 320 × 640, no overflow and no clipped
+text at text scale 2.0, a notch and gesture-bar `MediaQuery` padding (controls inside the safe
+area), `disableAnimations` (no pending frames; the copy sheet and the "copied" snackbars in place on
+their first frame), and `expectNoTechnicalText` with hostile exceptions on every failure path.
 
 | File | Specific checks |
 |---|---|
-| `home_screen_test.dart` | one primary control, labelled "Tap to identify", with the microphone icon and two rings; its centre below the middle at 360 × 800; "Look Up"; heading semantics on "Heard an ad on the radio?"; the instruction and data note; label "Identify the ad playing now"; granted → recording, not granted → permission |
-| `permission_screen_test.dart` | the three variants; no request before "Allow microphone"; Back and "Not now" make none; "Open phone settings" calls the settings function; ticks have no semantics; grant → recording |
-| `listening_screen_test.dart` | Close and "Cancel" stop the fake recorder, send nothing, show Home; a louder level gives a larger ring scale; 16 bars and the filled count; progress ≈ 0.62 with 3 s left; "8 seconds left" then "3 seconds left" five seconds later, "1 second left"; "Listening…" is a live region; the bar row has no semantics |
+| `home_screen_test.dart` | one primary control, labelled "Tap to identify", with the microphone icon and two rings; the decorations of S4-HOME-06 and -07: an accent disc 200 dp across, the 56 dp microphone and the label in on-accent, rings 12 and 28 dp wide in accent-soft and half-faded accent-soft; its centre below the middle at 360 × 800; "Look Up"; heading semantics on "Heard an ad on the radio?"; the instruction and data note; label "Identify the ad playing now"; granted → recording, not granted → permission |
+| `permission_screen_test.dart` | the three variants, each with the microphone in accent on an 88 dp accent-soft circle (S4-PERMISSION-06); no request before "Allow microphone"; Back and "Not now" make none; "Open phone settings" calls the settings function; ticks have no semantics; grant → recording |
+| `listening_screen_test.dart` | Close and "Cancel" stop the fake recorder, send nothing, show Home; the decorations of S4-LISTENING-06: a 164 dp accent disc, the 52 dp microphone in on-accent, three rings 20, 40 and 60 dp wide in the soft accent, only the rings inside the scaling; a louder level gives a larger ring scale; 16 bars and the filled count; progress ≈ 0.62 with 3 s left; "8 seconds left" then "3 seconds left" five seconds later, "1 second left"; "Listening…" is a live region; the bar row has no semantics |
 | `identifying_screen_test.dart` | wording; "Cancel" cancels the request and shows Home |
-| `result_screen_test.dart` | header and label; card with banner box 2:1 the same size before and after a fake image loads, at 360 and 320; no box without a banner; "Brand A" and "via Station A · 98.1 FM"; initial letter "A" without a logo; logo hidden; title is a heading; full-width buttons at 360 and 320 in card order; icons per type, none below 360; heights ≥ 52, gaps 8; exact labels from the four-action card; a 32-character label on one line at 320 × 640 and scale 1.0; a longer label ellipsised with the full label in semantics; "More options" with 6 actions; taps launch the built address; a launcher answering false shows "Copy number" and the clipboard gets the E.164 number; a `javascript:` link never reaches the launcher; a call action with an extra `url` opens only `tel:`; update hint and empty-card note; the fallback note; one haptic call on entering matched and fallback; no download other than the banner, no media player |
+| `result_screen_test.dart` | header and label; "Found it" a heading and a live region with the status role; the card's decorations (S4-RESULT-03): surface fill, line-soft border drawn over the banner, 16 dp corners, clipped; at 360 and 320 dp (S4-RESULT-15) the order banner, client row, title, buttons, with 16 or 12 dp sides, card padding and gap, the 22 or 20 dp title and the 40 or 36 dp logo; no "Saved to History" and no "Report this" (S4-D1); card with banner box 2:1 the same size before and after a fake image loads, at 360 and 320; no box without a banner; "Brand A" and "via Station A · 98.1 FM"; initial letter "A" without a logo; logo hidden; title is a heading; full-width buttons at 360 and 320 in card order; icons per type, none below 360; heights ≥ 52, gaps 8; exact labels from the four-action card; a 32-character label on one line at 320 × 640 and scale 1.0; a longer label ellipsised with the full label in semantics; "More options" with 6 actions; taps launch the built address; a launcher answering false shows "Copy number" and the clipboard gets the E.164 number; a `javascript:` link never reaches the launcher; a call action with an extra `url` opens only `tel:`; update hint and empty-card note; the fallback note; one haptic call on entering matched and fallback; no download other than the banner, no media player |
 | `action_registry_test.dart` | exactly four types, each with both builders; `FilledButton`, `FilledButton.tonal`, `OutlinedButton` per style; one column for `VERTICAL_STACK`; a card with call, `ACTION_SHOP` and link renders two buttons and throws nothing |
-| `no_match_screen_test.dart` | wording; status role; panel heading and three tips in order; list semantics, badges hidden; "Try again" → recording; "Back to home" and Close → Home |
-| `busy_screen_test.dart` | wording and status role; "12 s" then "11 s" with tabular figures; the bar grows from 0 to 1; polite live region; a send at zero; "Try now" sends at once and no second send follows; "Cancel" and Close send nothing more and leave no clip file |
-| `error_screen_test.dart` | each variant's wording, role, icon and buttons; the code derived from the fake API's id, in monospace; "Copy" puts the displayed code on the clipboard; "Try again" → recording; "Send again" resends the kept clip; "Back to home" and Close → Home; development details only with the flag, never in production |
+| `no_match_screen_test.dart` | wording; the magnifying glass in muted on an 88 dp line-soft circle (S4-NOMATCH-03); status role; panel heading and three tips in order; list semantics, badges hidden; "Try again" → recording; "Back to home" and the × found by its label "Close" → Home (S4-ACCESSIBILITY-11) |
+| `busy_screen_test.dart` | wording and status role; the refresh icon in warning on an 88 dp warning-soft circle (S4-BUSY-03); "12 s" then "11 s" with tabular figures; the bar grows from 0 to 1; polite live region; a send at zero; "Try now" sends at once and no second send follows; "Cancel" and the × found by its label "Close" send nothing more and leave no clip file (S4-ACCESSIBILITY-11) |
+| `error_screen_test.dart` | each variant's wording, role, icon and buttons; each variant's icon colour and circle colour as §2.10 lists them (S4-ERROR-03); the code derived from the fake API's id, in monospace; "Copy" puts the displayed code on the clipboard; "Try again" → recording; "Send again" resends the kept clip; "Back to home" and Close → Home; development details only with the flag, never in production |
+| `result_fixture_cards_test.dart` | each shared reader fixture: the drawn labels, top to bottom, are exactly those of `visible_action_ids`, then after "More options" those of `more_options_action_ids`, in order; each valid card shows all its actions in card order |
+| `public_image_view_test.dart` | an image of the box's shape or taller decoded at the box's width, a wider one at the box's height; the image loaded through `HttpsImageProvider`; a banner whose server redirects to `http` never fetched over `http`, the box keeping its fill |
+| `launch_failure_sheet_test.dart`, `reference_code_panel_test.dart` | wording and copying; with "Remove animations" the sheet and the snackbars complete on their first frame, and slide when animations are on |
 | `plain_error_fallback_test.dart` | a throwing widget in a production-flavour test shows "This part couldn't be shown." and no exception text; development with the flag shows the detail |
 | `app_router_test.dart` | the route list (no ads route); Home → Listening → Result by route with fakes; an unknown path goes Home; system back on each screen does what its Back or Close does |
 
-**Golden tests** (light theme, text scale 1.0, Flutter's test font; images reviewed by eye when first
-made): Home, Permission ×3, Listening (fixed level), Identifying, Result (with and without banner),
-Result at 320 × 640 with a 32-character label, Fallback, No match, Busy at 12 s, and each Error variant
-— at 360 × 800, and Home, Result, No match, Busy and Error also at 320 × 640. Phase 6 adds the full
-matrix (four sizes × two text scales × two themes).
+**No golden images in Step 4.** The decorations the checklist items name (S4-HOME-06, -07,
+S4-PERMISSION-06, S4-LISTENING-06, S4-RESULT-03, -15, S4-NOMATCH-03, S4-BUSY-03, S4-ERROR-03) are
+asserted in the widget tests above instead: the fill and icon colours against the tokens, the
+sizes, ring widths, radius and border, and the order and spacing at 320 dp. Those assertions run on
+any machine and fail on the exact value that changed, where a golden image needs a reviewed
+reference picture per platform font. How the screens look as a whole is reviewed by eye from
+screenshots at the gate (S4-D28). Phase 6 adds golden images with the full matrix (four sizes × two
+text scales × two themes).
 
 ### 4.4 Shared-fixture tests (S4-TESTS-03; the app halves of S3-RESPONSE-15 and S4-RENDERER-12)
 
@@ -1105,16 +1166,25 @@ matrix (four sizes × two text scales × two themes).
 - `layer_imports_test.dart`: the import rules of §3.2.
 - `source_scan_test.dart` over `lib/` (and `test/` where named): no `http://`/`https://` literal
   except the two button prefixes; no `canLaunchUrl`; no `Color(0x` or `Colors.` outside
-  `look_up_tokens.dart`; no `BackdropFilter` or `ImageFilter.blur`; every `Image` sets `cacheWidth`;
-  every animation duration comes from the motion tokens and only `Transform`, `ScaleTransition`,
-  `AnimatedScale`, `FadeTransition`, `Opacity` animate; no `print`/`debugPrint` outside
+  `look_up_tokens.dart`; no `BackdropFilter` or `ImageFilter.blur`; every `Image` sets its decode
+  size (`cacheWidth`, or `cacheHeight` for an image wider than its box); no `Image.network` or
+  `NetworkImage`, which follow a redirect to `http` (images load through `HttpsImageProvider`);
+  every animation duration in widget code (`app/`, `core/widgets/`, `presentation/`) is a motion
+  token, `Duration.zero`, or a value the same file sets only from those; only a transform or the
+  opacity animates (`ScaleTransition`, `AnimatedScale`, `FadeTransition`, `AnimatedOpacity`: any
+  other `Animated…` widget, `…Transition`, `TweenAnimationBuilder` or `Hero` fails); no campaign
+  label or phone number written in `lib/` (S4-RENDERER-01): no literal of eight digits or more, none
+  equal to a label in the shared card or answer fixtures or the wireframes, none worded like a
+  campaign button ("Call …", "Chat …", "Visit …", anything with "WhatsApp"), except the Error
+  screen's own "Message support on WhatsApp" (S4-D32), allowed by file; no `print`/`debugPrint` outside
   `development_log.dart`; no `hasPermission(`; `ClipRecorder.start` called only from
   `recognition_flow.dart`; no Android id, IMEI or advertising-id API; no audio or video player; no
   fingerprinting code (S3-ARCHITECTURE-09); no `setPreferredOrientations`; banned short names
   (`req`, `res`, `err`, `cfg`, `ctx`, `btn`, `msg`, `idx`, `tmp`, `val`, `str`, `len`, `cnt`, a
   one-letter `catch (e)`) in `lib/` and `test/`, with the conventions' exceptions (`context`,
   `build`, record's `noiseSuppress`, `autoGain`, `bitRate`); the domain words (no `tenant`,
-  `customer`, `spot`, `payload`); no key-like secrets.
+  `customer`, `spot`, `payload`); no key-like secrets. Each rule is proven to fail on a planted
+  violation in a temporary copy of `lib/`, and the duration rule to pass the token forms it allows.
 - `pubspec_test.dart`: the exact pins of §3.3; no `bloc`/`flutter_bloc`; no font family; the Flutter
   constraint admits 3.41.9; no Google Play services plugin.
 - `android_project_test.dart`: minimum SDK 24; the three flavours and ids; permissions exactly
@@ -1177,7 +1247,9 @@ non-zero on any failure:
    `services/fingerprinter/.venv` Python running `tool/check_received_clip.py` (PyAV): AAC, 16,000
    Hz, one channel, 7.5–8.5 s, file and request body ≤ 32,768 bytes.
 5. A production-flavour release APK built with an `http://` address shows the set-up problem screen,
-   and the fake receives nothing (S4-SECURITY-02).
+   and the fake receives nothing (S4-SECURITY-02). Its define file has a valid support number (the
+   development fake's), so the `http` address is the only thing wrong with it
+   (`production_cleartext_defines`, unit-tested in `tool/test_run_emulator_tests.py`).
 6. Stops the emulator and the fake; writes the device name and image, each step's outcome and the
    screen dumps of any failure to the run record.
 
@@ -1227,7 +1299,7 @@ step, and goes into the step's gate record.
 
 1. Docker up: contracts, portal and API test suites (API with the real Python workers); `pytest`.
    Then stop the Look Up containers.
-2. Docker Desktop closed: `flutter analyze`; `flutter test` (unit, widget, golden, structure);
+2. Docker Desktop closed: `flutter analyze`; `flutter test` (unit, widget, structure);
    `tool/test_fake_listener_api.py`; `tool/run_emulator_tests.py`.
 3. Emulator off, Docker up: the slice verification (stack up, roles, migrate, seed — current names
    `npm run database:create-roles`, `database:migrate`, `database:seed`; API on 3100, workers,
@@ -1294,8 +1366,8 @@ cannot, and why); **No** (why). 235 items.
 | S4-HOME-03 | §2.2 | Yes |
 | S4-HOME-04 | §2.2 | Yes |
 | S4-HOME-05 | §2.2 | Yes |
-| S4-HOME-06 | §2.2, golden | Yes |
-| S4-HOME-07 | §2.2, golden + ring count | Yes |
+| S4-HOME-06 | §2.2, decorations asserted in the widget test (§4.3) | Yes |
+| S4-HOME-07 | §2.2, decorations and ring count asserted in the widget test (§4.3) | Yes |
 | S4-HOME-08 | §2.2, T1, T2 | Yes |
 | S4-HOME-09 | §2.2 | Yes |
 | S4-PERMISSION-01 | §3.16, T2 | Yes |
@@ -1303,7 +1375,7 @@ cannot, and why); **No** (why). 235 items.
 | S4-PERMISSION-03 | §2.3 | Yes |
 | S4-PERMISSION-04 | §2.3 (refused for good), T6 | Yes |
 | S4-PERMISSION-05 | §2.3, T8 | Yes |
-| S4-PERMISSION-06 | §2.3, golden | Yes |
+| S4-PERMISSION-06 | §2.3, decorations asserted in the widget test (§4.3) | Yes |
 | S4-PERMISSION-07 | §2.3 | Yes |
 | S4-PERMISSION-08 | §2.3 | Yes |
 | S4-PERMISSION-09 | §2.3 | Yes |
@@ -1354,7 +1426,7 @@ cannot, and why); **No** (why). 235 items.
 | S4-LINKS-13 | §3.14, `android_project_test`, §4.9 step 4 | Partly — the ATD emulator has no dialler or browser; opening targets is checked on the phone |
 | S4-RESULT-01 | §2.6 | Yes |
 | S4-RESULT-02 | §2.6 | Yes |
-| S4-RESULT-03 | §2.6, golden | Yes |
+| S4-RESULT-03 | §2.6, decorations asserted in the widget test (§4.3) | Yes |
 | S4-RESULT-04 | §2.6 banner box | Yes |
 | S4-RESULT-05 | §2.6 client row | Yes |
 | S4-RESULT-06 | §2.6 | Yes |
@@ -1495,13 +1567,13 @@ Fully verifiable here: 214. Partly: 19. No: 2 (S4-RESULT-08, S4-TESTS-09).
 | S4-D3 | **Dependencies**: the seven pins plus `path_provider` 2.1.6 (already cached; `record` needs a file path); test tools from the SDK; no code generation, no `uuid` package, no font files. | Fewest downloads on a metered line, every package checked on 3.41.9, nothing the plan did not ask for. |
 | S4-D4 | **State model**: `RecognitionFlow` is a `Notifier` over the sealed nine-state `RecognitionState`; the error state carries a sealed `RecognitionFailure` with six variants; registration is an `AsyncNotifier`; Riverpod 3's automatic retry is switched off app-wide. | One channel for waiting and failure; each state holds only its own data; an automatic provider retry would resend clips silently. |
 | S4-D5 | **Navigation follows the state**: go_router's `redirect` maps each state to one route (exhaustive switch); screens only call the notifier; every move replaces the page; system back goes through the notifier. | Screen and state can never disagree; Back always leads Home. |
-| S4-D6 | **Recorder**: AAC-LC, 16 kHz, mono, 24 kbit/s, noise suppression, automatic gain and echo cancellation off, `mic` source, Bluetooth not managed, interruptions pause (then the flow cancels), no recording service; Android minimum SDK 24. | The Phase 0 capture app's settings and ADR-001's measurement (25.7 kB per 8 s); `record_android` 1.5.2 needs SDK 23, and `url_launcher` and `shared_preferences` need 24 (gaps 40, 41). |
+| S4-D6 | **Recorder**: AAC-LC, 16 kHz, mono, 24 kbit/s, noise suppression, automatic gain and echo cancellation off, `mic` source, Bluetooth not managed, other audio left playing (S4-D34), no recording service; Android minimum SDK 24. | The Phase 0 capture app's settings and ADR-001's measurement (25.7 kB per 8 s); `record_android` 1.5.2 needs SDK 23, and `url_launcher` and `shared_preferences` need 24 (gaps 40, 41). |
 | S4-D7 | **Clip lifetime**: recorded to `<cache>/clips/<key>.m4a`, read into memory and the file deleted at once; leftovers swept at start and on Home; the in-memory clip is kept only while uploading, busy or "no connection", and dropped on every outcome and way out. | "We don't keep the recording" and "We kept your clip" are both true; a crash leaves no file (gap 35). |
 | S4-D8 | **Request times and fields**: `captured_at` is the wall-clock start of recording, `sent_at` is taken just before each send, `is_deferred` is `false`, no `station_hint`, field order text first and `audio` last, file `clip.m4a`, type `audio/mp4`. | Matches the contract; the server corrects clock skew from `sent_at` (S3-D15). |
 | S4-D9 | **Request ids and reference codes**: a new version-4 UUID per HTTP attempt; the reference code is the first 8 hex digits of the API's id, upper case, as `XXXX-XXXX` (e.g. `6F1C-2D3E`); support finds the line by searching for a `requestId` starting with those digits; a code is shown only for an id the API echoed or for an accepted crash report; a shared helper and fixture in `packages/contracts`. | Short enough to read out, needs no server change, and never shown when no log line exists (gap 9; S4-ERRORHANDLING-03). |
 | S4-D10 | **Every answer and network failure maps to a screen** as in §3.11: 503/502/504 → Busy; 409 and 401 handled silently once or twice; 429 → "Too many tries"; 400 `INVALID_AUDIO` → "We couldn't use that recording"; no answer → "No connection" with "Send again"; `CHOOSE_STATION`, unknown statuses and 426 → "This needs a newer Look Up"; everything else → the wireframe's Error with its code. | Gap 10 asks for exactly this; `RECOGNITION_TIMEOUT` is Busy because the API says "try again" (S3-D17, S3-D23). |
 | S4-D11 | **Retry limits**: at most 4 sends of one clip on busy answers ("Try now" included), then Error; at most 2 waits after 409; one re-registration after 401; `Retry-After` clamped to 1–60 s with defaults 10 s (busy, 429) and 3 s (409). | Bounds the waiting, stays under the 6-a-minute install limit, and stops a bad header from freezing the screen (gap 11). |
-| S4-D12 | **Network**: connect 15 s, send 30 s, receive 15 s; any failure to get an answer is "no connection", and the clip is kept so it can be resent with the same key (a replay if the server had it). | Fits an 8 s clip on slow 2G; the idempotency key makes resending safe. |
+| S4-D12 | **Network**: connect 15 s, send 30 s, receive 15 s; a network failure to get an answer (no connection, a timeout, a dropped connection) is "no connection", and the clip is kept so it can be resent with the same key (a replay if the server had it). A request the phone itself stopped (a fault in the app, or plain `http` refused outside development) is the phone failure, reported with the fault's type name only, and the clip is dropped (§3.11). | Fits an 8 s clip on slow 2G; the idempotency key makes resending safe. Resending cannot cure a fault on the phone, and calling it "No connection" would hide it from the developers. |
 | S4-D13 | **The app never shows the API's `message`**; it maps each code to its own wording, and unknown codes to the generic Error. | Stricter than the rule allows, and ready for Bemba and Nyanja (gap 23). |
 | S4-D14 | **Installs**: register in the background on first launch and again only when the token is missing, near expiry or refused; one registration at a time; install id, token and expiry in `shared_preferences` with Android backup off; no integrity verdict in Step 4. | The token only allows rate-limited recognitions; a secure-storage plugin is unpinned and unreliable on low-end phones; Play Integrity needs a Google Cloud project and a store listing that do not exist (gap 12; S3-INSTALLS-10, -12 stay open; Q4). |
 | S4-D15 | **Reading answers**: required are `status` and, for `MATCH`, a readable result (station name and frequency, client name, title, card); unknown fields are ignored and never shown; images only from `https`; unknown kinds read as a campaign, unknown statuses as "newer app needed". | An older app keeps working against a newer server, and nothing internal can reach the screen. |
@@ -1512,7 +1584,7 @@ Fully verifiable here: 214. Partly: 19. No: 2 (S4-RESULT-08, S4-TESTS-09).
 | S4-D20 | **Result rendering**: labels longer than 32 code points show 31 and "…", the full label for screen readers; shorter labels are shown whole and may wrap at large text sizes; icons are dropped below 360 dp; no banner box without a banner; the screen scrolls. | Satisfies both the reader rule (long labels shown) and "no clipped text" (S4-RESPONSIVE-03); Result320 drops icons (gap 14). |
 | S4-D21 | **Default card and newer-app states**: the fallback is the Result layout with "This ad isn't on air right now, so these are [client name]'s usual contact details."; the haptic tick fires for both matched and fallback; update messages are statements ("Some buttons need a newer version of Look Up.") with no update control until a store listing exists. | Gaps 27 and 29; S4-USABILITY-02 forbids instructions without a control. |
 | S4-D22 | **Permission variants**: not asked yet, refused once, refused for good (with "Open phone settings" as the primary button); only "Allow microphone" asks the system; `record.hasPermission()` is never called; coming back from settings with access goes to Home without recording. | Gap 31; recording only ever follows a fresh tap. |
-| S4-D23 | **Lifecycle**: hide or pause during recording cancels and discards; during Busy the countdown pauses; `inactive` alone changes nothing. | "Never in the background"; no surprise sends from a backgrounded app. |
+| S4-D23 | **Lifecycle**: hide or pause during recording cancels and discards; during Busy the countdown pauses, and so does the wait after a 409, each going on when the app is shown; `inactive` alone changes nothing. | "Never in the background"; no surprise sends from a backgrounded app. |
 | S4-D24 | **Theme**: a Dart generator turns `tokens.json` into one `ThemeExtension`; `ColorScheme.fromSeed(accent)` with the exact token colours copied over; light theme only; the system font; three new type tokens (`headline`, `cardTitle`, `cardTitleCompact`); nearest token for in-between wireframe values. | No hand-written design values, no drift, no font download (gap 22); the tokens gain the sizes the wireframes use (ALL: wireframes and tokens in sync). |
 | S4-D25 | **Flavours and cleartext**: Gradle product flavours plus `--dart-define-from-file`, which must agree; `http` refused in Dart outside development, with Android's cleartext settings as the second line; fail-closed start-up. | Dart's HTTP client cannot be relied on to obey Android's network-security configuration, so the manifest alone would not enforce S4-SECURITY-02. |
 | S4-D26 | **Crash reports and logs**: the four global handlers report to `/client-errors` with the report's own request id, no token, text scrubbed on the phone, at most one per error a minute and 10 a minute, never throwing; `presentError` and all logging only in development with the verbose flag; a development-only "Send a test error" control. | "Client crashes must reach the developer", no PII in reports or the device log, and the P6-TESTS-13 throw check can run at the S4 gate. |
@@ -1520,9 +1592,10 @@ Fully verifiable here: 214. Partly: 19. No: 2 (S4-RESULT-08, S4-TESTS-09).
 | S4-D28 | **States with no wireframe are built first and reviewed at the gate**: Identifying, the fallback card, Permission refused once and for good, the five Error variants, the copy sheet, "More options", and every Step 4 screen at 320 dp are built in the wireframes' style with the wording in §2; the user reviews screenshots at 360 and 320 dp at the Step 4 gate, and any change is made before the gate closes. | The user's choice (8 October 2026): nothing waits on an approval before the gate; S4-DESIGN-01 is checked at the gate. |
 | S4-D29 | **Fake API and emulator runner**: a standard-library Python fake on `127.0.0.1:3999` answering with the shared fixtures, strict about requests, with a scenario queue and a request log; the runner refuses to start while Docker runs and uses the `lookup_test` ATD device. | S4-TESTS-04 to -08; the fake cannot drift from the contract; Docker and the emulator never run together. |
 | S4-D30 | **Phone to PC through an ngrok tunnel** (the user's choices, 8 October 2026): ngrok gives the API on port 3100 the user's fixed public `https` address, so the phone APK is built once; the phone build is the development flavour addressed to it, so the phone sends no plain http; cleartext stays only for the emulator's `10.0.2.2`. ngrok is an 11.7 MB download with a free account, asked for when the phone check is run, and runs only during the session, because it exposes the local API to the internet. | Works whatever network the phone and the PC are on; cloudflared needs no account but changes its address every run, and the address is built into the app. |
-| S4-D32 | **Support on WhatsApp**: the Error screen's failure variants offer "Message support on WhatsApp" with the reference code filled in, when the build defines `LOOKUP_SUPPORT_WHATSAPP_NUMBER`; the link is built by the same WhatsApp address builder as the card's buttons; without a number the link is hidden. | The user chose WhatsApp (8 October 2026); the number is asked for at the gate, so the code is never shown with a promise of support that cannot be reached. |
+| S4-D32 | **Support on WhatsApp**: the Error screen's failure variants offer "Message support on WhatsApp" with the reference code filled in, when the build defines `LOOKUP_SUPPORT_WHATSAPP_NUMBER`; the link is built by the same WhatsApp address builder as the card's buttons; without a number the link is hidden. Staging and production builds refuse to start without a number (§3.7), so only a development build can ever lack it. | The user chose WhatsApp (8 October 2026); the number is asked for at the gate, so the code is never shown with a promise of support that cannot be reached. |
 | S4-D33 | **Stack corrections from the check against this PC** (the user approved, 8 October 2026): `permission_handler` 12.0.3, not 13.0.2, whose Android part needs compile SDK 37 and an Android Gradle Plugin newer than Flutter 3.41.9 supports ("refused for good" is read from the result of `request()`); no `integration_test` and no debug or profile builds, because only the release engines are cached (about 114 MB for the emulator's debug engine): emulator tests drive the release APK with `adb` and `uiautomator`; the plugins' unused Gradle plugin and Kotlin versions are pointed at the cached ones; the clip is 24 kbit/s, because at 32 kbit/s the request passes 32 KB. | Keeps the first build to about 25–30 MB of downloads, with no new toolchain, on Flutter 3.41.9 as installed (S4-STACK-01); S4-STACK-07's pin is changed with the user's approval. |
 | S4-D31 | **"About 25 KB of data" means the clip upload** (the recognize request), measured at about 26 KB; the answer (2–3 KB) and connection overhead are not counted; the measured total is recorded at the gate, and the wording is revisited if it exceeds 35 KB. | Gap 21; keeps the wireframe wording true for what it describes. |
+| S4-D34 | **Recording leaves other audio playing** (review, 8 October 2026): `audioInterruption: AudioInterruptionMode.none`; on iOS `IosRecordConfig(categoryOptions: [mixWithOthers, defaultToSpeaker])`, without `allowBluetooth`. A call still ends the recording, because the call screen hides the app (T13). Replaces "interruptions pause" in S4-D6. | Listeners mostly hear the station on the same phone. With `pause`, `record_android` 1.5.2 takes the audio focus for good, which pauses the radio app or stream: the clip is near-silent and the radio stays paused. iOS's default session does not mix with other audio, and its default `allowBluetooth` would record from a headset's microphone instead of the phone's (§3.15). |
 
 ---
 

@@ -25,6 +25,16 @@ const String _storedInstallId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
 const String _firstToken = 'first.token.value';
 const String _secondToken = 'second.token.value';
 
+/// A registration that fails with a fault in the app, which nothing below the repository expects.
+class _FaultyRegistration extends ListenerInstallRegistration {
+  _FaultyRegistration({required super.apiClient});
+
+  @override
+  Future<ListenerInstallRegistrationResult> register(
+    ListenerInstallCredentials credentials,
+  ) async => throw StateError('secret detail');
+}
+
 /// A registration answer, 30 days from the fake clock's start (noon UTC, 8 October 2026).
 Map<String, Object?> _registrationAnswer(
   String token, {
@@ -210,6 +220,34 @@ void main() {
       final answer = result.answer as ApiAnswerReceived;
       expect(answer.status, 429);
       expect(answer.retryAfter, '30');
+    });
+
+    test('a fault on the phone is handed back as a fault, by its type only', () async {
+      final randomUuid = RandomUuid();
+      final repository = ListenerInstallRepository(
+        store: ListenerInstallStore(randomUuid: randomUuid),
+        registration: _FaultyRegistration(
+          apiClient: ApiClient(
+            configuration: ExampleAppConfigurations.production(),
+            randomUuid: randomUuid,
+            clock: clock,
+            httpClientAdapter: adapter,
+          ),
+        ),
+        randomUuid: randomUuid,
+        clock: clock,
+      );
+      final result = await repository.ensureRegistered();
+      expect(
+        result,
+        isA<ListenerInstallNotRegistered>().having(
+          (result) => result.answer,
+          'answer',
+          isA<ApiAnswerNotReceived>()
+              .having((answer) => answer.reason, 'reason', ApiNoAnswerReason.unexpectedFailure)
+              .having((answer) => answer.faultTypeName, 'faultTypeName', 'StateError'),
+        ),
+      );
     });
 
     test('the next call tries again', () async {

@@ -6,14 +6,14 @@ import 'package:lookup_listener/features/result/domain/read_action_card.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 
 void main() {
-  final result = RecognitionResult(
+  final result = const RecognitionResult(
     kind: RecognitionResultKind.campaign,
     stationId: '0192a6c4-1111-4000-8000-000000000001',
     stationName: 'Station A',
     stationFrequencyLabel: '98.1 FM',
     clientName: 'Brand A',
     title: 'Summer service offer',
-    card: const ReadActionCard.empty(showsUpdateAppHint: false),
+    card: ReadActionCard.empty(showsUpdateAppHint: false),
   );
 
   final oneOfEachState = <RecognitionState>[

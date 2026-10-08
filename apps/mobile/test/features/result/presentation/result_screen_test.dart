@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/result/domain/action_uri_builder.dart';
 import 'package:lookup_listener/features/result/domain/read_action_card.dart';
@@ -18,6 +20,8 @@ import 'package:lookup_listener/features/result/presentation/result_screen.dart'
 import '../../../support/expect_no_technical_text.dart';
 import '../../../support/phone_screen.dart';
 import '../../../support/repository_file_locator.dart';
+import '../../identify/presentation/identify_screen_harness.dart'
+    show expectEveryControlShowsText, expectStateHeading;
 import '../support/fake_image_http_client.dart';
 import '../support/result_screen_harness.dart';
 
@@ -33,6 +37,11 @@ Map<String, Object?> get _wireframeCard {
       {...action, 'label': labels[index], 'style': styles[index]},
   ]);
 }
+
+/// The Result card: the box with the line-soft border drawn over its banner.
+final Finder _card = find.byWidgetPredicate(
+  (widget) => widget is Container && widget.foregroundDecoration != null,
+);
 
 /// The station's buttons, top to bottom.
 List<ActionButton> _shownButtons(WidgetTester tester) =>
@@ -58,6 +67,43 @@ void main() {
       expect(find.text('Found it'), findsOneWidget);
       expect(find.byIcon(Icons.arrow_back), findsOneWidget);
       expect(find.bySemanticsLabel('Back to home'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('"Found it" is a heading, announced as a status when the result appears', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await ResultScreenHarness().pumpResultScreen(tester, resultWith());
+
+      expectStateHeading(tester, 'Found it', SemanticsRole.status);
+      semantics.dispose();
+    });
+
+    testWidgets('no "Saved to History" and no "Report this": both wait for Phase 6 (S4-D1)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      for (final kind in RecognitionResultKind.values) {
+        await ResultScreenHarness().pumpResultScreen(
+          tester,
+          resultWith(kind: kind, card: fixtureCard('action-card/valid/six-actions.json')),
+        );
+        // Everything the screen can show, "More options" opened (it stays open for the second
+        // kind, as the same screen is shown again).
+        if (find.byType(MoreOptionsButton).evaluate().isNotEmpty) {
+          await tester.ensureVisible(find.byType(MoreOptionsButton));
+          await tester.pump();
+          await tester.tap(find.byType(MoreOptionsButton));
+          await tester.pump();
+        }
+        expect(find.byType(ActionButton), findsNWidgets(6));
+
+        for (final missing in ['Saved to History', 'Report this', 'History', 'Report']) {
+          expect(find.textContaining(missing), findsNothing, reason: '${kind.name}: $missing');
+          expect(find.bySemanticsLabel(RegExp(missing)), findsNothing, reason: kind.name);
+        }
+      }
       semantics.dispose();
     });
 
@@ -91,6 +137,59 @@ void main() {
       expect(via.top, greaterThanOrEqualTo(name.bottom));
       expect(tester.getRect(find.text('Summer service offer')).top, greaterThan(logo.bottom));
     });
+
+    testWidgets('a white card: surface fill, a line-soft border over the banner, 16 dp corners, '
+        'clipped (S4-RESULT-03)', (tester) async {
+      await ResultScreenHarness().pumpResultScreen(tester, resultWith(headerImage: fixtureBanner));
+      const colours = LookUpColours.light;
+      final card = tester.widget<Container>(_card);
+
+      final fill = card.decoration! as BoxDecoration;
+      expect(fill.color, colours.surface);
+      expect(fill.borderRadius, BorderRadius.circular(16));
+      final edge = card.foregroundDecoration! as BoxDecoration;
+      expect(edge.border, Border.all(color: colours.lineSoft));
+      expect(edge.borderRadius, BorderRadius.circular(16));
+      expect(card.clipBehavior, Clip.antiAlias);
+      // The card holds the banner, the client row and the title.
+      for (final part in [find.byType(BannerBox), find.byType(ClientLogo)]) {
+        expect(find.descendant(of: _card, matching: part), findsOneWidget);
+      }
+      expect(find.descendant(of: _card, matching: find.text('Summer service offer')), findsOne);
+    });
+
+    for (final (phoneScreen, space, titleSize, logoSize) in [
+      (PhoneScreen.standard, 16.0, 22.0, 40.0),
+      (_narrowPhone, 12.0, 20.0, 36.0),
+    ]) {
+      testWidgets('on $phoneScreen: banner, client row, title, then the buttons, with $space dp '
+          'sides, card padding and gap, a $titleSize dp title and a $logoSize dp logo '
+          '(S4-RESULT-15)', (tester) async {
+        await ResultScreenHarness().pumpResultScreen(
+          tester,
+          resultWith(headerImage: fixtureBanner),
+          phoneScreen: phoneScreen,
+        );
+        final card = tester.getRect(_card);
+        final banner = tester.getRect(find.byType(BannerBox));
+        final logo = tester.getRect(find.byType(ClientLogo));
+        final clientRow = tester.getRect(
+          find.ancestor(of: find.byType(ClientLogo), matching: find.byType(Row)).first,
+        );
+        final title = tester.getRect(find.text('Summer service offer'));
+        final firstButton = tester.getRect(find.byType(ActionButton).first);
+
+        expect(card.left, space);
+        expect(card.right, phoneScreen.width - space);
+        expect(banner.top, card.top);
+        expect(clientRow.top, banner.bottom + space);
+        expect(logo.left, card.left + space);
+        expect(title.top, greaterThan(clientRow.bottom));
+        expect(firstButton.top, card.bottom + space);
+        expect(tester.widget<Text>(find.text('Summer service offer')).style!.fontSize, titleSize);
+        expect(logo.size, Size.square(logoSize));
+      });
+    }
 
     testWidgets('without a logo the circle shows the first letter of the client\'s name', (
       tester,
@@ -528,7 +627,9 @@ void main() {
       });
     }
 
-    testWidgets('meets the tap target, label and contrast guidelines', (tester) async {
+    testWidgets('meets the tap target, label and contrast guidelines; every control but Back shows '
+        'words (S4-USABILITY-01)', (tester) async {
+      final semantics = tester.ensureSemantics();
       await ResultScreenHarness().pumpResultScreen(
         tester,
         resultWith(
@@ -539,6 +640,8 @@ void main() {
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
       await expectLater(tester, meetsGuideline(textContrastGuideline));
+      expectEveryControlShowsText(tester);
+      semantics.dispose();
     });
 
     testWidgets('keeps every control inside the safe area of a notched phone', (tester) async {

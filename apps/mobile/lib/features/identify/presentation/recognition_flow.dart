@@ -54,9 +54,15 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   ClipRecording? _recording;
   StreamSubscription<double>? _levelSubscription;
   StreamSubscription<void>? _interruptionSubscription;
+  StreamSubscription<Never>? _recorderFailureSubscription;
   Timer? _recordingCountdown;
   Timer? _busyCountdown;
   Timer? _inProgressWait;
+
+  /// Whole seconds left of the wait after a 409 (T22); 0 when there is no such wait. Kept apart
+  /// from its timer, so the wait can pause while the app is hidden and go on when it is shown.
+  int _inProgressSecondsLeft = 0;
+
   RecognitionCancellation? _sendCancellation;
 
   /// Whether the app is on screen: resumed, or inactive (the notification shade over it), which
@@ -242,6 +248,11 @@ class RecognitionFlow extends Notifier<RecognitionState> {
       (_) => _cancelInterruptedRecording(identifyNumber),
       onError: (Object error) {},
     );
+    _recorderFailureSubscription = recording.failures.listen(
+      null,
+      onError: (Object error, StackTrace stackTrace) =>
+          _failBrokenRecording(identifyNumber, error, stackTrace),
+    );
     _recordingCountdown = Timer.periodic(
       const Duration(seconds: 1),
       (countdown) => _countDownRecording(identifyNumber, countdown, idempotencyKey, capturedAt),
@@ -283,9 +294,22 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     unawaited(_finishRecording(identifyNumber, idempotencyKey, capturedAt));
   }
 
-  /// T13, from the recorder: a call or another app paused it, so the clip is cancelled.
+  /// T13, from the recorder: the platform paused it, so the clip is cancelled.
   void _cancelInterruptedRecording(int identifyNumber) {
     if (_isCurrent(identifyNumber) && state is RecordingState) _goHome();
+  }
+
+  /// T14, from the recorder: it broke while recording (an error from the platform, or a stop
+  /// nobody asked for). The phone failure shows at once rather than when the 8 seconds end; the
+  /// recording is cancelled, its file deleted, nothing is sent, and the failure is reported.
+  void _failBrokenRecording(int identifyNumber, Object error, StackTrace stackTrace) {
+    if (!_isCurrent(identifyNumber) || state is! RecordingState) return;
+    _failOnPhone(
+      identifyNumber,
+      error,
+      stackTrace,
+      description: 'The recorder failed while recording',
+    );
   }
 
   /// T11: stops the recorder, reads the clip into memory (the recorder deletes the file at once)
@@ -376,10 +400,8 @@ class RecognitionFlow extends Notifier<RecognitionState> {
       case WaitAndResendOutcome(:final waitSeconds, :final nextPolicy):
         // T22: still on Identifying; the same clip and key after the wait.
         _sendPolicy = nextPolicy;
-        _inProgressWait = Timer(Duration(seconds: waitSeconds), () {
-          _inProgressWait = null;
-          unawaited(_send(identifyNumber));
-        });
+        _inProgressSecondsLeft = waitSeconds;
+        _startInProgressWait(identifyNumber);
       case RegisterAgainOutcome(:final nextPolicy):
         // T23: still on Identifying; a new token for the same install, then the same clip again.
         _sendPolicy = nextPolicy;
@@ -397,6 +419,31 @@ class RecognitionFlow extends Notifier<RecognitionState> {
       const Duration(seconds: 1),
       (countdown) => _countDownBusy(identifyNumber, countdown),
     );
+  }
+
+  /// T22: counts the wait after a 409 down, one second at a time, only while the app is in the
+  /// foreground, like Busy's countdown (S4-D23: no timed resend leaves a hidden app); at zero the
+  /// kept clip is sent again with the same key.
+  void _startInProgressWait(int identifyNumber) {
+    _inProgressWait?.cancel();
+    _inProgressWait = null;
+    if (!_isInForeground) return;
+    _inProgressWait = Timer.periodic(
+      const Duration(seconds: 1),
+      (wait) => _countDownInProgressWait(identifyNumber, wait),
+    );
+  }
+
+  void _countDownInProgressWait(int identifyNumber, Timer wait) {
+    if (!_isCurrent(identifyNumber) || state is! UploadingState) {
+      wait.cancel();
+      return;
+    }
+    _inProgressSecondsLeft--;
+    if (_inProgressSecondsLeft > 0) return;
+    wait.cancel();
+    _inProgressWait = null;
+    unawaited(_send(identifyNumber));
   }
 
   void _countDownBusy(int identifyNumber, Timer countdown) {
@@ -510,21 +557,25 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   }
 
   /// The app's lifecycle (§3.17, S4-D23): hidden or paused cancels a recording (T13) and pauses
-  /// Busy's countdown (T31); shown again resumes it; resumed on the Permission screen re-reads the
-  /// permission (T7). `inactive` alone changes nothing.
+  /// Busy's countdown (T31) and the wait after a 409 (T22); shown again resumes them; resumed on
+  /// the Permission screen re-reads the permission (T7). `inactive` alone changes nothing.
   void _followLifecycle(AppLifecycleState lifecycleState) {
     final wasInForeground = _isInForeground;
     _isInForeground = _isForeground(lifecycleState);
     final current = state;
     if (!_isInForeground) {
       if (current is RecordingState) _goHome();
-      if (current is BusyState) {
-        _busyCountdown?.cancel();
-        _busyCountdown = null;
-      }
+      _busyCountdown?.cancel();
+      _busyCountdown = null;
+      // The seconds left are kept; only the timer stops.
+      _inProgressWait?.cancel();
+      _inProgressWait = null;
       return;
     }
     if (!wasInForeground && current is BusyState) _startBusyCountdown(_identifyNumber);
+    if (!wasInForeground && current is UploadingState && _inProgressSecondsLeft > 0) {
+      _startInProgressWait(_identifyNumber);
+    }
     if (lifecycleState == AppLifecycleState.resumed && current is PermissionNeededState) {
       unawaited(_checkAccessOnReturn());
     }
@@ -577,6 +628,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _busyCountdown = null;
     _inProgressWait?.cancel();
     _inProgressWait = null;
+    _inProgressSecondsLeft = 0;
     _sendCancellation?.cancel();
     _sendCancellation = null;
     _stopListeningToRecording();
@@ -590,6 +642,8 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _levelSubscription = null;
     unawaited(_interruptionSubscription?.cancel());
     _interruptionSubscription = null;
+    unawaited(_recorderFailureSubscription?.cancel());
+    _recorderFailureSubscription = null;
   }
 
   void _dropClip() {

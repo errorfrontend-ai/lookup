@@ -329,6 +329,15 @@ void main() {
       expect(outcome.isClipKept, isTrue);
     });
 
+    test('no answer because the phone itself stopped the request → phone failure, reported', () {
+      final outcome = _decide(const PhoneFaultAnswer(problem: 'a fault in the app (StateError)'));
+      _expectFinished(outcome, _phoneFailure, isReported: true, relatedRequestId: null);
+      expect(
+        (outcome as FinishedOutcome).problemReport!.summary,
+        'Recognize request stopped on the phone: a fault in the app (StateError).',
+      );
+    });
+
     test('the listener cancels → idle; clip deleted', () {
       _expectFinished(_decide(const CancelledAnswer()), const IdleState(), isReported: false);
     });
@@ -395,6 +404,42 @@ void main() {
       (outcome as FinishedOutcome).problemReport!.summary,
       'Recognize answer HTTP 400 VALIDATION_FAILED (fields: captured_at invalid_format, '
       'sent_at invalid_format): the API refused what the app sent.',
+    );
+  });
+
+  test('a report about the install registration names the registration, not the clip', () {
+    String summaryOf(RecognitionAnswer answer) =>
+        (_decide(answer) as FinishedOutcome).problemReport!.summary;
+    expect(
+      summaryOf(
+        const ErrorStatusAnswer(
+          httpStatus: 400,
+          errorCode: 'VALIDATION_FAILED',
+          apiRequestId: _apiRequestId,
+          answeredRequest: AnsweredRequest.installRegistration,
+        ),
+      ),
+      'Install registration answer HTTP 400 VALIDATION_FAILED: the API refused what the app sent.',
+    );
+    expect(
+      summaryOf(
+        const UnreadableAnswer(
+          problem: 'install_token is missing or not text',
+          apiRequestId: _apiRequestId,
+          answeredRequest: AnsweredRequest.installRegistration,
+        ),
+      ),
+      'Install registration answer HTTP 200: the body could not be read: '
+      'install_token is missing or not text.',
+    );
+    expect(
+      summaryOf(
+        const PhoneFaultAnswer(
+          problem: 'a fault in the app (StateError)',
+          answeredRequest: AnsweredRequest.installRegistration,
+        ),
+      ),
+      'Install registration request stopped on the phone: a fault in the app (StateError).',
     );
   });
 

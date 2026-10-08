@@ -85,6 +85,37 @@ void main() {
       );
     });
 
+    test('the motion tokens, Duration.zero and values set from them pass the duration rule', () {
+      copy.writeFile('features/identify/presentation/planted_allowed_motion.dart', '''
+Widget plantedRing(BuildContext context, Widget child, bool isStill) {
+  final ringDuration = isStill ? Duration.zero : context.lookUpTokens.motion.fast;
+  return AnimatedScale(scale: 1, duration: ringDuration, child: child);
+}
+
+AnimationController plantedBreathing(TickerProvider vsync, LookUpTokens tokens) =>
+    AnimationController(vsync: vsync, duration: tokens.motion.slow, reverseDuration: Duration.zero);
+''');
+      final rule = SourceRules.library.singleWhere(
+        (rule) => rule.name == 'animation duration not from the motion tokens',
+      );
+      expect(
+        rule
+            .findViolationsIn(DartSourceTree.read(copy.folder))
+            .violations
+            .where((violation) => violation.contains('planted_allowed_motion')),
+        isEmpty,
+      );
+    });
+
+    test('the campaign rule knows the labels of the shared card fixtures', () {
+      for (final label in ['Call us', 'WhatsApp us', 'Find our shop', 'Chat on WhatsApp']) {
+        expect(SourceRules.campaignLiteralPattern.hasMatch(label), isTrue, reason: label);
+      }
+      for (final appText in ['Try again', 'Copy number', 'Back to home', '6F1C-2D3E', '0.1.0+1']) {
+        expect(SourceRules.campaignLiteralPattern.hasMatch(appText), isFalse, reason: appText);
+      }
+    });
+
     test('a rule ignores comments, and code ignores what strings say', () {
       copy.writeFile('core/planted_comment.dart', '''
 // print('in a comment'); Colors.red; canLaunchUrl(address); http://api.lookup.invalid
@@ -210,9 +241,59 @@ final List<_PlantedViolation> _plantedViolations = [
     "const String plantedKey = '${'AKIA'}${'Q' * 16}';\n",
   ),
   const _PlantedViolation(
-    'image without cacheWidth',
+    'image without a decode size',
     'features/result/presentation/planted_image.dart',
     'Widget plantedBanner(String address) => Image.network(address, width: 320);\n',
+  ),
+  const _PlantedViolation(
+    'image that may follow a redirect to http',
+    'features/result/presentation/planted_network_image.dart',
+    'Widget plantedLogo(String address) => Image.network(address, cacheWidth: 120);\n',
+  ),
+  const _PlantedViolation(
+    'animation duration not from the motion tokens',
+    'features/identify/presentation/planted_animation_duration.dart',
+    'Widget plantedPulse(Widget child) =>\n'
+        '    AnimatedScale(scale: 1.1, duration: const Duration(milliseconds: 250), child: child);\n',
+  ),
+  const _PlantedViolation(
+    'animation duration not from the motion tokens',
+    'core/widgets/planted_named_duration.dart',
+    'const Duration plantedWait = Duration(milliseconds: 400);\n\n'
+        'Widget plantedFade(Widget child) =>\n'
+        '    AnimatedOpacity(opacity: 1, duration: plantedWait, child: child);\n',
+  ),
+  const _PlantedViolation(
+    'animation other than scale or opacity',
+    'features/result/presentation/planted_slide.dart',
+    'Widget plantedSlide(Animation<Offset> position, Widget child) =>\n'
+        '    SlideTransition(position: position, child: child);\n',
+  ),
+  const _PlantedViolation(
+    'animation other than scale or opacity',
+    'app/planted_container.dart',
+    'Widget plantedGrow(double height, Duration duration) =>\n'
+        '    AnimatedContainer(height: height, duration: duration);\n',
+  ),
+  const _PlantedViolation(
+    'campaign label or phone number',
+    'features/result/presentation/planted_campaign_label.dart',
+    "const String plantedLabel = 'Call us';\n",
+  ),
+  const _PlantedViolation(
+    'campaign label or phone number',
+    'features/result/domain/planted_phone_number.dart',
+    "const String plantedNumber = '+260977123456';\n",
+  ),
+  const _PlantedViolation(
+    'campaign label or phone number',
+    'features/identify/presentation/planted_spaced_number.dart',
+    "const String plantedNumber = '0977 123 456';\n",
+  ),
+  const _PlantedViolation(
+    'campaign label or phone number',
+    'features/identify/presentation/planted_whatsapp_label.dart',
+    "const String plantedLabel = 'Message us on WhatsApp';\n",
   ),
   const _PlantedViolation(
     'banned domain word',

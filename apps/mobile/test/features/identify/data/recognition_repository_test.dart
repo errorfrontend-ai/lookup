@@ -4,6 +4,7 @@ import 'dart:io' show HttpDate, SocketException;
 
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
@@ -47,11 +48,12 @@ void main() {
   final responseFixtures = ContractFixtures.readFolder('recognition/recognize-response/valid');
   final envelopeFixtures = ContractFixtures.readFolder('errors/envelopes');
 
-  /// The repository as the app builds it, over the fake HTTP adapter and stored install values.
-  RecognitionRepository buildRepository() {
+  /// The repository as the app builds it, over the fake HTTP adapter and stored install values;
+  /// production unless [configuration] replaces it.
+  RecognitionRepository buildRepository({AppConfiguration? configuration}) {
     final randomUuid = RandomUuid();
     final apiClient = ApiClient(
-      configuration: ExampleAppConfigurations.production(),
+      configuration: configuration ?? ExampleAppConfigurations.production(),
       randomUuid: randomUuid,
       clock: clock,
       httpClientAdapter: adapter,
@@ -272,6 +274,34 @@ void main() {
       expect(await sendOnce(), isA<NoAnswer>());
     });
 
+    test('a fault on the phone is a phone fault, not "no answer", by its type only', () async {
+      adapter.failWith(StateError('secret detail'));
+      final answer = await sendOnce();
+      expect(answer, isA<PhoneFaultAnswer>());
+      answer as PhoneFaultAnswer;
+      expect(answer.problem, 'a fault in the app (StateError)');
+      expect(answer.answeredRequest, AnsweredRequest.recognize);
+    });
+
+    test('plain http outside development is a phone fault, and nothing is sent', () async {
+      repository = buildRepository(
+        configuration: MisbuiltAppConfiguration(
+          flavour: AppFlavour.production,
+          apiBaseUrl: 'http://api.lookup.invalid/api/v1',
+        ),
+      );
+      final answer = await sendOnce();
+      expect(
+        answer,
+        isA<PhoneFaultAnswer>().having(
+          (answer) => answer.problem,
+          'problem',
+          'the address is plain http outside the development flavour',
+        ),
+      );
+      expect(adapter.requests, isEmpty);
+    });
+
     test('cancelling a send in flight gives the cancelled answer (T28)', () async {
       adapter.waitUntilCancelled();
       final cancellation = RecognitionCancellation();
@@ -349,6 +379,32 @@ void main() {
       expect(adapter.requests, hasLength(1));
     });
 
+    test(
+      'a registration stopped by a fault on the phone is a phone fault of the registration',
+      () async {
+        storeInstall(token: null);
+        repository = buildRepository();
+        adapter.failWith(StateError('secret detail'));
+        final answer = await sendOnce();
+        expect(answer, isA<PhoneFaultAnswer>());
+        answer as PhoneFaultAnswer;
+        expect(answer.answeredRequest, AnsweredRequest.installRegistration);
+        expect(answer.problem, 'a fault in the app (StateError)');
+        expect(adapter.requests, hasLength(1), reason: 'no clip is sent');
+      },
+    );
+
+    test('a refused registration is marked as an answer to the registration', () async {
+      storeInstall(token: null);
+      repository = buildRepository();
+      final refused = envelopeFixtures.firstWhere((fixture) => fixture.name == 'validation-failed');
+      adapter.answerJson(400, (refused.content! as Map)['body']);
+      final answer = await sendOnce();
+      expect(answer, isA<ErrorStatusAnswer>());
+      expect((answer as ErrorStatusAnswer).answeredRequest, AnsweredRequest.installRegistration);
+      expect(answer.errorCode, 'VALIDATION_FAILED');
+    });
+
     test('a registration refused for too many tries reads as 429 with its Retry-After', () async {
       storeInstall(token: null);
       repository = buildRepository();
@@ -391,7 +447,8 @@ void main() {
         final answer = await sendOnce();
         expect(answer, isA<UnreadableAnswer>());
         expect((answer as UnreadableAnswer).apiRequestId, _headerRequestId);
-        expect(answer.problem, contains('install registration'));
+        expect(answer.answeredRequest, AnsweredRequest.installRegistration);
+        expect(answer.problem, 'install_token is missing or not text');
       },
     );
   });

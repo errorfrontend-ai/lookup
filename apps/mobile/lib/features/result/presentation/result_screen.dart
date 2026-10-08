@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter/services.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
@@ -71,10 +72,7 @@ class _ResultScreenState extends State<ResultScreen> {
       },
       child: ScreenFrame(
         exitButton: ScreenExitButton.back(label: 'Back to home', onPressed: widget.onBackToHome),
-        title: Text(
-          'Found it',
-          style: tokens.typeStyles.body.copyWith(fontWeight: FontWeight.w700),
-        ),
+        title: const _FoundItHeading(),
         bodyPadding: EdgeInsets.fromLTRB(
           sideSpace,
           isCompact ? spacing.space1 : spacing.space2,
@@ -99,6 +97,36 @@ class _ResultScreenState extends State<ResultScreen> {
               registry: widget.actionRegistry,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Found it" beside the Back arrow: read as a heading and announced as soon as the screen appears,
+/// as the state screens' headings are (design §2.6), because the result arrives without the
+/// listener touching anything.
+///
+/// Two semantics nodes, as in the identify screens' `StateHeading`: Flutter refuses a node that is
+/// both a live region and a status, so the outer node carries the status role and the inner one is
+/// the heading and the live region that Android's TalkBack announces.
+class _FoundItHeading extends StatelessWidget {
+  const _FoundItHeading();
+
+  static const String text = 'Found it';
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      role: SemanticsRole.status,
+      child: Semantics(
+        container: true,
+        header: true,
+        liveRegion: true,
+        child: Text(
+          text,
+          style: context.lookUpTokens.typeStyles.body.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
     );

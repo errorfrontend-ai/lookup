@@ -1,6 +1,8 @@
-/// Why an HTTP attempt brought no answer. To the identify flow every reason but [cancelled] means
-/// the same thing, "no answer" (design §3.11: "No connection", the clip kept); the reasons are kept
-/// apart only for the development log and for tests. None of them carries exception text.
+/// Why an HTTP attempt brought no answer. To the identify flow the network's reasons
+/// ([noConnection], [timedOut], [connectionDropped]) mean "No connection", the clip kept; [cancelled]
+/// is the listener's cancel; [plainHttpRefused] and [unexpectedFailure] are faults on the phone,
+/// shown as the phone failure and reported (design §3.11, S4-D12). None of them carries exception
+/// text.
 enum ApiNoAnswerReason {
   /// No network, a DNS failure, a refused connection, or a secure connection that could not be
   /// made.

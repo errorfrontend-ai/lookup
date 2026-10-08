@@ -4,6 +4,7 @@ import 'package:lookup_listener/features/result/presentation/launch_failure_shee
 
 import '../../../support/expect_no_technical_text.dart';
 import '../../../support/phone_screen.dart';
+import '../../identify/presentation/identify_screen_harness.dart' show disableAnimations;
 import '../support/result_screen_harness.dart';
 
 const String _mapAddress =
@@ -165,4 +166,56 @@ void main() {
       expectNoClippedText(tester);
     });
   }
+
+  group('"Remove animations" (design §4.3)', () {
+    const offer = PhoneNumberCopyOffer(phoneNumberE164: '+260977123456');
+
+    testWidgets('the sheet is in place on the first frame, with no slide', (tester) async {
+      disableAnimations(tester);
+      await ResultScreenHarness().pump(tester, _screenThatOpens(offer));
+      await tester.tap(find.text('Open the sheet'));
+      await tester.pump();
+
+      final sheetRoute = ModalRoute.of(tester.element(find.byType(LaunchFailureSheet)))!;
+      expect(sheetRoute.animation!.status, AnimationStatus.completed);
+    });
+
+    testWidgets('"Number copied" is in place on the first frame, and the sheet is gone', (
+      tester,
+    ) async {
+      disableAnimations(tester);
+      final harness = ResultScreenHarness();
+      await harness.pump(tester, _screenThatOpens(offer));
+      await tester.tap(find.text('Open the sheet'));
+      await tester.pump();
+      await tester.tap(find.text('Copy number'));
+      // The copy finishes, then one frame.
+      await tester.pump();
+      await tester.pump();
+
+      expect(harness.clipboard.copiedTexts, ['+260977123456']);
+      expect(find.byType(LaunchFailureSheet), findsNothing);
+      final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
+      expect(snackBar.animation!.status, AnimationStatus.completed);
+    });
+
+    testWidgets('with animations on, the sheet and the snackbar still slide', (tester) async {
+      final harness = ResultScreenHarness();
+      await harness.pump(tester, _screenThatOpens(offer));
+      await tester.tap(find.text('Open the sheet'));
+      await tester.pump();
+      final sheetRoute = ModalRoute.of(tester.element(find.byType(LaunchFailureSheet)))!;
+      expect(sheetRoute.animation!.status, AnimationStatus.forward);
+
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Copy number'));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester.widget<SnackBar>(find.byType(SnackBar)).animation!.status,
+        AnimationStatus.forward,
+      );
+      await tester.pumpAndSettle();
+    });
+  });
 }

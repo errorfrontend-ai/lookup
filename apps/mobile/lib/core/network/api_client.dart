@@ -182,8 +182,11 @@ class ApiClient {
     required String? installToken,
     required CancelToken? cancelToken,
   }) async {
-    ApiAnswer noAnswer(ApiNoAnswerReason reason) =>
-        ApiAnswerNotReceived(sentRequestId: sentRequestId, reason: reason);
+    ApiAnswer noAnswer(ApiNoAnswerReason reason, {String? faultTypeName}) => ApiAnswerNotReceived(
+      sentRequestId: sentRequestId,
+      reason: reason,
+      faultTypeName: faultTypeName,
+    );
     try {
       if (!_relativePath.hasMatch(path)) return noAnswer(ApiNoAnswerReason.unexpectedFailure);
       final address = _addressFor(path);
@@ -216,11 +219,21 @@ class ApiClient {
         body: ApiAnswerBody.fromText(text ?? ''),
       );
     } on DioException catch (exception) {
-      return noAnswer(_reasonFor(exception));
-    } on Object {
+      final reason = _reasonFor(exception);
+      return noAnswer(
+        reason,
+        faultTypeName: reason == ApiNoAnswerReason.unexpectedFailure
+            ? _faultTypeNameOf(exception)
+            : null,
+      );
+    } on Object catch (error) {
       // Building the request failed on the phone (a malformed media type, a header Dart refuses):
-      // a fault in the app. Its text is not kept, so it cannot reach the screen.
-      return noAnswer(ApiNoAnswerReason.unexpectedFailure);
+      // a fault in the app. Only its type is kept, never its text, so nothing technical can reach
+      // the screen and the crash report says only what kind of fault it was.
+      return noAnswer(
+        ApiNoAnswerReason.unexpectedFailure,
+        faultTypeName: error.runtimeType.toString(),
+      );
     }
   }
 
@@ -247,6 +260,11 @@ class ApiClient {
     final values = headers.map[lowerCaseName];
     return values != null && values.length == 1 ? values.single : null;
   }
+
+  /// The type behind a fault Dio wrapped (e.g. `StateError`), or Dio's own kind of failure when it
+  /// wrapped nothing; never the text of either.
+  static String _faultTypeNameOf(DioException exception) =>
+      exception.error?.runtimeType.toString() ?? 'DioException (${exception.type.name})';
 
   static ApiNoAnswerReason _reasonFor(DioException exception) => switch (exception.type) {
     DioExceptionType.connectionTimeout ||

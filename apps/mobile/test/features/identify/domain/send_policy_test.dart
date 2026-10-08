@@ -175,6 +175,25 @@ void main() {
     );
   });
 
+  test('a request the phone itself stopped ends the clip, whatever the counts', () {
+    const policy = SendPolicy(busyAnswerCount: 1, inProgressWaitCount: 1);
+    final outcome = policy.decide(
+      const PhoneFaultAnswer(problem: 'a fault in the app'),
+      reportRequestId: _reportRequestId,
+    );
+    expect(outcome, isA<FinishedOutcome>());
+    expect(outcome.isClipKept, isFalse);
+    expect(
+      outcome.nextState,
+      const ErrorState(
+        failure: PhoneFailure(
+          reportRequestId: _reportRequestId,
+          reportDelivery: ReportDelivery.sending,
+        ),
+      ),
+    );
+  });
+
   test('deciding never changes the policy it was asked', () {
     const policy = SendPolicy();
     policy.decide(_busy, reportRequestId: _reportRequestId);

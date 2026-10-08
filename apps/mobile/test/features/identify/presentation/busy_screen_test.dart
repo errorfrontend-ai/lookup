@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/busy_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
@@ -56,6 +56,19 @@ void main() {
       expect(find.byIcon(Icons.refresh), findsOneWidget);
     });
 
+    testWidgets('a refresh icon in the warning colour, in a warning-soft circle (S4-BUSY-03)', (
+      tester,
+    ) async {
+      await _harness().pump(tester, _screen());
+      const colours = LookUpColours.light;
+      expectStateIcon(
+        tester,
+        icon: Icons.refresh,
+        iconColour: colours.warning,
+        circleColour: colours.warningSoft,
+      );
+    });
+
     testWidgets('the countdown uses tabular figures, and screen readers hear "12 seconds"', (
       tester,
     ) async {
@@ -99,13 +112,18 @@ void main() {
       expect(harness.flow.calls, ['tryNow']);
     });
 
-    testWidgets('"Cancel", Close × and system Back call backToHome() (T33)', (tester) async {
+    testWidgets('"Cancel", the × labelled "Close" and system Back call backToHome() (T33, '
+        'S4-ACCESSIBILITY-11)', (tester) async {
+      final semantics = tester.ensureSemantics();
       final harness = _harness();
       await harness.pump(tester, _screen());
       await scrollToAndTap(tester, find.text('Cancel'));
-      await scrollToAndTap(tester, find.byType(ScreenExitButton));
+      // Found by what a screen reader announces, so the label is proven to be "Close".
+      expect(find.bySemanticsLabel('Close'), findsOneWidget);
+      await scrollToAndTap(tester, find.bySemanticsLabel('Close'));
       await pressSystemBack(tester);
       expect(harness.flow.calls, ['backToHome', 'backToHome', 'backToHome']);
+      semantics.dispose();
     });
   });
 

@@ -68,6 +68,10 @@ final class SendPolicy {
   RecognitionOutcome decide(RecognitionAnswer answer, {required String reportRequestId}) =>
       switch (answer) {
         NoAnswer() => const ConnectionLostOutcome(),
+        PhoneFaultAnswer(:final answeredRequest, :final problem) => _reportedPhoneFailure(
+          reportRequestId,
+          '${_requestName(answeredRequest)} request stopped on the phone: $problem.',
+        ),
         CancelledAnswer() => const FinishedOutcome(IdleState()),
         MatchAnswer(:final result) => FinishedOutcome(switch (result.kind) {
           RecognitionResultKind.campaign => MatchedState(result: result),
@@ -131,7 +135,7 @@ final class SendPolicy {
   RecognitionOutcome _recordingUnusable(ErrorStatusAnswer answer, String reportRequestId) {
     final apiRequestId = answer.apiRequestId;
     final summary =
-        'Recognize answer ${_describe(answer)}: the API could not use the recorded clip.';
+        '${_answerName(answer)} ${_describe(answer)}: the API could not use the recorded clip.';
     if (apiRequestId == null) return _unloggedFailure(reportRequestId, summary);
     return FinishedOutcome(
       ErrorState(failure: RecordingUnusableFailure(requestId: apiRequestId)),
@@ -204,7 +208,7 @@ final class SendPolicy {
     required String explanation,
   }) {
     final apiRequestId = answer.apiRequestId;
-    final summary = 'Recognize answer ${_describe(answer)}: $explanation.';
+    final summary = '${_answerName(answer)} ${_describe(answer)}: $explanation.';
     if (apiRequestId == null) {
       return _unloggedFailure(reportRequestId, summary);
     }
@@ -223,6 +227,11 @@ final class SendPolicy {
   /// An answer that should have carried an id the API logged but did not: a phone failure, always
   /// reported, so the accepted report's id is a code support can find.
   static RecognitionOutcome _unloggedFailure(String reportRequestId, String summary) =>
+      _reportedPhoneFailure(reportRequestId, '$summary The answer carried no request id.');
+
+  /// The phone failure, with a crash report under [reportRequestId], the id its code is made from
+  /// once the API accepts the report (T39).
+  static RecognitionOutcome _reportedPhoneFailure(String reportRequestId, String summary) =>
       FinishedOutcome(
         ErrorState(
           failure: PhoneFailure(
@@ -233,9 +242,21 @@ final class SendPolicy {
         problemReport: RecognitionProblemReport(
           reportRequestId: reportRequestId,
           relatedRequestId: null,
-          summary: '$summary The answer carried no request id.',
+          summary: summary,
         ),
       );
+
+  /// Which answer a report describes, e.g. "Recognize answer" or "Install registration answer".
+  static String _answerName(ReceivedAnswer answer) => switch (answer) {
+    ErrorStatusAnswer(:final answeredRequest) ||
+    UnreadableAnswer(:final answeredRequest) => '${_requestName(answeredRequest)} answer',
+    _ => '${_requestName(AnsweredRequest.recognize)} answer',
+  };
+
+  static String _requestName(AnsweredRequest answeredRequest) => switch (answeredRequest) {
+    AnsweredRequest.recognize => 'Recognize',
+    AnsweredRequest.installRegistration => 'Install registration',
+  };
 
   /// The answer in developer words: status, code and refused fields, never the API's message.
   static String _describe(ReceivedAnswer answer) => switch (answer) {

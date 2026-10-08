@@ -24,7 +24,10 @@ import 'package:lookup_listener/features/identify/domain/recognition_problem_rep
 ///   registers again with the same install id before sending (T23).
 /// - A registration that fails is read the way a recognize answer is (§3.9): no answer is "no
 ///   connection", 429 "too many tries", 502 to 504 busy, a 200 the app cannot read a server
-///   failure.
+///   failure. The answer says it was the registration's, so a crash report names it.
+/// - No answer because of the network is [NoAnswer] ("No connection", the clip kept, S4-D12); no
+///   answer because the phone itself stopped the request (a fault in the app, plain `http` refused)
+///   is [PhoneFaultAnswer], the phone failure with a crash report that names the fault's type only.
 /// - Never throws on a network failure; nothing it returns carries exception text or the API's
 ///   `message`.
 class RecognitionRepository {
@@ -134,25 +137,51 @@ class RecognitionRepository {
     return _listenerInstallRepository.ensureRegistered();
   }
 
-  /// A failed registration, read as the answer the identify gets (§3.9).
+  /// A failed registration, read as the answer the identify gets (§3.9), marked as the
+  /// registration's.
   RecognitionAnswer _readRegistrationFailure(ListenerInstallNotRegistered registration) {
+    const answeredRequest = AnsweredRequest.installRegistration;
     final answer = registration.answer;
     final readingProblem = registration.readingProblem;
-    if (answer is! ApiAnswerReceived || readingProblem == null) return _readAnswer(answer);
+    if (answer is! ApiAnswerReceived || readingProblem == null) {
+      return _readAnswer(answer, answeredRequest: answeredRequest);
+    }
     // A 200 that is not a registration the app can read: the API id is taken by the same rule as
     // for any answer (the header, then the body).
-    final readAsAnswer = _readAnswer(answer);
+    final readAsAnswer = _readAnswer(answer, answeredRequest: answeredRequest);
     return UnreadableAnswer(
-      problem: 'the install registration answer: $readingProblem',
+      problem: readingProblem,
       apiRequestId: readAsAnswer is ReceivedAnswer ? readAsAnswer.apiRequestId : null,
+      answeredRequest: answeredRequest,
     );
   }
 
-  RecognitionAnswer _readAnswer(ApiAnswer answer) => switch (answer) {
+  RecognitionAnswer _readAnswer(
+    ApiAnswer answer, {
+    AnsweredRequest answeredRequest = AnsweredRequest.recognize,
+  }) => switch (answer) {
     ApiAnswerNotReceived(reason: ApiNoAnswerReason.cancelled) => const CancelledAnswer(),
-    // No network, a timeout, a dropped connection, or a request the client refused to send: to the
-    // listener all of these are "no connection", and the clip is kept (S4-D12).
-    ApiAnswerNotReceived() => const NoAnswer(),
+    // The network: no network, a timeout, a dropped connection. To the listener all of these are
+    // "no connection", and the clip is kept (S4-D12).
+    ApiAnswerNotReceived(
+      reason: ApiNoAnswerReason.noConnection ||
+          ApiNoAnswerReason.timedOut ||
+          ApiNoAnswerReason.connectionDropped,
+    ) =>
+      const NoAnswer(),
+    // The phone itself stopped the request: no signal would help, so it is the phone failure, and
+    // a developer must hear of it (§3.11).
+    ApiAnswerNotReceived(reason: ApiNoAnswerReason.plainHttpRefused) => PhoneFaultAnswer(
+      problem: 'the address is plain http outside the development flavour',
+      answeredRequest: answeredRequest,
+    ),
+    ApiAnswerNotReceived(reason: ApiNoAnswerReason.unexpectedFailure, :final faultTypeName) =>
+      PhoneFaultAnswer(
+        problem: faultTypeName == null
+            ? 'a fault in the app'
+            : 'a fault in the app ($faultTypeName)',
+        answeredRequest: answeredRequest,
+      ),
     ApiAnswerReceived(:final status, :final body, :final echoedRequestId, :final retryAfter) =>
       _responseParser.read(
         httpStatus: status,
@@ -162,6 +191,7 @@ class RecognitionRepository {
         },
         requestIdHeader: echoedRequestId,
         retryAfterSeconds: RetryAfter.parse(retryAfter, now: _clock.now())?.inSeconds,
+        answeredRequest: answeredRequest,
       ),
   };
 }

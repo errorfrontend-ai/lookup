@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
+import 'package:lookup_listener/features/identify/data/clip_recorder.dart';
 import 'package:lookup_listener/features/identify/domain/clip_settings.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
@@ -12,6 +14,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_state.dart'
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 
 import '../../../support/contract_fixtures.dart';
+import '../../../support/example_app_configurations.dart';
 import '../../../support/received_multipart_form.dart';
 import '../../../support/recording_client_error_reporter.dart';
 import 'recognition_flow_harness.dart';
@@ -395,6 +398,37 @@ void main() {
       });
     });
 
+    for (final (cause, error) in <(String, Object)>[
+      ('an error the platform reports', StateError('the encoder failed')),
+      (
+        'a stop nobody asked for',
+        const ClipRecorderFailure('The recorder stopped on its own before the clip ended.'),
+      ),
+    ]) {
+      test('T14 the recorder breaks while recording ($cause): error(phone failure) at once', () {
+        runFlowTest((harness) {
+          harness.tap((flow) => flow.identify());
+          harness.wait(const Duration(seconds: 3));
+          harness.recorder.failWhileRecording(error);
+          harness.settle();
+          final failure = _failureOf(harness.state) as PhoneFailure;
+          final report = harness.reporter.reports.single;
+          expect(report.kind, ClientErrorKind.reported);
+          expect(report.error, same(error));
+          expect(report.location, '/listening');
+          expect(report.reportRequestId, failure.reportRequestId);
+          expect(harness.recorder.finishCount, 0, reason: 'the broken clip is never read');
+          expect(harness.recorder.cancelCount, 1, reason: 'the recorder is released');
+          expect(harness.recorder.clipFileNames, isEmpty, reason: 'its file is deleted');
+          expect(harness.flow.hasKeptClip, isFalse);
+          harness.wait(const Duration(seconds: 30));
+          expect(harness.adapter.requests, isEmpty, reason: 'nothing is sent');
+          expect(harness.state, isA<ErrorState>());
+          expect(harness.reporter.reports, hasLength(1), reason: 'reported once');
+        });
+      });
+    }
+
     test('T14 a permission plugin failure is a reported phone failure too', () {
       runFlowTest((harness) {
         harness.permission.readError = StateError('plugin missing');
@@ -596,6 +630,57 @@ void main() {
       });
     });
 
+    test('T22 the 409 wait pauses while the app is hidden, and goes on when it is shown', () {
+      runFlowTest((harness) {
+        harness.answerWithEnvelopeFixture('recognition-in-progress', retryAfter: '3');
+        harness.identifyAndRecord();
+        harness.wait(const Duration(seconds: 1));
+        harness.moveAppTo(AppLifecycleState.hidden);
+        harness.wait(const Duration(minutes: 5));
+        expect(harness.state, const UploadingState());
+        expect(harness.recognizeRequests, hasLength(1), reason: 'no send from a hidden app');
+        expect(harness.flow.hasKeptClip, isTrue);
+        harness.answerWithResponseFixture('valid/match-campaign');
+        harness.moveAppTo(AppLifecycleState.resumed);
+        harness.wait(const Duration(milliseconds: 1999));
+        expect(harness.recognizeRequests, hasLength(1), reason: 'the 2 seconds left are waited');
+        harness.wait(const Duration(milliseconds: 1));
+        expect(harness.state, isA<MatchedState>());
+        expect(harness.sentIdempotencyKeys.toSet(), hasLength(1));
+      });
+    });
+
+    test('T22 a 409 that arrives while the app is hidden waits for the app to return', () {
+      runFlowTest((harness) {
+        final release = Completer<void>();
+        harness.adapter.answerWith((request, cancelFuture) async {
+          await release.future;
+          return ResponseBody.fromString(
+            jsonEncode(
+              (ContractFixtures.readFile('errors/envelopes/recognition-in-progress.json')!
+                  as Map)['body'],
+            ),
+            409,
+            headers: {
+              'retry-after': ['3'],
+            },
+          );
+        });
+        harness.identifyAndRecord();
+        harness.moveAppTo(AppLifecycleState.hidden);
+        release.complete();
+        harness.settle();
+        harness.wait(const Duration(minutes: 1));
+        expect(harness.state, const UploadingState());
+        expect(harness.recognizeRequests, hasLength(1), reason: 'no send from a hidden app');
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.moveAppTo(AppLifecycleState.resumed);
+        harness.wait(const Duration(seconds: 3));
+        expect(harness.state, const NoMatchState());
+        expect(harness.recognizeRequests, hasLength(2));
+      });
+    });
+
     test('T23 401 INSTALL_TOKEN_INVALID: registers again (same install id), sends again', () {
       runFlowTest((harness) {
         harness.answerWithEnvelopeFixture('install-token-invalid');
@@ -704,6 +789,62 @@ void main() {
         });
       });
     }
+
+    test('a request the phone itself stopped is a reported phone failure, not no connection', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.adapter.failWith(StateError('secret detail')));
+        final failure = _failureOf(harness.state) as PhoneFailure;
+        final report = harness.reporter.reports.single;
+        expect(report.kind, ClientErrorKind.reported);
+        expect(
+          report.error,
+          'Recognize request stopped on the phone: a fault in the app (StateError).',
+          reason: 'the fault by its type only, never its text',
+        );
+        expect(report.relatedRequestId, isNull);
+        expect(report.location, '/identifying');
+        expect(report.reportRequestId, failure.reportRequestId);
+        expect(harness.flow.hasKeptClip, isFalse, reason: 'sending again would fail the same way');
+      });
+    });
+
+    test('plain http outside development is a reported phone failure, and nothing is sent', () {
+      runFlowTest(
+        configuration: MisbuiltAppConfiguration(
+          flavour: AppFlavour.production,
+          apiBaseUrl: 'http://api.lookup.invalid/api/v1',
+        ),
+        (harness) {
+          harness.identifyAndRecord();
+          expect(_failureOf(harness.state), isA<PhoneFailure>());
+          expect(
+            harness.reporter.reports.single.error,
+            'Recognize request stopped on the phone: '
+            'the address is plain http outside the development flavour.',
+          );
+          expect(harness.adapter.requests, isEmpty);
+          expect(harness.flow.hasKeptClip, isFalse);
+        },
+      );
+    });
+
+    test('a refused install registration is reported as the registration, not the clip', () {
+      runFlowTest(hasStoredToken: false, (harness) {
+        identifyAndAnswer(harness, () => harness.answerWithEnvelopeFixture('validation-failed'));
+        final requestId = RecognitionFlowHarness.envelopeRequestId('validation-failed');
+        expect(_failureOf(harness.state), ServerFailure(requestId: requestId));
+        final report = harness.reporter.reports.single;
+        expect(
+          report.error,
+          'Install registration answer HTTP 400 VALIDATION_FAILED (fields: captured_at '
+          'invalid_format, sent_at invalid_format): the API refused what the app sent.',
+        );
+        expect(report.relatedRequestId, requestId);
+        expect(harness.adapter.requests.map((request) => request.address.path), [
+          '/api/v1/installs',
+        ]);
+      });
+    });
 
     test('T28 "Cancel" while uploading: idle, the request cancelled, the clip deleted', () {
       runFlowTest((harness) {

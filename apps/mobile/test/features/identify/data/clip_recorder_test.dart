@@ -49,13 +49,33 @@ void main() {
       expect(config.noiseSuppress, isFalse);
       expect(config.autoGain, isFalse);
       expect(config.echoCancel, isFalse);
-      expect(config.audioInterruption, AudioInterruptionMode.pause);
       expect(config.device, isNull);
       expect(config.androidConfig.audioSource, AndroidAudioSource.mic);
       expect(config.androidConfig.manageBluetooth, isFalse);
       expect(config.androidConfig.muteAudio, isFalse);
       expect(config.androidConfig.toMap()['service'], isNull, reason: 'no recording service');
     });
+
+    test(
+      'leave other audio playing and keep the phone microphone, on Android and iOS (S4-D34)',
+      () {
+        final config = RecordClipRecorder.recordConfigFor(ClipSettings.standard);
+        // Any other mode makes record_android take the audio focus for good, pausing the radio app
+        // the listener is identifying.
+        expect(config.audioInterruption, AudioInterruptionMode.none);
+        expect(config.androidConfig.manageBluetooth, isFalse);
+        // iOS: mix with what is playing and keep it on the speaker; no Bluetooth microphone.
+        expect(config.iosConfig.categoryOptions, [
+          IosAudioCategoryOption.mixWithOthers,
+          IosAudioCategoryOption.defaultToSpeaker,
+        ]);
+        expect(
+          config.toMap()['iosConfig'],
+          containsPair('categoryOptions', 'mixWithOthers,defaultToSpeaker'),
+          reason: 'what the platform side receives',
+        );
+      },
+    );
 
     test('the AAC codec is recorded with the AAC-LC encoder, never Opus', () {
       for (final codec in AudioCodec.values) {
@@ -239,6 +259,69 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
       platform.pauseForCall();
       await interrupted;
+      await recording.cancel();
+    });
+  });
+
+  group('a recorder that breaks while recording (T14)', () {
+    /// Starts a clip and collects every failure it gives, once the recorder's state subscription
+    /// has settled.
+    Future<(ClipRecording, List<Object>)> startWatchingFailures() async {
+      final recording = await recorder.start(
+        idempotencyKey: _idempotencyKey,
+        settings: ClipSettings.standard,
+      );
+      final failures = <Object>[];
+      recording.failures.listen(null, onError: (Object error) => failures.add(error));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      return (recording, failures);
+    }
+
+    test('an error the platform reports is a failure at once, as it came', () async {
+      final (recording, failures) = await startWatchingFailures();
+      final error = StateError('the encoder failed');
+      platform.failWhileRecording(error);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(failures, [same(error)]);
+      await recording.cancel();
+    });
+
+    test('the recorder stopping on its own before the clip ends is a failure at once', () async {
+      final (recording, failures) = await startWatchingFailures();
+      platform.stopOnItsOwn();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(failures, [isA<ClipRecorderFailure>()]);
+      await recording.cancel();
+      expect(clipFileNames(), isEmpty);
+    });
+
+    test('the stop that finishing or cancelling causes is never a failure', () async {
+      final (finished, finishFailures) = await startWatchingFailures();
+      await finished.finish();
+      final (cancelled, cancelFailures) = await startWatchingFailures();
+      platform.stopOnCancel = true;
+      await cancelled.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(finishFailures, isEmpty);
+      expect(cancelFailures, isEmpty);
+    });
+
+    test('a failure is never also an interruption', () async {
+      final recording = await recorder.start(
+        idempotencyKey: _idempotencyKey,
+        settings: ClipSettings.standard,
+      );
+      final interruptions = <void>[];
+      final interruptionErrors = <Object>[];
+      recording.interruptions.listen(
+        interruptions.add,
+        onError: (Object error) => interruptionErrors.add(error),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      platform.failWhileRecording(StateError('the encoder failed'));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(interruptions, isEmpty);
+      expect(interruptionErrors, isEmpty);
       await recording.cancel();
     });
   });

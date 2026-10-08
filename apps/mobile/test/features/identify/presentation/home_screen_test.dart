@@ -177,6 +177,41 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('an accent disc 200 dp across, the 56 dp microphone and "Tap to identify" in '
+        'on-accent, inside two soft rings 12 and 28 dp wide (S4-HOME-06, -07)', (tester) async {
+      await IdentifyScreenHarness().pump(tester, const HomeScreen());
+      const colours = LookUpColours.light;
+      final control = find.byType(IdentifyButton);
+
+      final disc = tester.widget<Material>(
+        find.descendant(of: control, matching: find.byType(Material)).first,
+      );
+      expect(disc.color, colours.accent);
+      expect(disc.shape, isA<CircleBorder>());
+      expect(
+        tester.getSize(find.descendant(of: control, matching: find.byType(InkWell))),
+        const Size.square(200),
+      );
+      final microphone = tester.widget<Icon>(
+        find.descendant(of: control, matching: find.byIcon(Icons.mic_none)),
+      );
+      expect(microphone.size, 56);
+      expect(microphone.color, colours.onAccent);
+      expect(tester.widget<Text>(find.text('Tap to identify')).style!.color, colours.onAccent);
+
+      final rings = tester.widget<DecoratedBox>(
+        find.descendant(of: control, matching: find.byType(DecoratedBox)).first,
+      );
+      final ringDecoration = rings.decoration as BoxDecoration;
+      expect(ringDecoration.shape, BoxShape.circle);
+      expect(ringDecoration.boxShadow!.map((ring) => ring.spreadRadius), [28, 12]);
+      expect(ringDecoration.boxShadow!.map((ring) => ring.color), [
+        colours.accentSoft.withValues(alpha: 0.5),
+        colours.accentSoft,
+      ]);
+      expect(ringDecoration.boxShadow!.map((ring) => ring.blurRadius), [0, 0]);
+    });
+
     testWidgets('the halo colours come from the tokens', (tester) async {
       await IdentifyScreenHarness().pump(tester, const HomeScreen());
       final halo = tester.widget<DecoratedBox>(

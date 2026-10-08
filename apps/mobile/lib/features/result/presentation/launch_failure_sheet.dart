@@ -47,7 +47,8 @@ class LaunchFailureSheet extends ConsumerWidget {
   /// What can be copied instead.
   final CopyOffer offer;
 
-  /// Shows the sheet over [context]'s screen; completes when it closes.
+  /// Shows the sheet over [context]'s screen; completes when it closes. It slides in and out unless
+  /// the phone asks for less motion ("Remove animations"), when it appears and goes at once.
   static Future<void> show(BuildContext context, CopyOffer offer) {
     return showModalBottomSheet<void>(
       context: context,
@@ -55,6 +56,9 @@ class LaunchFailureSheet extends ConsumerWidget {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: context.lookUpTokens.colours.surface,
+      sheetAnimationStyle: MediaQuery.disableAnimationsOf(context)
+          ? AnimationStyle.noAnimation
+          : null,
       builder: (context) => LaunchFailureSheet(offer: offer),
     );
   }
@@ -102,6 +106,7 @@ class LaunchFailureSheet extends ConsumerWidget {
   Future<void> _copy(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final disablesAnimations = MediaQuery.disableAnimationsOf(context);
     final confirmation = switch (offer) {
       PhoneNumberCopyOffer() => 'Number copied',
       LinkCopyOffer() => 'Link copied',
@@ -110,6 +115,10 @@ class LaunchFailureSheet extends ConsumerWidget {
     // Confirm only a copy that happened; otherwise the sheet stays, with "Close" to leave.
     if (!hasCopied) return;
     navigator.pop();
-    messenger.showSnackBar(SnackBar(content: Text(confirmation)));
+    messenger.showSnackBar(
+      SnackBar(content: Text(confirmation)),
+      // No slide when the phone asks for less motion.
+      snackBarAnimationStyle: disablesAnimations ? AnimationStyle.noAnimation : null,
+    );
   }
 }

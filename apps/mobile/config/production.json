@@ -1,4 +1,5 @@
 {
   "LOOKUP_FLAVOUR": "production",
-  "LOOKUP_API_BASE_URL": "https://api.lookup.invalid/api/v1"
+  "LOOKUP_API_BASE_URL": "https://api.lookup.invalid/api/v1",
+  "LOOKUP_SUPPORT_WHATSAPP_NUMBER": ""
 }

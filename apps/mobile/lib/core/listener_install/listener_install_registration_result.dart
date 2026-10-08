@@ -19,9 +19,9 @@ final class ListenerInstallRegistered extends ListenerInstallRegistrationResult 
 }
 
 /// The phone has no token it can use, because registering failed. The failure maps to a screen the
-/// same way as a recognize answer (§3.9, §3.11): no answer gives "No connection", 429 "Too many
-/// tries", 5xx Busy or the server failure, and a 200 the app could not read is a server failure
-/// with a crash report.
+/// same way as a recognize answer (§3.9, §3.11): no answer over the network gives "No connection",
+/// a request the phone itself stopped the phone failure, 429 "Too many tries", 5xx Busy or the
+/// server failure, and a 200 the app could not read is a server failure with a crash report.
 final class ListenerInstallNotRegistered extends ListenerInstallRegistrationResult {
   const ListenerInstallNotRegistered({required this.answer, this.readingProblem});
 

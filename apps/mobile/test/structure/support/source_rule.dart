@@ -70,19 +70,41 @@ final class SourceRule {
     ],
   );
 
-  /// A rule that fails when an image is decoded without `cacheWidth` (design §4.5, §2.6).
-  factory SourceRule.imagesSetCacheWidth() => SourceRule._(
-    name: 'image without cacheWidth',
-    reason: 'every Image sets cacheWidth, so a banner is decoded at the size shown (§2.6)',
+  /// A rule that fails when an image is decoded without a decode size: `cacheWidth`, or
+  /// `cacheHeight` for an image wider than its box (design §4.5, §2.6).
+  factory SourceRule.imagesSetDecodeSize() => SourceRule._(
+    name: 'image without a decode size',
+    reason:
+        'every Image sets cacheWidth or cacheHeight, so a banner is decoded at the size shown '
+        '(§2.6)',
     findIn: (file) => [
       for (final match in _imageConstructor.allMatches(file.code))
-        if (!_argumentsOf(file.code, match.end - 1).contains('cacheWidth'))
+        if (!_decodeSize.hasMatch(_argumentsOf(file.code, match.end - 1)))
           'line ${file.lineNumberAt(match.start)}: ${match.group(0)!.trim()}',
       for (final match in _bareImageProvider.allMatches(file.code))
         'line ${file.lineNumberAt(match.start)}: ${match.group(0)!.trim()} (use Image with '
-            'cacheWidth)',
+            'cacheWidth or cacheHeight)',
     ],
   );
+
+  /// A rule that fails when an animation's duration does not come from the motion tokens (design
+  /// §4.5, §3.18). Each `duration:`, `reverseDuration:`, `transitionDuration:` or
+  /// `reverseTransitionDuration:` argument must read a motion token (`….motion.fast`), be
+  /// `Duration.zero` (no motion), or name a value that the same file sets only from those.
+  factory SourceRule.animationDurationsFromMotionTokens({RegExp? onlyPathsMatching}) =>
+      SourceRule._(
+        name: 'animation duration not from the motion tokens',
+        reason:
+            'every animation lasts motion.fast, motion.base or motion.slow, or nothing when the '
+            'phone asks for less motion (§3.18, §4.5)',
+        onlyPathsMatching: onlyPathsMatching,
+        findIn: (file) => [
+          for (final match in _durationArgument.allMatches(file.code))
+            if (!_isMotionDuration(file.code, _expressionAt(file.code, match.end)))
+              'line ${file.lineNumberAt(match.start)}: ${match.group(0)!.trim()} '
+                  '${_expressionAt(file.code, match.end).trim()}',
+        ],
+      );
 
   /// A short name for the rule, used in test names.
   final String name;
@@ -123,6 +145,49 @@ final class SourceRule {
   static final RegExp _bareImageProvider = RegExp(
     r'(?<![\w$.])(?:NetworkImage|MemoryImage|FileImage)\s*\(',
   );
+  static final RegExp _decodeSize = RegExp(r'\bcache(?:Width|Height)\b');
+  static final RegExp _durationArgument = RegExp(
+    r'(?<![\w$.])(?:duration|reverseDuration|transitionDuration|reverseTransitionDuration)\s*:'
+    r'(?!:)',
+  );
+  static final RegExp _motionToken = RegExp(r'\bmotion\.\w+');
+  static final RegExp _plainName = RegExp(r'^[A-Za-z_$][\w$]*$');
+
+  /// Whether [expression], an animation's duration in [code], comes from the motion tokens.
+  static bool _isMotionDuration(String code, String expression) {
+    final text = expression.trim();
+    if (text == 'Duration.zero') return true;
+    if (_plainName.hasMatch(text)) {
+      final settings = RegExp(
+        '(?<![\\w\$.])${RegExp.escape(text)}\\s*=(?![=>])([^;]*);',
+      ).allMatches(code).toList();
+      return settings.isNotEmpty &&
+          settings.every((setting) => _readsOnlyMotionTokens(setting.group(1)!));
+    }
+    return _readsOnlyMotionTokens(text);
+  }
+
+  /// A motion token, possibly beside `Duration.zero`, and no duration written out.
+  static bool _readsOnlyMotionTokens(String text) =>
+      _motionToken.hasMatch(text) && !text.contains('Duration(');
+
+  /// The expression that starts at [start] in [code]: up to the comma, bracket or semicolon that
+  /// ends it at its own nesting level.
+  static String _expressionAt(String code, int start) {
+    var depth = 0;
+    for (var index = start; index < code.length; index++) {
+      final character = code[index];
+      if ('([{'.contains(character)) depth++;
+      if (')]}'.contains(character)) {
+        if (depth == 0) return code.substring(start, index);
+        depth--;
+      }
+      if ((character == ',' || character == ';') && depth == 0) {
+        return code.substring(start, index);
+      }
+    }
+    return code.substring(start);
+  }
 
   static List<String> _onePerName(DartSourceFile file, List<String> Function(String) wordsIn) {
     final reportedNames = <String>{};

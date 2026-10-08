@@ -21,6 +21,9 @@ enum ConfigurationProblem {
   ),
   verboseLogsFlagNotTrueOrFalse('LOOKUP_VERBOSE_LOGS is neither true nor false.'),
   verboseLogsOutsideDevelopment('LOOKUP_VERBOSE_LOGS is on outside the development flavour.'),
+  supportWhatsAppNumberMissing(
+    'LOOKUP_SUPPORT_WHATSAPP_NUMBER is missing; staging and production builds must have it.',
+  ),
   supportWhatsAppNumberNotE164(
     'LOOKUP_SUPPORT_WHATSAPP_NUMBER is not an E.164 number such as +260971234567.',
   );

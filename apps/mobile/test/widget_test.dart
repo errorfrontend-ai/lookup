@@ -6,7 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/bootstrap.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
-import 'package:lookup_listener/core/error_reporting/client_error_kind.dart';
+import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
+import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
 import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
@@ -38,7 +39,15 @@ void main() {
 
   /// Starts the app with [configuration] as the build's check gives it; true when it started.
   /// What it started is stopped when the test ends.
-  bool start(AppConfigurationResult configuration) {
+  bool start(
+    AppConfigurationResult configuration, {
+    IsolateErrorListener Function({
+          required ClientErrorReporter reporter,
+          String Function()? readCurrentLocation,
+        })
+        createIsolateErrorListener =
+        IsolateErrorListener.new,
+  }) {
     final started = bootstrap(
       checkConfiguration: () => configuration,
       serviceOverrides: [
@@ -57,6 +66,7 @@ void main() {
         microphonePermissionProvider.overrideWithValue(FakeMicrophonePermission()),
       ],
       startApp: (app) => startedApp = app,
+      createIsolateErrorListener: createIsolateErrorListener,
     );
     if (started == null) return false;
     addTearDown(() {
@@ -124,6 +134,7 @@ void main() {
           AppConfiguration.check({
             AppConfiguration.flavourDefine: 'production',
             AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
+            AppConfiguration.supportWhatsAppNumberDefine: '+260966000001',
           }, gradleFlavour: 'production'),
         );
         expect(started, isTrue);
@@ -155,6 +166,51 @@ void main() {
       }
     },
   );
+
+  testWidgets('an accepted configuration listens to Isolate.current with the app reporter '
+      '(S4-ERRORHANDLING-07)', (tester) async {
+    final flutterErrorHandler = FlutterError.onError;
+    final platformErrorHandler = PlatformDispatcher.instance.onError;
+    final errorWidgetBuilder = ErrorWidget.builder;
+    _RecordingIsolateErrorListener? isolateErrorListener;
+    try {
+      adapter.answerJson(200, {
+        'install_token': 'fake.install.token',
+        'expires_at': '2026-11-07T12:00:00Z',
+      });
+      start(
+        AppConfiguration.check({
+          AppConfiguration.flavourDefine: 'production',
+          AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
+          AppConfiguration.supportWhatsAppNumberDefine: '+260966000001',
+        }, gradleFlavour: 'production'),
+        createIsolateErrorListener: ({required reporter, readCurrentLocation}) =>
+            isolateErrorListener = _RecordingIsolateErrorListener(
+              reporter: reporter,
+              readCurrentLocation: readCurrentLocation,
+            ),
+      );
+
+      final listener = isolateErrorListener!;
+      expect(listener.listenedTo, hasLength(1));
+      expect(listener.listenedTo.single.controlPort, Isolate.current.controlPort);
+      await tester.pumpWidget(startedApp!);
+      await tester.pump();
+      // The background registration finishes.
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // What the Dart VM sends the port for an error this isolate did not catch.
+      listener.sendPort.send(['Bad state: uncaught on the main isolate', '#0 main (main.dart)']);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      expect(reporter.reports, hasLength(1));
+      expect(reporter.reports.single.kind, ClientErrorKind.uncaught);
+      expect(reporter.reports.single.location, '/');
+    } finally {
+      FlutterError.onError = flutterErrorHandler;
+      PlatformDispatcher.instance.onError = platformErrorHandler;
+      ErrorWidget.builder = errorWidgetBuilder;
+    }
+  });
 
   testWidgets('"Send a test error" in a development build reaches the reporter once', (
     tester,
@@ -192,4 +248,17 @@ void main() {
       ErrorWidget.builder = errorWidgetBuilder;
     }
   });
+}
+
+/// The app's isolate error listener, recording the isolates it is told to listen to.
+class _RecordingIsolateErrorListener extends IsolateErrorListener {
+  _RecordingIsolateErrorListener({required super.reporter, super.readCurrentLocation});
+
+  final List<Isolate> listenedTo = [];
+
+  @override
+  void listenTo(Isolate isolate) {
+    listenedTo.add(isolate);
+    super.listenTo(isolate);
+  }
 }

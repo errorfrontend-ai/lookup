@@ -31,9 +31,15 @@ abstract interface class ClipRecording {
   /// The live input level, 0 (silence) to 1, about every 100 ms, for the ring and the level bars.
   Stream<double> get levelFractions;
 
-  /// An event each time the system pauses the recorder (a phone call, another app taking the
-  /// microphone). The flow then cancels the clip (T13): a clip with a gap is not worth sending.
+  /// An event each time the platform pauses the recorder. Recording no longer pauses for other
+  /// audio or a call (S4-D34: a call hides the app, which cancels the clip, T13), but a pause the
+  /// platform reports anyway leaves a gap, so the flow cancels the clip (T13).
   Stream<void> get interruptions;
+
+  /// Errors only, no events: one as soon as the recorder breaks after it started, either an error
+  /// the platform reports or the recorder stopping on its own before [finish]. The flow then shows
+  /// the phone failure at once and reports it, rather than finding out when the clip ends (T14).
+  Stream<Never> get failures;
 
   /// Stops the recorder, reads the clip into memory and deletes the file at once. Throws when the
   /// clip is missing or empty (T14); the file is deleted either way.
@@ -56,7 +62,8 @@ final class ClipRecorderFailure implements Exception {
 
 /// Records with `record` 6.2.1: AAC-LC in MP4, 16 kHz, mono, 24 kbit/s, every voice effect off,
 /// the plain `mic` source (S4-D6). The Phase 0 capture app's settings, which ADR-001 measured at
-/// 25.7 kB per 8 s; provisional until the pilot (gap 41).
+/// 25.7 kB per 8 s; provisional until the pilot (gap 41). Other audio on the phone keeps playing
+/// while it records (S4-D34).
 ///
 /// - A new `AudioRecorder` per clip, disposed after it, so the microphone is released at once.
 /// - The file is `<cache>/clips/<idempotency key>.m4a`; on finish its bytes are read into memory
@@ -107,14 +114,25 @@ final class RecordClipRecorder implements ClipRecorder {
     noiseSuppress: false,
     autoGain: false,
     echoCancel: false,
-    // A call pauses the recorder; the flow then cancels the clip (T13).
-    audioInterruption: AudioInterruptionMode.pause,
+    // Other audio keeps playing (S4-D34): on Android any other mode takes the audio focus for good,
+    // which pauses the radio app the listener is identifying. A call hides the app, which cancels
+    // the clip (T13).
+    audioInterruption: AudioInterruptionMode.none,
     // `service` is left unset: no background recording service, ever (§3.17).
     androidConfig: const AndroidRecordConfig(
       audioSource: AndroidAudioSource.mic,
       // A paired headset must not replace the phone's own microphone.
       manageBluetooth: false,
       muteAudio: false,
+    ),
+    // The same on iOS (S4-D34): mix with the audio already playing, keep sound on the speaker
+    // rather than the earpiece, and leave out `allowBluetooth`, which would record from a headset's
+    // microphone instead of the phone's.
+    iosConfig: const IosRecordConfig(
+      categoryOptions: [
+        IosAudioCategoryOption.mixWithOthers,
+        IosAudioCategoryOption.defaultToSpeaker,
+      ],
     ),
   );
 
@@ -213,6 +231,9 @@ final class _RecordClipRecording implements ClipRecording {
   final void Function() _onEnded;
   bool _hasEnded = false;
 
+  /// Set as [finish] or [cancel] begins, so the stop they cause is not taken for a failure.
+  bool _isStopping = false;
+
   @override
   Stream<double> get levelFractions => _recorder
       .onAmplitudeChanged(RecordClipRecorder.levelSamplingInterval)
@@ -221,11 +242,29 @@ final class _RecordClipRecording implements ClipRecording {
   @override
   Stream<void> get interruptions => _recorder
       .onStateChanged()
+      // Errors reach the flow through [failures] instead.
+      .handleError((Object error) {})
       .where((recordState) => recordState == RecordState.pause)
       .map<void>((_) {});
 
   @override
+  Stream<Never> get failures => _recorder.onStateChanged().transform(
+    StreamTransformer<RecordState, Never>.fromHandlers(
+      handleData: (recordState, sink) {
+        if (recordState == RecordState.stop && !_isStopping) {
+          sink.addError(
+            const ClipRecorderFailure('The recorder stopped on its own before the clip ended.'),
+            StackTrace.current,
+          );
+        }
+      },
+      // The platform's own error (an encoder or microphone failure) passes through as it came.
+    ),
+  );
+
+  @override
   Future<Uint8List> finish() async {
+    _isStopping = true;
     try {
       await _recorder.stop();
       if (!await _file.exists()) {
@@ -241,6 +280,7 @@ final class _RecordClipRecording implements ClipRecording {
 
   @override
   Future<void> cancel() async {
+    _isStopping = true;
     try {
       await _recorder.cancel();
     } on Object {

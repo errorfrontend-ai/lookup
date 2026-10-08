@@ -17,6 +17,9 @@ class FakeRecordPlatform extends RecordPlatform {
   /// When true, stopping writes no file at all.
   bool writesNoFile = false;
 
+  /// When true, cancelling reports the stop it causes, as a real recorder can.
+  bool stopOnCancel = false;
+
   bool isAacSupported = true;
 
   /// Thrown by [start] when set.
@@ -37,10 +40,26 @@ class FakeRecordPlatform extends RecordPlatform {
   final Map<String, String> _pathsByRecorder = {};
   final Set<String> _recordingIds = {};
 
-  /// The system pauses every recording (a phone call).
+  /// The platform pauses every recording.
   void pauseForCall() {
     for (final controller in _stateControllers.values) {
       controller.add(RecordState.pause);
+    }
+  }
+
+  /// Every recording breaks: the platform reports [error] on the state stream, as `record_android`
+  /// does when its encoder or microphone fails.
+  void failWhileRecording(Object error) {
+    for (final controller in _stateControllers.values) {
+      controller.addError(error);
+    }
+  }
+
+  /// Every recording stops on its own, with nobody asking (after a failure, or the system taking
+  /// the microphone).
+  void stopOnItsOwn() {
+    for (final controller in _stateControllers.values) {
+      controller.add(RecordState.stop);
     }
   }
 
@@ -76,6 +95,7 @@ class FakeRecordPlatform extends RecordPlatform {
   Future<void> cancel(String recorderId) async {
     cancelCount++;
     _recordingIds.remove(recorderId);
+    if (stopOnCancel) _stateController(recorderId).add(RecordState.stop);
   }
 
   @override

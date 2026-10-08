@@ -55,8 +55,13 @@ class FakeClipRecorder implements ClipRecorder {
   /// A clip file a crashed earlier run left behind.
   void leaveClipFileBehind(String name) => clipFileNames.add(name);
 
-  /// The system pauses the recorder (a call, another app taking the microphone).
+  /// The platform pauses the recorder.
   void interrupt() => currentRecording!._interruptions.add(null);
+
+  /// The recorder breaks while recording, with [error]: an encoder or microphone failure the
+  /// platform reports, or the recorder stopping on its own (T14).
+  void failWhileRecording(Object error) =>
+      currentRecording!._failures.addError(error, StackTrace.current);
 
   @override
   Future<ClipRecording> start({
@@ -122,6 +127,7 @@ class FakeClipRecording implements ClipRecording {
 
   final StreamController<double> _levels = StreamController<double>.broadcast();
   final StreamController<void> _interruptions = StreamController<void>.broadcast();
+  final StreamController<Never> _failures = StreamController<Never>.broadcast();
   late final Timer _levelTimer;
 
   bool hasEnded = false;
@@ -131,6 +137,9 @@ class FakeClipRecording implements ClipRecording {
 
   @override
   Stream<void> get interruptions => _interruptions.stream;
+
+  @override
+  Stream<Never> get failures => _failures.stream;
 
   @override
   Future<Uint8List> finish() async {
@@ -155,5 +164,6 @@ class FakeClipRecording implements ClipRecording {
     _recorder.clipFileNames.remove(fileName);
     unawaited(_levels.close());
     unawaited(_interruptions.close());
+    unawaited(_failures.close());
   }
 }

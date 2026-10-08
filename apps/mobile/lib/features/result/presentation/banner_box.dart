@@ -15,17 +15,19 @@ class BannerBox extends StatelessWidget {
 
   final PublicImage image;
 
-  /// The box's width in logical pixels (the card's width), so the image is decoded at that size.
+  /// The box's width in logical pixels (the card's width); with the 2:1 shape it gives the size the
+  /// image is decoded at.
   final double width;
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.lookUpTokens;
+    final aspectRatio = tokens.sizes.bannerAspectRatio;
     return AspectRatio(
-      aspectRatio: tokens.sizes.bannerAspectRatio,
+      aspectRatio: aspectRatio,
       child: ColoredBox(
         color: tokens.colours.lineSoft,
-        child: PublicImageView(image: image, displayWidth: width),
+        child: PublicImageView(image: image, displaySize: Size(width, width / aspectRatio)),
       ),
     );
   }

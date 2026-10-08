@@ -26,8 +26,10 @@ class AppConfiguration {
              (apiBaseUrl.scheme == 'https' &&
                  !showsErrorDetails &&
                  !showsDeveloperTools &&
-                 !writesVerboseLogs),
-         'Plain http and the development flags exist only in development',
+                 !writesVerboseLogs &&
+                 supportWhatsAppNumber != null),
+         'Plain http and the development flags exist only in development, and staging and '
+         'production always have a support number',
        );
 
   /// The define names, exactly as the config files write them.
@@ -66,8 +68,9 @@ class AppConfiguration {
   /// Development only: request lines in the device log.
   final bool writesVerboseLogs;
 
-  /// The support WhatsApp number in E.164, or null when the build has none (the support link is
-  /// then hidden, S4-D32).
+  /// The support WhatsApp number in E.164 (S4-D32). Staging and production always have one, so the
+  /// Error screen's "share this code with support" is always backed by a way to reach support; only
+  /// a development build may leave it out, and the support link is then hidden.
   final String? supportWhatsAppNumber;
 
   /// Plain `http` is refused in Dart outside development, because Dart's HTTP client cannot be
@@ -152,7 +155,13 @@ class AppConfiguration {
     );
 
     final supportWhatsAppNumber = valueOf(supportWhatsAppNumberDefine);
-    if (supportWhatsAppNumber.isNotEmpty && !_isPhoneNumberE164(supportWhatsAppNumber)) {
+    if (supportWhatsAppNumber.isEmpty) {
+      // The Error screen asks the listener to share a code with support (S4-USABILITY-02): a
+      // build for listeners must say how to reach support, like it must say where the API is.
+      if (flavour != null && !isDevelopment) {
+        problems.add(ConfigurationProblem.supportWhatsAppNumberMissing);
+      }
+    } else if (!_isPhoneNumberE164(supportWhatsAppNumber)) {
       problems.add(ConfigurationProblem.supportWhatsAppNumberNotE164);
     }
 

@@ -1,6 +1,7 @@
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 
-/// Configurations for tests of code that talks to the API, matching the shapes of config/*.json.
+/// Configurations for tests of code that talks to the API, matching the shapes of config/*.json
+/// (staging and production as deployment fills them in).
 abstract final class ExampleAppConfigurations {
   /// The emulator against the local API, over plain http.
   static AppConfiguration development({bool writesVerboseLogs = false}) => AppConfiguration(
@@ -15,15 +16,22 @@ abstract final class ExampleAppConfigurations {
     apiBaseUrl: Uri.parse('https://lookup-dev.example.invalid/api/v1'),
   );
 
+  /// Staging and production always name a support number: the start-up check refuses them without
+  /// one (S4-D32).
   static AppConfiguration staging() => AppConfiguration(
     flavour: AppFlavour.staging,
     apiBaseUrl: Uri.parse('https://api.staging.lookup.invalid/api/v1'),
+    supportWhatsAppNumber: supportWhatsAppNumber,
   );
 
   static AppConfiguration production() => AppConfiguration(
     flavour: AppFlavour.production,
     apiBaseUrl: Uri.parse('https://api.lookup.invalid/api/v1'),
+    supportWhatsAppNumber: supportWhatsAppNumber,
   );
+
+  /// The support number of the staging and production examples.
+  static const String supportWhatsAppNumber = '+260971234567';
 }
 
 /// A configuration the start-up check would refuse (production or staging over plain http), which

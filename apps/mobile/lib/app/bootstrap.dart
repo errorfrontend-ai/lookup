@@ -9,6 +9,7 @@ import 'package:lookup_listener/app/app_router.dart';
 import 'package:lookup_listener/app/look_up_app.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
+import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/error_reporting/global_error_handlers.dart';
 import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
@@ -29,12 +30,20 @@ import 'package:lookup_listener/features/identify/data/clip_recorder_provider.da
 ///
 /// The parameters exist for the start-up test: [checkConfiguration] is the build's own check,
 /// [serviceOverrides] replace services with fakes through the container (never a test branch in
-/// the app), and [startApp] is Flutter's `runApp`. Returns what was started, so it can be stopped,
-/// or null for a refused configuration.
+/// the app), [startApp] is Flutter's `runApp`, and [createIsolateErrorListener] makes the isolate
+/// error listener, so the test can see which isolate it is told to listen to
+/// (S4-ERRORHANDLING-07). Returns what was started, so it can be stopped, or null for a refused
+/// configuration.
 ({ProviderContainer container, IsolateErrorListener isolateErrorListener})? bootstrap({
   AppConfigurationResult Function() checkConfiguration = AppConfiguration.fromEnvironment,
   List<Override> serviceOverrides = const [],
   void Function(Widget app) startApp = runApp,
+  IsolateErrorListener Function({
+        required ClientErrorReporter reporter,
+        String Function()? readCurrentLocation,
+      })
+      createIsolateErrorListener =
+      IsolateErrorListener.new,
 }) {
   WidgetsFlutterBinding.ensureInitialized();
   switch (checkConfiguration()) {
@@ -70,7 +79,7 @@ import 'package:lookup_listener/features/identify/data/clip_recorder_provider.da
         readCurrentLocation: readCurrentLocation,
         developmentLog: container.read(developmentLogProvider),
       ).install();
-      final isolateErrorListener = IsolateErrorListener(
+      final isolateErrorListener = createIsolateErrorListener(
         reporter: reporter,
         readCurrentLocation: readCurrentLocation,
       )..listenTo(Isolate.current);

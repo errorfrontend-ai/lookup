@@ -33,6 +33,38 @@ void main() {
     expect(find.text('Code copied'), findsOneWidget);
   });
 
+  testWidgets('with "Remove animations", "Code copied" is in place on the first frame', (
+    tester,
+  ) async {
+    disableAnimations(tester);
+    final harness = IdentifyScreenHarness();
+    await harness.pump(tester, _panel());
+    await tester.tap(find.text('Copy'));
+    // The copy finishes, then one frame.
+    await tester.pump();
+    await tester.pump();
+
+    expect(harness.clipboard.copiedTexts, ['6F1C-2D3E']);
+    expect(
+      tester.widget<SnackBar>(find.byType(SnackBar)).animation!.status,
+      AnimationStatus.completed,
+    );
+  });
+
+  testWidgets('with animations on, "Code copied" slides in', (tester) async {
+    final harness = IdentifyScreenHarness();
+    await harness.pump(tester, _panel());
+    await tester.tap(find.text('Copy'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      tester.widget<SnackBar>(find.byType(SnackBar)).animation!.status,
+      AnimationStatus.forward,
+    );
+    await tester.pumpAndSettle();
+  });
+
   for (final phoneScreen in PhoneScreen.layoutChecks) {
     testWidgets('fits on $phoneScreen, "Copy" moving under the code when needed', (tester) async {
       await IdentifyScreenHarness().pump(tester, _panel(), phoneScreen: phoneScreen);

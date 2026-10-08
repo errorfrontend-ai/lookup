@@ -169,6 +169,16 @@ class ExpectedValuesTest(unittest.TestCase):
                 self.assertEqual(label, label.strip())
                 self.assertTrue(label)
 
+    def test_the_production_apk_is_set_up_wrongly_only_in_its_plain_http_address(self) -> None:
+        defines = runner.production_cleartext_defines()
+
+        self.assertEqual(set(defines), {'LOOKUP_FLAVOUR', 'LOOKUP_API_BASE_URL', 'LOOKUP_SUPPORT_WHATSAPP_NUMBER'})
+        self.assertEqual(defines['LOOKUP_FLAVOUR'], 'production')
+        self.assertEqual(defines['LOOKUP_API_BASE_URL'], 'http://10.0.2.2:3999/api/v1')
+        # The app's own rule (AppConfiguration): E.164, and a Zambian number has 9 digits after +260. Without a
+        # valid number, production would refuse to start for that reason too, and the http check would prove less.
+        self.assertRegex(defines['LOOKUP_SUPPORT_WHATSAPP_NUMBER'], r'^\+260[1-9][0-9]{8}$')
+
 
 class MachineChecksTest(unittest.TestCase):
     def test_docker_desktop_is_found_in_the_process_list(self) -> None:
@@ -534,7 +544,7 @@ class RunJourneysTest(unittest.TestCase):
 
         self.assertEqual([(outcome.name, outcome.is_passed) for outcome in outcomes], [('first', False),
                                                                                          ('second', True)])
-        self.assertEqual(outcomes[0].detail, 'the result never came')
+        self.assertEqual(outcomes[0].detail, 'the result never came. The fake API saw: nothing')
         self.assertEqual(phone.evidence, ['06-first'])
         self.assertEqual(outcomes[0].evidence, ['06-first.xml'])
         self.assertEqual((phone.stops, phone.launches), ([APP], [APP]))

@@ -18,6 +18,7 @@ const Map<String, String> _developmentDefines = {
 const Map<String, String> _productionDefines = {
   'LOOKUP_FLAVOUR': 'production',
   'LOOKUP_API_BASE_URL': 'https://api.lookup.invalid/api/v1',
+  'LOOKUP_SUPPORT_WHATSAPP_NUMBER': '+260966000001',
 };
 
 AppConfiguration _expectAccepted(AppConfigurationResult result) {
@@ -82,7 +83,7 @@ void main() {
       expect(configuration.apiBaseUrl.scheme, 'https');
     });
 
-    test('staging and production on https with no development flag', () {
+    test('staging and production on https with a support number and no development flag', () {
       for (final flavour in ['staging', 'production']) {
         final configuration = _expectAccepted(
           AppConfiguration.check(
@@ -91,6 +92,7 @@ void main() {
           ),
         );
         expect(configuration.flavour.name, flavour);
+        expect(configuration.supportWhatsAppNumber, '+260966000001');
         expect(configuration.showsErrorDetails, isFalse);
         expect(configuration.showsDeveloperTools, isFalse);
         expect(configuration.writesVerboseLogs, isFalse);
@@ -165,11 +167,12 @@ void main() {
     });
 
     test('a missing API address', () {
-      expect(_problemsOf({'LOOKUP_FLAVOUR': 'production'}), [
-        ConfigurationProblem.apiBaseUrlMissing,
-      ]);
       expect(_problemsOf(_with(_productionDefines, {'LOOKUP_API_BASE_URL': ''})), [
         ConfigurationProblem.apiBaseUrlMissing,
+      ]);
+      expect(_problemsOf({'LOOKUP_FLAVOUR': 'production'}), [
+        ConfigurationProblem.apiBaseUrlMissing,
+        ConfigurationProblem.supportWhatsAppNumberMissing,
       ]);
     });
 
@@ -212,10 +215,13 @@ void main() {
     test('plain http outside development', () {
       for (final flavour in ['staging', 'production']) {
         expect(
-          _problemsOf({
-            'LOOKUP_FLAVOUR': flavour,
-            'LOOKUP_API_BASE_URL': 'http://api.lookup.invalid/api/v1',
-          }, gradleFlavour: flavour),
+          _problemsOf(
+            _with(_productionDefines, {
+              'LOOKUP_FLAVOUR': flavour,
+              'LOOKUP_API_BASE_URL': 'http://api.lookup.invalid/api/v1',
+            }),
+            gradleFlavour: flavour,
+          ),
           [ConfigurationProblem.apiBaseUrlNotHttps],
           reason: flavour,
         );
@@ -267,6 +273,25 @@ void main() {
           );
         }
       });
+    });
+
+    test('staging or production with no support number, so a code is never shown with a promise '
+        'of support that cannot be reached (S4-D32)', () {
+      for (final flavour in ['staging', 'production']) {
+        for (final number in [null, '']) {
+          final defines = _with(_productionDefines, {'LOOKUP_FLAVOUR': flavour});
+          if (number == null) {
+            defines.remove('LOOKUP_SUPPORT_WHATSAPP_NUMBER');
+          } else {
+            defines['LOOKUP_SUPPORT_WHATSAPP_NUMBER'] = number;
+          }
+          expect(
+            _problemsOf(defines, gradleFlavour: flavour),
+            [ConfigurationProblem.supportWhatsAppNumberMissing],
+            reason: '$flavour with ${number == null ? 'no' : 'an empty'} number',
+          );
+        }
+      }
     });
 
     test('a support number that is not E.164', () {
@@ -376,29 +401,52 @@ void main() {
 
     for (final file in configFiles) {
       final fileName = file.uri.pathSegments.last;
-      test('$fileName holds only known defines, as text, and passes the check', () {
-        final decoded = jsonDecode(file.readAsStringSync());
-        expect(decoded, isA<Map<String, Object?>>());
-        final defines = <String, String>{};
-        (decoded as Map<String, Object?>).forEach((name, value) {
-          expect(
-            AppConfiguration.defineNames,
-            contains(name),
-            reason: '$fileName: an unknown define is ignored by the app',
-          );
-          expect(value, isA<String>(), reason: '$fileName: $name');
-          defines[name] = value! as String;
-        });
+      final isPlaceholder = !fileName.startsWith('development');
+      test(
+        isPlaceholder
+            ? '$fileName holds only known defines, as text, and cannot start until deployment '
+                  'gives it a support number'
+            : '$fileName holds only known defines, as text, and passes the check',
+        () {
+          final decoded = jsonDecode(file.readAsStringSync());
+          expect(decoded, isA<Map<String, Object?>>());
+          final defines = <String, String>{};
+          (decoded as Map<String, Object?>).forEach((name, value) {
+            expect(
+              AppConfiguration.defineNames,
+              contains(name),
+              reason: '$fileName: an unknown define is ignored by the app',
+            );
+            expect(value, isA<String>(), reason: '$fileName: $name');
+            defines[name] = value! as String;
+          });
 
-        final flavour = defines['LOOKUP_FLAVOUR'];
-        expect(
-          fileName.startsWith('$flavour'),
-          isTrue,
-          reason: '$fileName must be named after its flavour',
-        );
-        // Built with --flavor <flavour>, as the README tells the developer to.
-        _expectAccepted(AppConfiguration.check(defines, gradleFlavour: flavour));
-      });
+          final flavour = defines['LOOKUP_FLAVOUR'];
+          expect(
+            fileName.startsWith('$flavour'),
+            isTrue,
+            reason: '$fileName must be named after its flavour',
+          );
+          // Built with --flavor <flavour>, as the README tells the developer to.
+          final result = AppConfiguration.check(defines, gradleFlavour: flavour);
+          if (!isPlaceholder) {
+            _expectAccepted(result);
+            return;
+          }
+          // Staging and production wait for deployment (P8): the support number is the one thing
+          // missing, so such a build shows the set-up screen rather than a promise of support.
+          expect(defines['LOOKUP_SUPPORT_WHATSAPP_NUMBER'], isEmpty);
+          expect(_expectRefused(result).problems, [
+            ConfigurationProblem.supportWhatsAppNumberMissing,
+          ]);
+          _expectAccepted(
+            AppConfiguration.check({
+              ...defines,
+              'LOOKUP_SUPPORT_WHATSAPP_NUMBER': '+260966000001',
+            }, gradleFlavour: flavour),
+          );
+        },
+      );
     }
   });
 }

@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
+import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
+import 'package:lookup_listener/core/widgets/state_icon_circle.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/result/data/action_launcher.dart';
@@ -71,35 +73,19 @@ final class IdentifyScreenHarness {
   }
 }
 
-/// The tap-target, label and contrast guidelines, and at least 8 dp between any two tap targets
-/// (design §2.1, §4.3).
+/// The tap-target, label and contrast guidelines, at least 8 dp between any two tap targets, and
+/// words on every control but Back and Close (design §2.1, §4.3).
 Future<void> expectMeetsTapGuidelines(WidgetTester tester) async {
   await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
   await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
   await expectLater(tester, meetsGuideline(textContrastGuideline));
   expectTapTargetsApart(tester);
+  expectEveryControlShowsText(tester);
 }
 
 /// Fails when two tap targets on screen overlap or are less than 8 dp apart.
 void expectTapTargetsApart(WidgetTester tester) {
-  final targets = <Rect>[];
-  void collect(SemanticsNode node) {
-    final data = node.getSemanticsData();
-    if (data.hasAction(SemanticsAction.tap) && !node.isMergedIntoParent) {
-      targets.add(_globalRectOf(node));
-    }
-    node.visitChildren((child) {
-      collect(child);
-      return true;
-    });
-  }
-
-  // The root of the tree, reached from the screen's own node.
-  var root = tester.getSemantics(find.byType(Scaffold).first);
-  while (root.parent != null) {
-    root = root.parent!;
-  }
-  collect(root);
+  final targets = _tapTargetsOf(tester);
   for (var first = 0; first < targets.length; first++) {
     for (var second = first + 1; second < targets.length; second++) {
       final a = targets[first];
@@ -114,6 +100,69 @@ void expectTapTargetsApart(WidgetTester tester) {
       );
     }
   }
+}
+
+/// Fails when a tap target other than the screen's Back arrow or Close × shows no words: every
+/// action has a visible text label, and only Back and Close are icon-only, with a screen-reader
+/// label instead (design §2.1, S4-USABILITY-01). A screen-reader label alone does not count: the
+/// words must be drawn inside the control.
+void expectEveryControlShowsText(WidgetTester tester) {
+  final exitButtons = find.byType(ScreenExitButton);
+  final exitButtonCentres = [
+    for (var index = 0; index < exitButtons.evaluate().length; index++)
+      tester.getCenter(exitButtons.at(index)),
+  ];
+  final texts = find.byWidgetPredicate(
+    (widget) =>
+        widget is Text && (widget.data ?? widget.textSpan?.toPlainText() ?? '').trim().isNotEmpty,
+  );
+  final textCentres = [
+    for (var index = 0; index < texts.evaluate().length; index++) tester.getCenter(texts.at(index)),
+  ];
+  final targets = _tapTargetsOf(tester);
+  expect(targets, isNotEmpty, reason: 'no control on screen to check');
+  for (final target in targets) {
+    if (exitButtonCentres.any(target.contains)) continue;
+    expect(
+      textCentres.any(target.contains),
+      isTrue,
+      reason: 'The control at $target shows no words; only Back and Close may be icon-only',
+    );
+  }
+}
+
+/// Every tap target on screen, in logical pixels from the screen's top left, read from the
+/// semantics tree (which the test must have switched on before showing the screen). The tree's root
+/// scales to physical pixels, so each rectangle is scaled back by the device pixel ratio.
+List<Rect> _tapTargetsOf(WidgetTester tester) {
+  final pixelRatio = tester.view.devicePixelRatio;
+  final targets = <Rect>[];
+  void collect(SemanticsNode node) {
+    final data = node.getSemanticsData();
+    if (data.hasAction(SemanticsAction.tap) && !node.isMergedIntoParent) {
+      final physical = _globalRectOf(node);
+      targets.add(
+        Rect.fromLTRB(
+          physical.left / pixelRatio,
+          physical.top / pixelRatio,
+          physical.right / pixelRatio,
+          physical.bottom / pixelRatio,
+        ),
+      );
+    }
+    node.visitChildren((child) {
+      collect(child);
+      return true;
+    });
+  }
+
+  // The root of the tree, reached from the screen's own node.
+  var root = tester.getSemantics(find.byType(Scaffold).first);
+  while (root.parent != null) {
+    root = root.parent!;
+  }
+  collect(root);
+  return targets;
 }
 
 Rect _globalRectOf(SemanticsNode node) {
@@ -154,6 +203,30 @@ void disableAnimations(WidgetTester tester) {
     disableAnimations: true,
   );
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+}
+
+/// Checks the screen's round icon as the design draws it (§2.3, §2.8–§2.10): an 88 dp circle filled
+/// with [circleColour], holding [icon] at 40 dp in [iconColour]. Widget assertions stand in for the
+/// golden images (design §4.3).
+void expectStateIcon(
+  WidgetTester tester, {
+  required IconData icon,
+  required Color iconColour,
+  required Color circleColour,
+}) {
+  final circle = find.descendant(
+    of: find.byType(StateIconCircle),
+    matching: find.byType(DecoratedBox),
+  );
+  expect(circle, findsOneWidget);
+  final decoration = tester.widget<DecoratedBox>(circle).decoration as BoxDecoration;
+  expect(decoration.shape, BoxShape.circle);
+  expect(decoration.color, circleColour, reason: "the circle's fill");
+  expect(tester.getSize(circle), const Size.square(88));
+  final drawnIcon = tester.widget<Icon>(find.descendant(of: circle, matching: find.byType(Icon)));
+  expect(drawnIcon.icon, icon);
+  expect(drawnIcon.color, iconColour, reason: "the icon's colour");
+  expect(drawnIcon.size, 40);
 }
 
 /// The semantics node of a state heading's live region, whose parent carries its role.

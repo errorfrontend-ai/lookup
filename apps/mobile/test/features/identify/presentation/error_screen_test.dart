@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -176,6 +177,16 @@ AppConfiguration _developmentWithDetails() => AppConfiguration(
   showsErrorDetails: true,
 );
 
+/// Each variant's icon colour and circle colour, as design §2.10 lists them (S4-ERROR-03).
+final Map<String, ({Color icon, Color circle})> _iconColoursByVariant = {
+  'server failure': (icon: LookUpColours.light.danger, circle: LookUpColours.light.dangerSoft),
+  'phone failure': (icon: LookUpColours.light.danger, circle: LookUpColours.light.dangerSoft),
+  'recording unusable': (icon: LookUpColours.light.ink, circle: LookUpColours.light.lineSoft),
+  'no connection': (icon: LookUpColours.light.ink, circle: LookUpColours.light.lineSoft),
+  'too many tries': (icon: LookUpColours.light.warning, circle: LookUpColours.light.warningSoft),
+  'newer app needed': (icon: LookUpColours.light.accent, circle: LookUpColours.light.accentSoft),
+};
+
 IdentifyScreenHarness _harnessFor(RecognitionFailure failure, {AppConfiguration? configuration}) =>
     IdentifyScreenHarness(
       state: ErrorState(failure: failure),
@@ -209,6 +220,22 @@ void main() {
         expect(find.bySemanticsLabel('Close'), findsOneWidget);
         expectNoTechnicalText(tester);
         semantics.dispose();
+      });
+
+      testWidgets('${variant.name}: its icon and its circle, in their colours (S4-ERROR-03)', (
+        tester,
+      ) async {
+        await _harnessFor(variant.failure).pump(tester, ErrorScreen(failure: variant.failure));
+        final colours = _iconColoursByVariant.entries
+            .where((entry) => variant.name.startsWith(entry.key))
+            .single
+            .value;
+        expectStateIcon(
+          tester,
+          icon: variant.icon,
+          iconColour: colours.icon,
+          circleColour: colours.circle,
+        );
       });
 
       testWidgets('${variant.name}: a reference code only when support can find it (S4-D9)', (
@@ -255,9 +282,12 @@ void main() {
   });
 
   group('"Message support on WhatsApp" (S4-D32)', () {
-    testWidgets('is hidden when the build has no support number', (tester) async {
+    testWidgets('is hidden when the build has no support number (development only)', (
+      tester,
+    ) async {
       await _harnessFor(
         const ServerFailure(requestId: _apiRequestId),
+        configuration: ExampleAppConfigurations.development(),
       ).pump(tester, const ErrorScreen(failure: ServerFailure(requestId: _apiRequestId)));
       expect(find.text('Message support on WhatsApp'), findsNothing);
       expect(find.text('Copy'), findsOneWidget);

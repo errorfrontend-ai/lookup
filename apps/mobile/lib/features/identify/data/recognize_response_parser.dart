@@ -19,25 +19,31 @@ final class RecognizeResponseParser {
   /// [body] is the decoded JSON, or null when the body was empty or not JSON. [requestIdHeader] is
   /// the answer's `X-Request-Id` header and [retryAfterSeconds] its `Retry-After` in whole seconds
   /// as read (null when missing or unreadable), both taken from the headers by the caller.
+  /// [answeredRequest] says whose answer it is when a refused install registration is read the way
+  /// a recognize answer is (§3.9), so a crash report names the registration.
   RecognitionAnswer read({
     required int httpStatus,
     required Object? body,
     String? requestIdHeader,
     int? retryAfterSeconds,
+    AnsweredRequest answeredRequest = AnsweredRequest.recognize,
   }) {
     final apiRequestId = _apiRequestIdFrom(requestIdHeader, body);
     if (httpStatus != 200) {
-      return _readErrorStatus(httpStatus, body, apiRequestId, retryAfterSeconds);
+      return _readErrorStatus(httpStatus, body, apiRequestId, retryAfterSeconds, answeredRequest);
     }
-    if (body is! Map<Object?, Object?>) {
-      return UnreadableAnswer(problem: 'the body is not a JSON object', apiRequestId: apiRequestId);
-    }
+    UnreadableAnswer unreadable(String problem) => UnreadableAnswer(
+      problem: problem,
+      apiRequestId: apiRequestId,
+      answeredRequest: answeredRequest,
+    );
+    if (body is! Map<Object?, Object?>) return unreadable('the body is not a JSON object');
     return switch (body['status']) {
-      'MATCH' => _readMatch(body['result'], apiRequestId),
+      'MATCH' => _readMatch(body['result'], apiRequestId) ?? unreadable(_unreadableMatchProblem),
       'NO_MATCH' => NoMatchAnswer(apiRequestId: apiRequestId),
       'CHOOSE_STATION' => ChooseStationAnswer(apiRequestId: apiRequestId),
       String() => UnknownStatusAnswer(apiRequestId: apiRequestId),
-      _ => UnreadableAnswer(problem: 'status is missing or not text', apiRequestId: apiRequestId),
+      _ => unreadable('status is missing or not text'),
     };
   }
 
@@ -63,7 +69,13 @@ final class RecognizeResponseParser {
     );
   }
 
-  RecognitionAnswer _readMatch(Object? result, String? apiRequestId) {
+  /// A `MATCH` the screen cannot show: which fields it needs.
+  static const String _unreadableMatchProblem =
+      'MATCH without a readable result (needs station id, name and frequency_label, '
+      'client name, title and card)';
+
+  /// The match, or null when [result] is not one the screen can show.
+  MatchAnswer? _readMatch(Object? result, String? apiRequestId) {
     if (result case {
       'station':
           {
@@ -94,12 +106,7 @@ final class RecognizeResponseParser {
         apiRequestId: apiRequestId,
       );
     }
-    return UnreadableAnswer(
-      problem:
-          'MATCH without a readable result (needs station id, name and frequency_label, '
-          'client name, title and card)',
-      apiRequestId: apiRequestId,
-    );
+    return null;
   }
 
   /// An image the phone may download, or null: only https addresses of the contract's shape, with
@@ -132,6 +139,7 @@ final class RecognizeResponseParser {
     Object? body,
     String? apiRequestId,
     int? retryAfterSeconds,
+    AnsweredRequest answeredRequest,
   ) {
     final envelope = body is Map<Object?, Object?> ? body['error'] : null;
     if (envelope is! Map<Object?, Object?>) {
@@ -139,6 +147,7 @@ final class RecognizeResponseParser {
         httpStatus: httpStatus,
         apiRequestId: apiRequestId,
         retryAfterSeconds: retryAfterSeconds,
+        answeredRequest: answeredRequest,
       );
     }
     final errorCode = envelope['code'];
@@ -156,6 +165,7 @@ final class RecognizeResponseParser {
           } when _fieldPath.hasMatch(path) && _fieldCode.hasMatch(code))
             FieldProblem(path: path, code: code),
       ]),
+      answeredRequest: answeredRequest,
     );
   }
 

@@ -46,11 +46,21 @@ final class ApiAnswerReceived extends ApiAnswer {
   final ApiAnswerBody body;
 }
 
-/// No answer came: no network, a timeout, a dropped connection, a cancel, or a request the client
-/// refused to send.
+/// No answer came: no network, a timeout, a dropped connection, a cancel, or a request the phone
+/// itself stopped (a fault in the app, or plain `http` refused).
 final class ApiAnswerNotReceived extends ApiAnswer {
-  const ApiAnswerNotReceived({required super.sentRequestId, required this.reason});
+  const ApiAnswerNotReceived({
+    required super.sentRequestId,
+    required this.reason,
+    this.faultTypeName,
+  });
 
-  /// Why; for the development log and for telling a cancel from a lost connection.
+  /// Why: the network, the listener's cancel, or the phone itself.
   final ApiNoAnswerReason reason;
+
+  /// For [ApiNoAnswerReason.unexpectedFailure]: the type of the error that stopped the request on
+  /// the phone, e.g. `StateError`, for the crash report. Its name only, never its text, which can
+  /// quote addresses, headers or answers. Null when nothing was thrown (a refused path, an answer
+  /// with no status) and for every other reason.
+  final String? faultTypeName;
 }

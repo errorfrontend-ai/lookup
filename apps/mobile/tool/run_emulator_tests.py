@@ -672,7 +672,8 @@ def run_journeys(context: RunContext, journeys: Sequence[tuple[str, Callable[[Ru
     for index, (name, journey) in enumerate(journeys):
         started = monotonic()
         context.driver.taps = []
-        refused_before = len(refused_requests(context.fake_api.request_log()))
+        log_before = context.fake_api.request_log()
+        refused_before = len(refused_requests(log_before))
         try:
             detail = journey(context)
             refused = refused_requests(context.fake_api.request_log())[refused_before:]
@@ -682,6 +683,10 @@ def run_journeys(context: RunContext, journeys: Sequence[tuple[str, Callable[[Ru
             print(f'PASS  {name}: {detail}', flush=True)
         except Exception as error:   # any failure of one journey is recorded, then the next one runs
             detail = str(error) if isinstance(error, StepFailed) else f'{type(error).__name__}: {error}'
+            try:
+                detail += f'. The fake API saw: {what_the_fake_saw(log_before, context.fake_api.request_log())}'
+            except Exception:   # the fake may be the thing that failed; the failure itself is what matters
+                pass
             evidence = save_evidence_quietly(context.device, f'{first_number + index:02d}-{slug(name)}',
                                              context.driver.last_screen)
             outcomes.append(StepOutcome(name, False, detail, monotonic() - started, evidence, context.driver.taps))
@@ -694,6 +699,20 @@ def run_journeys(context: RunContext, journeys: Sequence[tuple[str, Callable[[Ru
                                                 f'not run: the app could not be brought back to Home ({recovery_error})', 0))
                 break
     return outcomes
+
+
+def what_the_fake_saw(log_before: dict[str, Any], log_after: dict[str, Any]) -> str:
+    """The requests and crash reports the fake received during one journey, in a line: what the app sent,
+    the scenario each recognize met, why any request was refused, and each report's kind and message."""
+    requests = log_after.get('requests', [])[len(log_before.get('requests', [])):]
+    reports = log_after.get('client_error_reports', [])[len(log_before.get('client_error_reports', [])):]
+    parts = []
+    for request in requests:
+        outcome = f"refused: {request['refused']}" if 'refused' in request else request.get('scenario', 'answered')
+        parts.append(f"{request.get('method')} {request.get('path')} ({outcome})")
+    for report in reports:
+        parts.append(f"crash report {report.get('kind')}: {str(report.get('message', ''))[:160]}")
+    return '; '.join(parts) if parts else 'nothing'
 
 
 def save_evidence_quietly(device: Device, name: str, screen: Screen | None) -> list[str]:
@@ -897,6 +916,16 @@ def build_apk(tools: Tools, flavour: str, define_file: str, kept_name: str, log_
     return kept
 
 
+def production_cleartext_defines() -> dict[str, str]:
+    """The production APK's defines (S4-SECURITY-02): a build that is right in every way but its plain http
+    address, so the set-up screen it must show can only be the http refusal. The support number is the
+    development fake's own: staging and production refuse to start without one (S4-D32)."""
+    development = json.loads((APP_FOLDER / DEVELOPMENT_DEFINES).read_text(encoding='utf-8'))
+    return {'LOOKUP_FLAVOUR': 'production',
+            'LOOKUP_API_BASE_URL': EMULATOR_API_ADDRESS,
+            'LOOKUP_SUPPORT_WHATSAPP_NUMBER': development['LOOKUP_SUPPORT_WHATSAPP_NUMBER']}
+
+
 def build_apks(tools: Tools, temporary_folder: Path, skip_build: bool) -> dict[str, Path]:
     kept = {'development': KEPT_APK_FOLDER / DEVELOPMENT_APK_NAME, 'production': KEPT_APK_FOLDER / PRODUCTION_APK_NAME}
     if skip_build:
@@ -905,8 +934,7 @@ def build_apks(tools: Tools, temporary_folder: Path, skip_build: bool) -> dict[s
             raise StepFailed(f'--skip-build needs the APKs of an earlier build: {", ".join(missing)} missing')
         return kept
     production_defines = temporary_folder / 'production-cleartext.json'
-    production_defines.write_text(json.dumps({'LOOKUP_FLAVOUR': 'production',
-                                              'LOOKUP_API_BASE_URL': EMULATOR_API_ADDRESS}, indent=2), encoding='utf-8')
+    production_defines.write_text(json.dumps(production_cleartext_defines(), indent=2), encoding='utf-8')
     return {
         'development': build_apk(tools, 'development', DEVELOPMENT_DEFINES, DEVELOPMENT_APK_NAME,
                                  temporary_folder / 'build-development.log'),
@@ -1145,6 +1173,12 @@ def run(tools: Tools, record: RunRecord, skip_build: bool) -> None:
     except RunStopped:
         pass
     finally:
+        if resources.fake_api is not None:
+            try:   # everything the fake received, for reading a failure afterwards
+                (temporary_folder / 'fake-api-requests.json').write_text(
+                    json.dumps(resources.fake_api.request_log(), indent=2, ensure_ascii=False), encoding='utf-8')
+            except Exception:
+                pass
         stop_everything(resources, temporary_folder)
 
 
