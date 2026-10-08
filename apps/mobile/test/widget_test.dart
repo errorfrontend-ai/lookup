@@ -1,30 +1,195 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+import 'dart:isolate';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/app/app_providers.dart';
+import 'package:lookup_listener/app/bootstrap.dart';
+import 'package:lookup_listener/core/configuration/app_configuration.dart';
+import 'package:lookup_listener/core/error_reporting/client_error_kind.dart';
+import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
+import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
+import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
+import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
+import 'package:lookup_listener/features/identify/presentation/send_test_error_button.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:lookup_listener/main.dart';
+import 'support/fake_clip_recorder.dart';
+import 'support/fake_http_client_adapter.dart';
+import 'support/fake_microphone_permission.dart';
+import 'support/recording_client_error_reporter.dart';
 
+/// The start-up test (design §2.11, §3.7, §3.19): `bootstrap()` as `main()` runs it, with its
+/// services replaced by fakes through the provider container only.
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  late FakeHttpClientAdapter adapter;
+  late FakeClipRecorder recorder;
+  late RecordingClientErrorReporter reporter;
+  late Widget? startedApp;
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    adapter = FakeHttpClientAdapter();
+    recorder = FakeClipRecorder()..leaveClipFileBehind('left-by-a-crash.m4a');
+    reporter = RecordingClientErrorReporter();
+    startedApp = null;
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  /// Starts the app with [configuration] as the build's check gives it; true when it started.
+  /// What it started is stopped when the test ends.
+  bool start(AppConfigurationResult configuration) {
+    final started = bootstrap(
+      checkConfiguration: () => configuration,
+      serviceOverrides: [
+        apiClientProvider.overrideWith(
+          (ref) => ApiClient(
+            configuration: switch (configuration) {
+              AppConfigurationAccepted(:final configuration) => configuration,
+              AppConfigurationRefused() => throw StateError('Nothing may start.'),
+            },
+            randomUuid: ref.watch(randomUuidProvider),
+            httpClientAdapter: adapter,
+          ),
+        ),
+        clientErrorReporterProvider.overrideWithValue(reporter),
+        clipRecorderProvider.overrideWithValue(recorder),
+        microphonePermissionProvider.overrideWithValue(FakeMicrophonePermission()),
+      ],
+      startApp: (app) => startedApp = app,
+    );
+    if (started == null) return false;
+    addTearDown(() {
+      started.isolateErrorListener
+        ..stopListeningTo(Isolate.current)
+        ..close();
+      started.container.dispose();
+    });
+    return true;
+  }
+
+  testWidgets('a refused configuration shows only the set-up screen and starts nothing', (
+    tester,
+  ) async {
+    final flutterErrorHandler = FlutterError.onError;
+    final platformErrorHandler = PlatformDispatcher.instance.onError;
+    final errorWidgetBuilder = ErrorWidget.builder;
+
+    // Production over plain http: a mis-built app (S4-SECURITY-02).
+    final started = start(
+      AppConfiguration.check({
+        AppConfiguration.flavourDefine: 'production',
+        AppConfiguration.apiBaseUrlDefine: 'http://api.lookup.invalid/api/v1',
+      }, gradleFlavour: 'production'),
+    );
+    expect(started, isFalse);
+    await tester.pumpWidget(startedApp!);
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text("This copy of Look Up isn't set up correctly."), findsOneWidget);
+    expect(find.text(SetUpProblemScreen.detailsHeading), findsNothing);
+    expect(find.byType(HomeScreen), findsNothing);
+    expect(find.byType(FilledButton), findsNothing);
+    // No request, no sweep, no handler: nothing started.
+    expect(adapter.requests, isEmpty);
+    expect(recorder.leftoverSweepCount, 0);
+    expect(recorder.clipFileNames, {'left-by-a-crash.m4a'});
+    expect(reporter.reports, isEmpty);
+    expect(FlutterError.onError, same(flutterErrorHandler));
+    expect(PlatformDispatcher.instance.onError, same(platformErrorHandler));
+    expect(ErrorWidget.builder, same(errorWidgetBuilder));
+  });
+
+  testWidgets('a refused development build lists its problems for the developer', (tester) async {
+    start(
+      AppConfiguration.check({AppConfiguration.flavourDefine: 'development'}, gradleFlavour: null),
+    );
+    await tester.pumpWidget(startedApp!);
+    expect(find.text(SetUpProblemScreen.detailsHeading), findsOneWidget);
+    expect(find.text('LOOKUP_API_BASE_URL is missing.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'an accepted configuration installs the handlers, sweeps old clips, shows Home and registers',
+    (tester) async {
+      final flutterErrorHandler = FlutterError.onError;
+      final platformErrorHandler = PlatformDispatcher.instance.onError;
+      final errorWidgetBuilder = ErrorWidget.builder;
+      try {
+        adapter.answerJson(200, {
+          'install_token': 'fake.install.token',
+          'expires_at': '2026-11-07T12:00:00Z',
+        });
+        final started = start(
+          AppConfiguration.check({
+            AppConfiguration.flavourDefine: 'production',
+            AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
+          }, gradleFlavour: 'production'),
+        );
+        expect(started, isTrue);
+        expect(FlutterError.onError, isNot(same(flutterErrorHandler)));
+        expect(PlatformDispatcher.instance.onError, isNot(same(platformErrorHandler)));
+        expect(ErrorWidget.builder, isNot(same(errorWidgetBuilder)));
+        // The clip a crash left behind is gone before the first frame (S4-D7).
+        expect(recorder.leftoverSweepCount, greaterThanOrEqualTo(1));
+        expect(recorder.clipFileNames, isEmpty);
+
+        await tester.pumpWidget(startedApp!);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(find.text('Heard an ad on the radio?'), findsOneWidget);
+        // Registered in the background after the first frame (S4-D14).
+        expect(adapter.requests, hasLength(1));
+        expect(adapter.requests.single.address.path, '/api/v1/installs');
+
+        // The handlers report to the app's one reporter, with the current route.
+        FlutterError.onError!(FlutterErrorDetails(exception: StateError('a test failure')));
+        expect(reporter.reports, hasLength(1));
+        expect(reporter.reports.single.kind, ClientErrorKind.render);
+        expect(reporter.reports.single.location, '/');
+      } finally {
+        FlutterError.onError = flutterErrorHandler;
+        PlatformDispatcher.instance.onError = platformErrorHandler;
+        ErrorWidget.builder = errorWidgetBuilder;
+      }
+    },
+  );
+
+  testWidgets('"Send a test error" in a development build reaches the reporter once', (
+    tester,
+  ) async {
+    final flutterErrorHandler = FlutterError.onError;
+    final platformErrorHandler = PlatformDispatcher.instance.onError;
+    final errorWidgetBuilder = ErrorWidget.builder;
+    try {
+      adapter.answerJson(200, {
+        'install_token': 'fake.install.token',
+        'expires_at': '2026-11-07T12:00:00Z',
+      });
+      start(
+        AppConfiguration.check({
+          AppConfiguration.flavourDefine: 'development',
+          AppConfiguration.apiBaseUrlDefine: 'http://10.0.2.2:3999/api/v1',
+          AppConfiguration.showDeveloperToolsDefine: 'true',
+        }, gradleFlavour: 'development'),
+      );
+      await tester.pumpWidget(startedApp!);
+      await tester.pump();
+      // The background registration finishes.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(adapter.requests, hasLength(1));
+
+      await tester.tap(find.text(SendTestErrorButton.label));
+      await tester.pump();
+      expect(reporter.reports, hasLength(1));
+      expect(reporter.reports.single.kind, ClientErrorKind.render);
+      expect('${reporter.reports.single.error}', contains(SendTestErrorButton.errorDescription));
+      expect(find.byType(HomeScreen), findsOneWidget);
+    } finally {
+      FlutterError.onError = flutterErrorHandler;
+      PlatformDispatcher.instance.onError = platformErrorHandler;
+      ErrorWidget.builder = errorWidgetBuilder;
+    }
   });
 }
