@@ -1,0 +1,12 @@
+{
+  "description": "Too many identifies from this install or address: the app shows Too many tries (a short wait, since Retry-After is 60 seconds or less)",
+  "http_status": 429,
+  "retry_after_seconds": 42,
+  "body": {
+    "error": {
+      "code": "RATE_LIMITED",
+      "message": "Too many requests. Please wait a moment and try again.",
+      "request_id": "4a7b0d5e-6f8c-4d9b-9e2a-3b4c5d6e7f8a"
+    }
+  }
+}

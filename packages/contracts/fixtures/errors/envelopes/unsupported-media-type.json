@@ -1,0 +1,11 @@
+{
+  "description": "The request was not multipart/form-data: server failure with the reference code",
+  "http_status": 415,
+  "body": {
+    "error": {
+      "code": "UNSUPPORTED_MEDIA_TYPE",
+      "message": "This file type is not supported.",
+      "request_id": "0a3b6d1e-2f4c-4d5b-bd8a-9b0c1d2e3f4a"
+    }
+  }
+}

@@ -1,0 +1,326 @@
+[
+  {
+    "description": "A plain link: lower-case host, a slash, a path",
+    "link": "https://example.com/offer",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer"
+  },
+  {
+    "description": "A full link with a subdomain, a path, a query and a fragment",
+    "link": "https://www.example.co.zm/offer?ref=radio&day=monday#prices",
+    "is_canonical": true,
+    "parsed_href": "https://www.example.co.zm/offer?ref=radio&day=monday#prices"
+  },
+  {
+    "description": "Host: a capital letter in the host (the parser lower-cases it)",
+    "link": "https://Example.com/offer",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer"
+  },
+  {
+    "description": "Scheme: the scheme in capitals (the parser lower-cases it)",
+    "link": "HTTPS://example.com/offer",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer"
+  },
+  {
+    "description": "Scheme: http is never canonical, though the parser leaves it as written",
+    "link": "http://example.com/offer",
+    "is_canonical": false,
+    "parsed_href": "http://example.com/offer"
+  },
+  {
+    "description": "Slash after the host: nothing after the host (the parser adds a slash)",
+    "link": "https://example.com",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/"
+  },
+  {
+    "description": "Slash after the host: a query straight after the host (the parser puts a slash before it)",
+    "link": "https://example.com?ref=radio",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/?ref=radio"
+  },
+  {
+    "description": "Slash after the host: a fragment straight after the host (the parser puts a slash before it)",
+    "link": "https://example.com#prices",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/#prices"
+  },
+  {
+    "description": "Slash after the host: just the slash is canonical",
+    "link": "https://example.com/",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/"
+  },
+  {
+    "description": "Trailing slash: a path ending in a slash is kept as written",
+    "link": "https://example.com/offer/",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer/"
+  },
+  {
+    "description": "Dot segments: \".\" in the path (the parser removes it)",
+    "link": "https://example.com/offer/./terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer/terms"
+  },
+  {
+    "description": "Dot segments: \"..\" in the path (the parser removes it and the segment before)",
+    "link": "https://example.com/offer/../terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/terms"
+  },
+  {
+    "description": "Dot segments: \"..\" as the last segment",
+    "link": "https://example.com/offer/..",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/"
+  },
+  {
+    "description": "Dot segments: \"%2e\" is a \".\" segment to the parser",
+    "link": "https://example.com/offer/%2e/terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer/terms"
+  },
+  {
+    "description": "Dot segments: \"%2E%2e\" and \".%2E\" are \"..\" segments, in either letter case",
+    "link": "https://example.com/offer/%2E%2e/terms/.%2E/prices",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/prices"
+  },
+  {
+    "description": "Dot segments: a segment that only starts with a dot is not a dot segment",
+    "link": "https://example.com/.well-known/offer",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/.well-known/offer"
+  },
+  {
+    "description": "Dot segments: \"%2e\" inside a longer segment is left alone",
+    "link": "https://example.com/offer%2eterms",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer%2eterms"
+  },
+  {
+    "description": "Dot segments: dots in the query are not path segments and are left alone",
+    "link": "https://example.com/offer?next=../terms",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer?next=../terms"
+  },
+  {
+    "description": "Backslash: a \"\\\" in the path (the parser turns it into \"/\")",
+    "link": "https://example.com/offer\\terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer/terms"
+  },
+  {
+    "description": "Backslash: a \"\\\" in the query is left as written (only the path treats it as \"/\")",
+    "link": "https://example.com/offer?q=a\\b",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer?q=a\\b"
+  },
+  {
+    "description": "Backslash: a \"\\\" in the fragment is left as written",
+    "link": "https://example.com/offer#a\\b",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer#a\\b"
+  },
+  {
+    "description": "Path: a double quote is percent-encoded by the parser",
+    "link": "https://example.com/offer\"terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%22terms"
+  },
+  {
+    "description": "Path: \"<\" is percent-encoded by the parser",
+    "link": "https://example.com/offer<terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%3Cterms"
+  },
+  {
+    "description": "Path: \">\" is percent-encoded by the parser",
+    "link": "https://example.com/offer>terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%3Eterms"
+  },
+  {
+    "description": "Path: a backtick is percent-encoded by the parser",
+    "link": "https://example.com/offer`terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%60terms"
+  },
+  {
+    "description": "Path: \"{\" is percent-encoded by the parser",
+    "link": "https://example.com/offer{terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%7Bterms"
+  },
+  {
+    "description": "Path: \"}\" is percent-encoded by the parser",
+    "link": "https://example.com/offer}terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%7Dterms"
+  },
+  {
+    "description": "Path: \"^\" is percent-encoded by the parser (as Node 24, the version in .nvmrc, does)",
+    "link": "https://example.com/offer^terms",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer%5Eterms"
+  },
+  {
+    "description": "Path: an apostrophe is left as written",
+    "link": "https://example.com/it's-on",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/it's-on"
+  },
+  {
+    "description": "Path: \"|\", \"[\" and \"]\" are left as written",
+    "link": "https://example.com/offer|terms[1]",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer|terms[1]"
+  },
+  {
+    "description": "Query: a double quote is percent-encoded by the parser",
+    "link": "https://example.com/offer?q=\"deal\"",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer?q=%22deal%22"
+  },
+  {
+    "description": "Query: \"<\" is percent-encoded by the parser",
+    "link": "https://example.com/offer?q=<deal",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer?q=%3Cdeal"
+  },
+  {
+    "description": "Query: \">\" is percent-encoded by the parser",
+    "link": "https://example.com/offer?q=deal>",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer?q=deal%3E"
+  },
+  {
+    "description": "Query: an apostrophe is percent-encoded by the parser (https queries only; not in the path or fragment)",
+    "link": "https://example.com/offer?q=it's",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer?q=it%27s"
+  },
+  {
+    "description": "Query: a backtick is left as written (unlike in the path and fragment)",
+    "link": "https://example.com/offer?q=a`b",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer?q=a`b"
+  },
+  {
+    "description": "Query: \"{\", \"}\", \"^\" and \"|\" are left as written",
+    "link": "https://example.com/offer?q={a}^b|c",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer?q={a}^b|c"
+  },
+  {
+    "description": "Fragment: a double quote is percent-encoded by the parser",
+    "link": "https://example.com/offer#\"prices\"",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer#%22prices%22"
+  },
+  {
+    "description": "Fragment: \"<\" is percent-encoded by the parser",
+    "link": "https://example.com/offer#<prices",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer#%3Cprices"
+  },
+  {
+    "description": "Fragment: \">\" is percent-encoded by the parser",
+    "link": "https://example.com/offer#prices>",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer#prices%3E"
+  },
+  {
+    "description": "Fragment: a backtick is percent-encoded by the parser",
+    "link": "https://example.com/offer#a`b",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer#a%60b"
+  },
+  {
+    "description": "Fragment: an apostrophe, \"{\", \"}\", \"^\" and \"|\" are left as written",
+    "link": "https://example.com/offer#it's{a}^b|c",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer#it's{a}^b|c"
+  },
+  {
+    "description": "Empty query: a \"?\" with nothing after it is kept, so the link is canonical",
+    "link": "https://example.com/offer?",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer?"
+  },
+  {
+    "description": "Empty fragment: a \"#\" with nothing after it is kept, so the link is canonical",
+    "link": "https://example.com/offer#",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/offer#"
+  },
+  {
+    "description": "Percent signs: an escape that is not valid hex is left alone by the parser, so the link is canonical",
+    "link": "https://example.com/100%off",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/100%off"
+  },
+  {
+    "description": "Percent signs: lower-case hex in an escape is not upper-cased by the parser, so the link is canonical",
+    "link": "https://example.com/caf%c3%a9",
+    "is_canonical": true,
+    "parsed_href": "https://example.com/caf%c3%a9"
+  },
+  {
+    "description": "Spaces: a space is refused (an encoded space, %20, is fine)",
+    "link": "https://example.com/two words",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/two%20words"
+  },
+  {
+    "description": "Credentials: a user name and password before the host",
+    "link": "https://user:secret@example.com/offer",
+    "is_canonical": false,
+    "parsed_href": "https://user:secret@example.com/offer"
+  },
+  {
+    "description": "Credentials: a user name alone before the host",
+    "link": "https://user@example.com/offer",
+    "is_canonical": false,
+    "parsed_href": "https://user@example.com/offer"
+  },
+  {
+    "description": "Ports: the default port 443 (the parser removes it)",
+    "link": "https://example.com:443/offer",
+    "is_canonical": false,
+    "parsed_href": "https://example.com/offer"
+  },
+  {
+    "description": "Ports: any other port, though the parser leaves it as written",
+    "link": "https://example.com:8443/offer",
+    "is_canonical": false,
+    "parsed_href": "https://example.com:8443/offer"
+  },
+  {
+    "description": "International hosts: a valid punycode host in lower case",
+    "link": "https://xn--mnchen-3ya.de/offer",
+    "is_canonical": true,
+    "parsed_href": "https://xn--mnchen-3ya.de/offer"
+  },
+  {
+    "description": "International hosts: a punycode host in capitals (the parser lower-cases it)",
+    "link": "https://XN--MNCHEN-3YA.de/offer",
+    "is_canonical": false,
+    "parsed_href": "https://xn--mnchen-3ya.de/offer"
+  },
+  {
+    "description": "International hosts: a Unicode host is refused (the parser would turn it into punycode)",
+    "link": "https://münchen.de/offer",
+    "is_canonical": false,
+    "parsed_href": "https://xn--mnchen-3ya.de/offer"
+  },
+  {
+    "description": "International hosts: an \"xn--\" label that is not valid punycode is refused by the parser altogether, so the app must decode it to agree",
+    "link": "https://xn--abc.com/offer",
+    "is_canonical": false,
+    "parsed_href": null
+  }
+]

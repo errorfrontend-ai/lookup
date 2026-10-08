@@ -178,7 +178,7 @@ describe('Ad page', () => {
       expect(within(items[2] as HTMLElement).getByText('Cairo Road, Lusaka (-15.4167, 28.2833)')).toBeInTheDocument();
       expect(within(buttons).getByRole('link', { name: 'Try “Call Brand A”' })).toHaveAttribute('href', 'tel:+260977123456');
       expect(within(buttons).getByRole('link', { name: 'Try “Chat on WhatsApp”' })).toHaveAttribute('href', 'https://wa.me/260966000111?text=Hello%20there');
-      expect(within(buttons).getByRole('link', { name: 'Try “Get directions”' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=-15.416700%2C28.283300');
+      expect(within(buttons).getByRole('link', { name: 'Try “Get directions”' })).toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&destination=-15.416700%2C28.283300');
     });
 
     it('previews at a small and a large phone, with the small one first', async () => {

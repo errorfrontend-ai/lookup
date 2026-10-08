@@ -1,0 +1,11 @@
+{
+  "description": "The clip was captured too long ago (a live clip never should be): server failure with the reference code",
+  "http_status": 422,
+  "body": {
+    "error": {
+      "code": "CAPTURE_EXPIRED",
+      "message": "This recording is too old to identify.",
+      "request_id": "1b4c7e2f-3a5d-4e6c-8e9b-0c1d2e3f4a5b"
+    }
+  }
+}

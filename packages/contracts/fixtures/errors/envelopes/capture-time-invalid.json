@@ -1,0 +1,11 @@
+{
+  "description": "The clip's capture time cannot be right: server failure with the reference code",
+  "http_status": 422,
+  "body": {
+    "error": {
+      "code": "CAPTURE_TIME_INVALID",
+      "message": "This recording's time is not valid.",
+      "request_id": "2c5d8f3a-4b6e-4f7d-9f0c-1d2e3f4a5b6c"
+    }
+  }
+}

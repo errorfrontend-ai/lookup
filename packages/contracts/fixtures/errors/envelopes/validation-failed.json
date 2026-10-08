@@ -1,0 +1,21 @@
+{
+  "description": "The app sent a field the contract refuses (here local times without a time zone): server failure with the reference code; the fields are never shown",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "code": "VALIDATION_FAILED",
+      "message": "Some details are missing or not valid.",
+      "request_id": "8e1f4b9c-0d2a-4b3f-9b6e-7f8a9b0c1d2e",
+      "fields": [
+        {
+          "path": "captured_at",
+          "code": "invalid_format"
+        },
+        {
+          "path": "sent_at",
+          "code": "invalid_format"
+        }
+      ]
+    }
+  }
+}

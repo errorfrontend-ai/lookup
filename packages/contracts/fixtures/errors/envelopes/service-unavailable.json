@@ -1,0 +1,11 @@
+{
+  "description": "A service the API needs is down, with no Retry-After: the app shows Busy and waits its default 10 seconds",
+  "http_status": 503,
+  "body": {
+    "error": {
+      "code": "SERVICE_UNAVAILABLE",
+      "message": "The service is temporarily unavailable. Please try again shortly.",
+      "request_id": "3f6a9c4d-5e7b-4c8a-8d1f-2a3b4c5d6e7f"
+    }
+  }
+}

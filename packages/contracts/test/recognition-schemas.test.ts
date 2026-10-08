@@ -72,6 +72,29 @@ describe('the recognize request fields', () => {
   });
 });
 
+describe('the recognize request fixtures (the text fields the listener app sends)', () => {
+  const validateWithJsonSchema = new Ajv2020({ strict: true, allErrors: true, formats: { uuid: true, 'date-time': true } }).compile(
+    committedSchema('recognize-request-fields.schema.json'),
+  );
+  const valid = readFixtureFolder<{ fields: unknown }>('recognition/recognize-request/valid');
+  const invalid = readFixtureFolder<{ fields: unknown }>('recognition/recognize-request/invalid');
+
+  it.each(valid.map(({ name, fixture }) => [name, fixture.fields] as const))('%s is valid for zod and for the JSON Schema', (_name, fields) => {
+    expect(RecognizeRequestFields.safeParse(fields).success).toBe(true);
+    expect(validateWithJsonSchema(fields)).toBe(true);
+  });
+
+  it.each(invalid.map(({ name, fixture }) => [name, fixture.fields] as const))('%s is refused by zod and by the JSON Schema', (_name, fields) => {
+    expect(RecognizeRequestFields.safeParse(fields).success).toBe(false);
+    expect(validateWithJsonSchema(fields)).toBe(false);
+  });
+
+  it('has the live identify the app sends and the mistakes it must not make', () => {
+    expect(valid.map(({ name }) => name)).toContain('live-identify');
+    expect(invalid.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('the recognize response', () => {
   const validateWithJsonSchema = new Ajv2020({ strict: true, allErrors: true, formats: { uuid: true, 'date-time': true, uri: true } }).compile(
     committedSchema('recognize-response.schema.json'),

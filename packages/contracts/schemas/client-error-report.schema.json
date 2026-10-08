@@ -1,0 +1,56 @@
+{
+  "$id": "https://contracts.lookup.invalid/client-error-report/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ClientErrorReport",
+  "$defs": {
+    "ClientErrorReport": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "portal",
+            "listener-app"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "render",
+            "uncaught",
+            "unhandled-rejection",
+            "reported"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "stack": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "relatedRequestId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "appVersion": {
+          "type": "string",
+          "maxLength": 40
+        }
+      },
+      "required": [
+        "source",
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

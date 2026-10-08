@@ -80,6 +80,15 @@
   --text-title: 1.5rem;
   --text-title--line-height: 1.875rem;
   --text-title--font-weight: 700;
+  --text-headline: 1.75rem;
+  --text-headline--line-height: 2.125rem;
+  --text-headline--font-weight: 700;
+  --text-cardTitle: 1.375rem;
+  --text-cardTitle--line-height: 1.75rem;
+  --text-cardTitle--font-weight: 700;
+  --text-cardTitleCompact: 1.25rem;
+  --text-cardTitleCompact--line-height: 1.625rem;
+  --text-cardTitleCompact--font-weight: 700;
   --text-heading: 1.125rem;
   --text-heading--line-height: 1.5rem;
   --text-heading--font-weight: 600;

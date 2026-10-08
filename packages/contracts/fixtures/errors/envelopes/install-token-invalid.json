@@ -1,0 +1,11 @@
+{
+  "description": "The install token is unknown or expired: the app registers again and resends the same clip once",
+  "http_status": 401,
+  "body": {
+    "error": {
+      "code": "INSTALL_TOKEN_INVALID",
+      "message": "This app needs to register again.",
+      "request_id": "5b8c1e6f-7a9d-4e0c-af3b-4c5d6e7f8a9b"
+    }
+  }
+}

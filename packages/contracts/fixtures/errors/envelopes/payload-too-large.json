@@ -1,0 +1,11 @@
+{
+  "description": "The request was bigger than the API takes: server failure with the reference code",
+  "http_status": 413,
+  "body": {
+    "error": {
+      "code": "PAYLOAD_TOO_LARGE",
+      "message": "The upload is too large.",
+      "request_id": "9f2a5c0d-1e3b-4c4a-ac7f-8a9b0c1d2e3f"
+    }
+  }
+}

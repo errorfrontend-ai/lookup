@@ -14,20 +14,45 @@ export function buildActionUri(action: ReadAction): string | null {
     case 'WHATSAPP': {
       if (!isPhoneNumberE164(action.phoneNumberE164)) return null;
       const digitsOnly = action.phoneNumberE164.slice(1);
-      return action.prefilledText
-        ? `https://wa.me/${digitsOnly}?text=${encodeURIComponent(action.prefilledText)}`
-        : `https://wa.me/${digitsOnly}`;
+      if (!action.prefilledText) return `https://wa.me/${digitsOnly}`;
+      const encodedText = encodeOrNull(action.prefilledText);
+      return encodedText === null ? null : `https://wa.me/${digitsOnly}?text=${encodedText}`;
     }
     case 'MAP': {
-      const { latitude, longitude } = action;
-      const isInRange = Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
-      // Six fixed decimals (about 10 cm) so every platform prints the same text (Dart prints 28.0 where JavaScript prints 28).
-      return isInRange
-        ? `https://www.google.com/maps/search/?api=1&query=${latitude.toFixed(6)}%2C${longitude.toFixed(6)}`
-        : null;
+      // A listener's map button opens directions to the place (design S4-D16), not a search for it.
+      const coordinates = formatCoordinates(action.latitude, action.longitude);
+      return coordinates ? `https://www.google.com/maps/dir/?api=1&destination=${coordinates}` : null;
     }
     case 'LINK':
       return isCanonicalHttpsLink(action.url) ? action.url : null;
+  }
+}
+
+/**
+ * A Google Maps address that shows the pin itself, for a station checking where a map button points
+ * (the portal's "Check on Google Maps"). Listeners get directions instead (buildActionUri).
+ */
+export function buildMapSearchAddress(latitude: number, longitude: number): string | null {
+  const coordinates = formatCoordinates(latitude, longitude);
+  return coordinates ? `https://www.google.com/maps/search/?api=1&query=${coordinates}` : null;
+}
+
+/**
+ * "latitude%2Clongitude" with six fixed decimals (about 10 cm), so every platform prints the same text
+ * (Dart prints 28.0 where JavaScript prints 28, and -0.000000 where JavaScript prints 0.000000).
+ * Null when either is not a finite number in range.
+ */
+function formatCoordinates(latitude: number, longitude: number): string | null {
+  const isInRange = Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  return isInRange ? `${latitude.toFixed(6)}%2C${longitude.toFixed(6)}` : null;
+}
+
+/** encodeURIComponent, but null instead of throwing on text it cannot encode (a lone surrogate). */
+function encodeOrNull(text: string): string | null {
+  try {
+    return encodeURIComponent(text);
+  } catch {
+    return null;
   }
 }
 

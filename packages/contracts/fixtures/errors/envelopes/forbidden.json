@@ -1,0 +1,11 @@
+{
+  "description": "A status the app has no screen for: server failure with the reference code",
+  "http_status": 403,
+  "body": {
+    "error": {
+      "code": "FORBIDDEN",
+      "message": "You do not have access to this.",
+      "request_id": "3d6e9a4b-5c7f-4a8e-a01d-2e3f4a5b6c7d"
+    }
+  }
+}

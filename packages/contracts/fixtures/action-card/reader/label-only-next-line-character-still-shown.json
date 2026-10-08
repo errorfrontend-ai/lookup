@@ -1,0 +1,35 @@
+{
+  "description": "R5: blank means blank to JavaScript's trim(). A label of only U+0085 (next line) is not blank there, so the button is shown, though Dart's trim() would remove it; a label of only U+00A0, U+2028 and U+FEFF is blank in both, so that button is skipped",
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000001",
+        "label": "\u0085",
+        "style": "PRIMARY",
+        "phone_number_e164": "+260977123456"
+      },
+      {
+        "type": "CALL",
+        "id": "0192a6c4-0000-4000-8000-000000000002",
+        "label": "  ﻿",
+        "style": "SECONDARY",
+        "phone_number_e164": "+260966123456"
+      }
+    ]
+  },
+  "expected": {
+    "visible_action_ids": [
+      "0192a6c4-0000-4000-8000-000000000001"
+    ],
+    "more_options_action_ids": [],
+    "styles": [
+      "PRIMARY"
+    ],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 1,
+    "shows_update_app_hint": false
+  }
+}

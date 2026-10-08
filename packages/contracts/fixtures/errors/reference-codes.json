@@ -1,0 +1,87 @@
+[
+  {
+    "description": "A version-4 request id, as the app makes them: its first 8 hex digits, upper case, split in two",
+    "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "reference_code": "6F1C-2D3E"
+  },
+  {
+    "description": "The same id in upper case gives the same code",
+    "request_id": "6F1C2D3E-4B5A-4C7D-9E8F-0A1B2C3D4E5F",
+    "reference_code": "6F1C-2D3E"
+  },
+  {
+    "description": "A version-7 id",
+    "request_id": "0192a6c4-7e1f-7a2b-8c3d-4e5f6a7b8c9d",
+    "reference_code": "0192-A6C4"
+  },
+  {
+    "description": "Leading zeros are kept",
+    "request_id": "00000001-0000-4000-8000-000000000000",
+    "reference_code": "0000-0001"
+  },
+  {
+    "description": "Digits only in the first 8",
+    "request_id": "12345678-9abc-4def-a012-3456789abcde",
+    "reference_code": "1234-5678"
+  },
+  {
+    "description": "Letters only in the first 8",
+    "request_id": "abcdefab-cdef-4abc-bdef-abcdefabcdef",
+    "reference_code": "ABCD-EFAB"
+  },
+  {
+    "description": "Not a UUID: an id the API makes for its own jobs, which a listener never sees",
+    "request_id": "ingest-sweep-6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: empty",
+    "request_id": "",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: spaces around it",
+    "request_id": " 6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f ",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: no dashes",
+    "request_id": "6f1c2d3e4b5a4c7d9e8f0a1b2c3d4e5f",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: in braces",
+    "request_id": "{6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f}",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: a letter that is not hex",
+    "request_id": "6g1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: one digit short",
+    "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5",
+    "reference_code": null
+  },
+  {
+    "description": "Not an id the API accepts: the nil UUID (version 0)",
+    "request_id": "00000000-0000-0000-0000-000000000000",
+    "reference_code": null
+  },
+  {
+    "description": "Not an id the API accepts: version 9",
+    "request_id": "6f1c2d3e-4b5a-9c7d-9e8f-0a1b2c3d4e5f",
+    "reference_code": null
+  },
+  {
+    "description": "Not an id the API accepts: a variant other than RFC 9562 (c)",
+    "request_id": "6f1c2d3e-4b5a-4c7d-ce8f-0a1b2c3d4e5f",
+    "reference_code": null
+  },
+  {
+    "description": "Not a UUID: a reference code itself",
+    "request_id": "6F1C-2D3E",
+    "reference_code": null
+  }
+]

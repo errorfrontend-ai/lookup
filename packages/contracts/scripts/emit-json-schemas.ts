@@ -7,6 +7,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { emitActionCardJsonSchema } from '../src/action-card/action-card-schema.js';
+import { emitClientErrorReportJsonSchema } from '../src/client-errors/client-error-schemas.js';
 import { emitErrorEnvelopeJsonSchema } from '../src/errors/error-envelope-schema.js';
 import {
   emitIngestJobDataJsonSchema,
@@ -20,6 +21,7 @@ import { emitRecognizeRequestFieldsJsonSchema, emitRecognizeResponseJsonSchema }
 export const JSON_SCHEMA_FILES = {
   'action-card.schema.json': emitActionCardJsonSchema,
   'error-envelope.schema.json': emitErrorEnvelopeJsonSchema,
+  'client-error-report.schema.json': emitClientErrorReportJsonSchema,
   'register-install-input.schema.json': emitRegisterInstallInputJsonSchema,
   'install-registration.schema.json': emitInstallRegistrationJsonSchema,
   'recognize-request-fields.schema.json': emitRecognizeRequestFieldsJsonSchema,

@@ -1,0 +1,29 @@
+{
+  "description": "R5: a latitude of -0.0 is in range, so the map button is shown (it reads as minus zero; the address builder prints it without a sign)",
+  "card": {
+    "schema_version": 1,
+    "layout": "VERTICAL_STACK",
+    "actions": [
+      {
+        "type": "MAP",
+        "id": "0192a6c4-0000-4000-8000-000000000003",
+        "label": "Find our shop",
+        "style": "OUTLINE",
+        "latitude": -0.0,
+        "longitude": 28.2833
+      }
+    ]
+  },
+  "expected": {
+    "visible_action_ids": [
+      "0192a6c4-0000-4000-8000-000000000003"
+    ],
+    "more_options_action_ids": [],
+    "styles": [
+      "OUTLINE"
+    ],
+    "skipped_unknown_type_count": 0,
+    "skipped_invalid_count": 0,
+    "shows_update_app_hint": false
+  }
+}

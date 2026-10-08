@@ -1,0 +1,12 @@
+{
+  "description": "The engine has no room for the clip: the app shows Busy, waits Retry-After and sends the same clip again",
+  "http_status": 503,
+  "retry_after_seconds": 10,
+  "body": {
+    "error": {
+      "code": "RECOGNITION_BUSY",
+      "message": "Look Up is busy right now. Please try again in a moment.",
+      "request_id": "1d4e7a2b-3c5f-4a6e-8b9d-0e1f2a3b4c5d"
+    }
+  }
+}

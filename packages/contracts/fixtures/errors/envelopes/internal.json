@@ -1,0 +1,11 @@
+{
+  "description": "Something failed on the server: the app shows the server-failure screen with the reference code",
+  "http_status": 500,
+  "body": {
+    "error": {
+      "code": "INTERNAL",
+      "message": "Something went wrong on our side. Please try again.",
+      "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f"
+    }
+  }
+}

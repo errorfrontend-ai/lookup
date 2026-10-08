@@ -1,0 +1,12 @@
+{
+  "description": "The same clip is still being identified: the app waits Retry-After and resends the same idempotency key",
+  "http_status": 409,
+  "retry_after_seconds": 3,
+  "body": {
+    "error": {
+      "code": "RECOGNITION_IN_PROGRESS",
+      "message": "This recording is still being identified.",
+      "request_id": "7d0e3a8b-9c1f-4a2e-8a5d-6e7f8a9b0c1d"
+    }
+  }
+}

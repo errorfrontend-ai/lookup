@@ -1,0 +1,12 @@
+{
+  "description": "The engine did not answer in time: the app shows Busy, waits Retry-After and sends the same clip again",
+  "http_status": 503,
+  "retry_after_seconds": 5,
+  "body": {
+    "error": {
+      "code": "RECOGNITION_TIMEOUT",
+      "message": "That took too long. Please try again.",
+      "request_id": "2e5f8b3c-4d6a-4b7f-9c0e-1f2a3b4c5d6e"
+    }
+  }
+}

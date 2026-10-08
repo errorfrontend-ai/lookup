@@ -44,7 +44,7 @@
       "longitude": 28.2833,
       "place_name": "Cairo Road, Lusaka"
     },
-    "expected_uri": "https://www.google.com/maps/search/?api=1&query=-15.416700%2C28.283300"
+    "expected_uri": "https://www.google.com/maps/dir/?api=1&destination=-15.416700%2C28.283300"
   },
   {
     "description": "Map with whole-number coordinates still prints six decimals",
@@ -57,7 +57,7 @@
       "longitude": 28,
       "place_name": "Cairo Road, Lusaka"
     },
-    "expected_uri": "https://www.google.com/maps/search/?api=1&query=-15.000000%2C28.000000"
+    "expected_uri": "https://www.google.com/maps/dir/?api=1&destination=-15.000000%2C28.000000"
   },
   {
     "description": "Canonical link opens as is",
@@ -104,5 +104,31 @@
       "place_name": "Cairo Road, Lusaka"
     },
     "expected_uri": null
+  },
+  {
+    "description": "Map at latitude -0.0 prints 0.000000, as JavaScript does",
+    "action": {
+      "type": "MAP",
+      "id": "0192a6c4-0000-4000-8000-000000000003",
+      "label": "Find our shop",
+      "style": "OUTLINE",
+      "latitude": -0.0,
+      "longitude": 28.2833,
+      "place_name": "Cairo Road, Lusaka"
+    },
+    "expected_uri": "https://www.google.com/maps/dir/?api=1&destination=0.000000%2C28.283300"
+  },
+  {
+    "description": "Map on the antimeridian and the pole is still in range",
+    "action": {
+      "type": "MAP",
+      "id": "0192a6c4-0000-4000-8000-000000000003",
+      "label": "Find our shop",
+      "style": "OUTLINE",
+      "latitude": -90,
+      "longitude": 180,
+      "place_name": "Cairo Road, Lusaka"
+    },
+    "expected_uri": "https://www.google.com/maps/dir/?api=1&destination=-90.000000%2C180.000000"
   }
 ]

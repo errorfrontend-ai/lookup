@@ -1,4 +1,4 @@
-import { buildActionUri, formatPhoneNumberForDisplay, MAXIMUM_LABEL_LENGTH, MAXIMUM_PLACE_NAME_LENGTH, MAXIMUM_PREFILLED_TEXT_LENGTH, normalizeZambianPhoneInput } from '@lookup/contracts';
+import { buildMapSearchAddress, formatPhoneNumberForDisplay, MAXIMUM_LABEL_LENGTH, MAXIMUM_PLACE_NAME_LENGTH, MAXIMUM_PREFILLED_TEXT_LENGTH, normalizeZambianPhoneInput } from '@lookup/contracts';
 import { useEffect, useRef } from 'react';
 import { Icon, type IconName } from '../../components/icons';
 import { SelectField } from '../../components/select-field';
@@ -65,7 +65,8 @@ function WhatsAppFields(props: FieldsProps) {
 
 function MapFields({ context, draft, problem, onChange, onTouch }: FieldsProps) {
   const location = parseMapLocation(draft.locationText);
-  const address = location.kind === 'found' ? buildActionUri({ type: 'MAP', id: draft.key, label: draft.label, style: 'PRIMARY', latitude: location.latitude, longitude: location.longitude }) : null;
+  // The pin itself, for the station to check; listeners' map buttons open directions (buildActionUri).
+  const address = location.kind === 'found' ? buildMapSearchAddress(location.latitude, location.longitude) : null;
   return (
     <>
       <div className="flex flex-col gap-1.5">

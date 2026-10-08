@@ -1,0 +1,11 @@
+{
+  "description": "The text fields of a live identify as the listener app sends them: an 8-second AAC clip, a lower-case version-4 idempotency key made at capture, UTC times with milliseconds and Z, sent shortly after recording ended, not deferred, no station hint",
+  "fields": {
+    "clip_duration_milliseconds": "8000",
+    "codec": "aac",
+    "idempotency_key": "3b9e7c1a-5d2f-4e8b-9a6c-1f0d2e3c4b5a",
+    "captured_at": "2026-10-08T09:15:02.123Z",
+    "sent_at": "2026-10-08T09:15:10.456Z",
+    "is_deferred": "false"
+  }
+}
