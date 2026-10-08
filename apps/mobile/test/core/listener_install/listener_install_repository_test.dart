@@ -1,0 +1,367 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/identifiers/random_uuid.dart';
+import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
+import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
+import 'package:lookup_listener/core/listener_install/listener_install_store.dart';
+import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../features/identify/data/contract_schema_checker.dart';
+import '../../support/example_app_configurations.dart';
+import '../../support/fake_clock.dart';
+import '../../support/fake_http_client_adapter.dart';
+import '../../support/repository_file_locator.dart';
+
+final RegExp _versionFourUuid = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+);
+
+const String _storedInstallId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
+const String _firstToken = 'first.token.value';
+const String _secondToken = 'second.token.value';
+
+/// A registration answer, 30 days from the fake clock's start (noon UTC, 8 October 2026).
+Map<String, Object?> _registrationAnswer(
+  String token, {
+  String expiresAt = '2026-11-07T12:00:00Z',
+}) => {'install_token': token, 'expires_at': expiresAt};
+
+void main() {
+  late FakeHttpClientAdapter adapter;
+  late FakeClock clock;
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    adapter = FakeHttpClientAdapter();
+    clock = FakeClock();
+  });
+
+  /// One launch of the app: a new repository over the same stored values.
+  ListenerInstallRepository launch({ListenerInstallStore? store}) {
+    final randomUuid = RandomUuid();
+    return ListenerInstallRepository(
+      store: store ?? ListenerInstallStore(randomUuid: randomUuid),
+      registration: ListenerInstallRegistration(
+        apiClient: ApiClient(
+          configuration: ExampleAppConfigurations.production(),
+          randomUuid: randomUuid,
+          clock: clock,
+          httpClientAdapter: adapter,
+        ),
+      ),
+      randomUuid: randomUuid,
+      clock: clock,
+    );
+  }
+
+  /// Stored values as a previous launch would have left them.
+  void storedFromEarlierLaunch({String? token, DateTime? expiresAt}) =>
+      SharedPreferences.setMockInitialValues({
+        'listener_install_id': _storedInstallId,
+        'listener_install_token': ?token,
+        'listener_install_token_expires_at': ?expiresAt?.toUtc().toIso8601String(),
+      });
+
+  /// Holds the next registration answer until [release] is completed, so tests can make callers
+  /// overlap.
+  Completer<void> holdNextRegistration(String token) {
+    final release = Completer<void>();
+    adapter.answerWith((request, cancelFuture) async {
+      await release.future;
+      return ResponseBody.fromString(jsonEncode(_registrationAnswer(token)), 200);
+    });
+    return release;
+  }
+
+  String tokenOf(ListenerInstallRegistrationResult result) =>
+      (result as ListenerInstallRegistered).installToken;
+
+  group('first launch', () {
+    test('makes an install id, registers once in the background, and stores the token', () async {
+      adapter.answerJson(200, _registrationAnswer(_firstToken));
+      final repository = launch()..registerInBackground();
+      final result = await repository.ensureRegistered();
+
+      expect(adapter.requests, hasLength(1));
+      expect(tokenOf(result), _firstToken);
+      final body = adapter.requests.single.jsonBody as Map<String, Object?>;
+      expect(body['install_id'], matches(_versionFourUuid));
+      final schema =
+          jsonDecode(
+                RepositoryFileLocator.file(
+                  'packages/contracts/schemas/register-install-input.schema.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, Object?>;
+      expect(ContractSchemaChecker.problemsWith(body, schema), isEmpty);
+
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString('listener_install_id'), body['install_id']);
+      expect(preferences.getString('listener_install_token'), _firstToken);
+      expect(
+        preferences.getString('listener_install_token_expires_at'),
+        '2026-11-07T12:00:00.000Z',
+      );
+    });
+
+    test('a fast first tap during the background registration shares it', () async {
+      final release = holdNextRegistration(_firstToken);
+      final repository = launch()..registerInBackground();
+      final fromTap = repository.ensureRegistered();
+      final fromSecondTap = repository.ensureRegistered();
+      await pumpEventQueue();
+      release.complete();
+      expect(tokenOf(await fromTap), _firstToken);
+      expect(tokenOf(await fromSecondTap), _firstToken);
+      expect(adapter.requests, hasLength(1));
+    });
+  });
+
+  group('later launches', () {
+    test('use the stored token with no request, and the same install id', () async {
+      adapter.answerJson(200, _registrationAnswer(_firstToken));
+      await launch().ensureRegistered();
+      final firstInstallId =
+          (adapter.requests.single.jsonBody as Map<String, Object?>)['install_id'];
+
+      final secondLaunch = launch()..registerInBackground();
+      final result = await secondLaunch.ensureRegistered();
+      expect(adapter.requests, hasLength(1));
+      expect(tokenOf(result), _firstToken);
+      expect((result as ListenerInstallRegistered).credentials.installId, firstInstallId);
+    });
+
+    test('register again within 24 hours of the expiry, with the same install id', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(hours: 23)),
+      );
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      final result = await launch().ensureRegistered();
+      expect(tokenOf(result), _secondToken);
+      expect(
+        (adapter.requests.single.jsonBody as Map<String, Object?>)['install_id'],
+        _storedInstallId,
+      );
+      expect(
+        (await SharedPreferences.getInstance()).getString('listener_install_token'),
+        _secondToken,
+      );
+    });
+
+    test('do not register with more than 24 hours left', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(hours: 25)),
+      );
+      expect(tokenOf(await launch().ensureRegistered()), _firstToken);
+      expect(adapter.requests, isEmpty);
+    });
+
+    test('register again after the expiry', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().subtract(const Duration(days: 1)),
+      );
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      expect(tokenOf(await launch().ensureRegistered()), _secondToken);
+    });
+
+    test('keep using a token still in date when its renewal fails', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(hours: 2)),
+      );
+      adapter.failWithDioType(DioExceptionType.connectionError);
+      expect(tokenOf(await launch().ensureRegistered()), _firstToken);
+    });
+  });
+
+  group('a failed registration with no usable token', () {
+    test('no answer is handed back as no answer', () async {
+      adapter.failWithDioType(DioExceptionType.connectionTimeout);
+      final result = await launch().ensureRegistered();
+      expect(
+        result,
+        isA<ListenerInstallNotRegistered>().having(
+          (result) => result.answer,
+          'answer',
+          isA<ApiAnswerNotReceived>(),
+        ),
+      );
+    });
+
+    test('a 429 is handed back with its status and Retry-After', () async {
+      adapter.answerJson(
+        429,
+        {
+          'error': {'code': 'RATE_LIMITED', 'message': 'm', 'request_id': _storedInstallId},
+        },
+        headers: {
+          'retry-after': ['30'],
+        },
+      );
+      final result = await launch().ensureRegistered() as ListenerInstallNotRegistered;
+      final answer = result.answer as ApiAnswerReceived;
+      expect(answer.status, 429);
+      expect(answer.retryAfter, '30');
+    });
+
+    test('the next call tries again', () async {
+      adapter
+        ..failWithDioType(DioExceptionType.connectionError)
+        ..answerJson(200, _registrationAnswer(_firstToken));
+      final repository = launch();
+      expect(await repository.ensureRegistered(), isA<ListenerInstallNotRegistered>());
+      expect(tokenOf(await repository.ensureRegistered()), _firstToken);
+      expect(adapter.requests, hasLength(2));
+    });
+  });
+
+  group('after the API refuses the token (401)', () {
+    test('registers once more with the same install id and gives the new token', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      final repository = launch();
+      expect(tokenOf(await repository.ensureRegistered()), _firstToken);
+      expect(adapter.requests, isEmpty);
+
+      final result = await repository.registerAgainAfterRefusal(refusedToken: _firstToken);
+      expect(tokenOf(result), _secondToken);
+      expect(adapter.requests, hasLength(1));
+      expect(
+        (adapter.requests.single.jsonBody as Map<String, Object?>)['install_id'],
+        _storedInstallId,
+      );
+      expect(tokenOf(await repository.ensureRegistered()), _secondToken);
+      expect(adapter.requests, hasLength(1));
+    });
+
+    test(
+      'forgets the refused token even when registering again fails, and never gives it back',
+      () async {
+        storedFromEarlierLaunch(
+          token: _firstToken,
+          expiresAt: clock.now().add(const Duration(days: 20)),
+        );
+        adapter.failWithDioType(DioExceptionType.connectionError);
+        final repository = launch();
+        final result = await repository.registerAgainAfterRefusal(refusedToken: _firstToken);
+        expect(result, isA<ListenerInstallNotRegistered>());
+        expect((await SharedPreferences.getInstance()).getString('listener_install_token'), isNull);
+        expect(
+          (await SharedPreferences.getInstance()).getString('listener_install_id'),
+          _storedInstallId,
+        );
+      },
+    );
+
+    test('two refusals at the same moment register only once', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      final release = holdNextRegistration(_secondToken);
+      final repository = launch();
+      final first = repository.registerAgainAfterRefusal(refusedToken: _firstToken);
+      final second = repository.registerAgainAfterRefusal(refusedToken: _firstToken);
+      await pumpEventQueue();
+      release.complete();
+      expect(tokenOf(await first), _secondToken);
+      expect(tokenOf(await second), _secondToken);
+      expect(adapter.requests, hasLength(1));
+    });
+
+    test('a refusal of a token already replaced gives the replacement with no request', () async {
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      final repository = launch();
+      expect(tokenOf(await repository.ensureRegistered()), _secondToken);
+      final result = await repository.registerAgainAfterRefusal(refusedToken: _firstToken);
+      expect(tokenOf(result), _secondToken);
+      expect(adapter.requests, hasLength(1));
+    });
+  });
+
+  test('a token from this run is used until refused, however wrong the phone clock is', () async {
+    adapter.answerJson(200, _registrationAnswer(_firstToken));
+    final repository = launch();
+    await repository.ensureRegistered();
+    clock.setWallClock(DateTime.utc(2027, 6));
+    expect(tokenOf(await repository.ensureRegistered()), _firstToken);
+    expect(adapter.requests, hasLength(1));
+  });
+
+  group('storage that fails never stops an identify', () {
+    test('the install registers with an id for this run, once', () async {
+      adapter.answerJson(200, _registrationAnswer(_firstToken));
+      final repository = launch(
+        store: ListenerInstallStore(
+          randomUuid: RandomUuid(),
+          openPreferences: () async => throw StateError('storage is broken'),
+        ),
+      );
+      expect(tokenOf(await repository.ensureRegistered()), _firstToken);
+      expect(tokenOf(await repository.ensureRegistered()), _firstToken);
+      expect(adapter.requests, hasLength(1));
+      expect(
+        (adapter.requests.single.jsonBody as Map<String, Object?>)['install_id'],
+        matches(_versionFourUuid),
+      );
+    });
+  });
+
+  group('readKnownCredentials, for scrubbing crash reports', () {
+    test('gives the stored id and token without registering or making an id', () async {
+      expect(await launch().readKnownCredentials(), isNull);
+      expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
+
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      final known = await launch().readKnownCredentials();
+      expect(known?.installId, _storedInstallId);
+      expect(known?.installToken, _firstToken);
+      expect(adapter.requests, isEmpty);
+    });
+
+    test('never throws', () async {
+      final repository = launch(
+        store: ListenerInstallStore(
+          randomUuid: RandomUuid(),
+          openPreferences: () async => throw StateError('storage is broken'),
+        ),
+      );
+      expect(await repository.readKnownCredentials(), isNull);
+    });
+  });
+
+  test('no Android id, IMEI, advertising id or device detail is read (S4-INSTALLS-01)', () {
+    final forbidden = RegExp(
+      r'ANDROID_ID|Settings\.Secure|imei|getDeviceId|advertisingId|AdvertisingId|'
+      r'device_info|DeviceInfo|MethodChannel|serialNumber|Build\.SERIAL|identifierForVendor',
+      caseSensitive: false,
+    );
+    final folder = RepositoryFileLocator.mobileAppFolder('lib/core/listener_install');
+    final sources = folder.listSync().whereType<File>().where(
+      (file) => file.path.endsWith('.dart'),
+    );
+    expect(sources, isNotEmpty);
+    for (final source in sources) {
+      final code = source
+          .readAsLinesSync()
+          .where((line) => !line.trimLeft().startsWith('//'))
+          .join('\n');
+      expect(forbidden.hasMatch(code), isFalse, reason: source.path);
+      expect(code, isNot(contains('package:device_info')));
+    }
+  });
+}

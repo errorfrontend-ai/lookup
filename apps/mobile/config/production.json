@@ -1,0 +1,4 @@
+{
+  "LOOKUP_FLAVOUR": "production",
+  "LOOKUP_API_BASE_URL": "https://api.lookup.invalid/api/v1"
+}

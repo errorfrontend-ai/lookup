@@ -1,0 +1,7 @@
+{
+  "LOOKUP_FLAVOUR": "development",
+  "LOOKUP_API_BASE_URL": "https://REPLACE-WITH-YOUR-NGROK-ADDRESS/api/v1",
+  "LOOKUP_SHOW_ERROR_DETAILS": "false",
+  "LOOKUP_SHOW_DEVELOPER_TOOLS": "true",
+  "LOOKUP_VERBOSE_LOGS": "false"
+}

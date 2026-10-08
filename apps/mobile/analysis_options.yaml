@@ -1,0 +1,30 @@
+# Flutter's recommended lints, plus strict typing: no implicit dynamic casts or raw generic types, so a
+# server answer is always checked before it is used (design §3.11, S4-D15).
+include: package:flutter_lints/flutter.yaml
+
+# One line width for everyone: `dart format .` keeps code as it was written.
+formatter:
+  page_width: 100
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    # A missing case in a sealed switch, an unused import or a dead branch fails the analysis.
+    unused_import: error
+    dead_code: error
+  exclude:
+    - build/**
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - avoid_print
+    - cancel_subscriptions
+    - close_sinks
+    - prefer_final_locals
+    - prefer_single_quotes
+    - unawaited_futures

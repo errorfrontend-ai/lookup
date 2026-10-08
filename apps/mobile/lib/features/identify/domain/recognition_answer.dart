@@ -1,0 +1,113 @@
+import 'package:lookup_listener/features/result/domain/recognition_result.dart';
+
+/// What one send of a clip came back as, read from the HTTP answer or its absence (§3.11).
+///
+/// The response parser makes it from the status, the body and the headers; `SendPolicy` decides
+/// what it leads to. Sealed, so the policy handles every kind with no default branch. Nothing here
+/// keeps the API's `message`, so it cannot reach the screen (S4-D13), and nothing internal from a
+/// match survives the reading (S4-D15).
+sealed class RecognitionAnswer {
+  const RecognitionAnswer();
+}
+
+/// No HTTP answer at all: no network, a DNS failure, a timeout or a dropped connection.
+final class NoAnswer extends RecognitionAnswer {
+  const NoAnswer();
+}
+
+/// The listener cancelled the send on the Identifying screen (T28); whatever the server does with
+/// it no longer matters.
+final class CancelledAnswer extends RecognitionAnswer {
+  const CancelledAnswer();
+}
+
+/// An HTTP answer arrived.
+sealed class ReceivedAnswer extends RecognitionAnswer {
+  const ReceivedAnswer({required this.apiRequestId});
+
+  /// The API's id for the request, a UUID it logged: the `X-Request-Id` header when it is a UUID,
+  /// else the body's request id when that is one (§3.8). Null when the answer had neither (a
+  /// proxy's error page), so no reference code can be made from it (S4-ERROR-08).
+  final String? apiRequestId;
+}
+
+/// 200 `MATCH` with a readable result. Its kind decides between the campaign card and the
+/// advertiser's default card; a kind the app does not know has already been read as a campaign.
+final class MatchAnswer extends ReceivedAnswer {
+  const MatchAnswer({required this.result, required super.apiRequestId});
+
+  final RecognitionResult result;
+}
+
+/// 200 `NO_MATCH`.
+final class NoMatchAnswer extends ReceivedAnswer {
+  const NoMatchAnswer({required super.apiRequestId});
+}
+
+/// 200 `CHOOSE_STATION`: the ad is on more than one station (from Phase 4 on the server), which
+/// this version of the app cannot show yet.
+final class ChooseStationAnswer extends ReceivedAnswer {
+  const ChooseStationAnswer({required super.apiRequestId});
+}
+
+/// 200 with a status this version of the app does not know, from a newer server.
+final class UnknownStatusAnswer extends ReceivedAnswer {
+  const UnknownStatusAnswer({required super.apiRequestId});
+}
+
+/// 200 whose body cannot be read: not a JSON object, no status, or `MATCH` without a readable
+/// result.
+final class UnreadableAnswer extends ReceivedAnswer {
+  const UnreadableAnswer({required this.problem, required super.apiRequestId});
+
+  /// What could not be read, in field names only, for the crash report (never shown, never the
+  /// body's own text).
+  final String problem;
+}
+
+/// An answer with any status other than 200, which this route never uses for success, read as the
+/// API's error envelope where the body is one.
+final class ErrorStatusAnswer extends ReceivedAnswer {
+  const ErrorStatusAnswer({
+    required this.httpStatus,
+    required super.apiRequestId,
+    this.errorCode,
+    this.retryAfterSeconds,
+    this.fieldProblems = const [],
+  });
+
+  final int httpStatus;
+
+  /// The envelope's `error.code` when it is well formed (`^[A-Z][A-Z0-9_]{1,63}$`); null when the
+  /// body has no envelope or a malformed code. Only steers the decision, never shown: an unknown
+  /// code is handled by its HTTP status.
+  final String? errorCode;
+
+  /// The `Retry-After` header as read, in whole seconds (an HTTP date already turned into
+  /// seconds), before any clamping; null when missing or unreadable. Kept raw because "Too many
+  /// tries" needs to know whether the server asked for more than a minute.
+  final int? retryAfterSeconds;
+
+  /// The envelope's `error.fields`: which request fields the API refused. For the crash report
+  /// only, so a developer sees what the app sent wrong; never shown.
+  final List<FieldProblem> fieldProblems;
+}
+
+/// One refused request field from an error envelope, e.g. `captured_at` / `invalid_format`.
+final class FieldProblem {
+  const FieldProblem({required this.path, required this.code});
+
+  final String path;
+
+  final String code;
+
+  @override
+  bool operator ==(Object other) =>
+      other is FieldProblem && other.path == path && other.code == code;
+
+  @override
+  int get hashCode => Object.hash(path, code);
+
+  @override
+  String toString() => '$path $code';
+}

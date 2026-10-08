@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Staging and production: https only, and only the system's certificate authorities (no user-installed
+     ones). The app also refuses http itself, because Dart's HTTP client cannot be relied on to obey
+     this file (design S4-D25). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,7 @@
+{
+  "LOOKUP_FLAVOUR": "development",
+  "LOOKUP_API_BASE_URL": "http://10.0.2.2:3100/api/v1",
+  "LOOKUP_SHOW_ERROR_DETAILS": "true",
+  "LOOKUP_SHOW_DEVELOPER_TOOLS": "true",
+  "LOOKUP_VERBOSE_LOGS": "true"
+}

@@ -1,0 +1,32 @@
+name: lookup_listener
+description: "Look Up listener app: tap Identify, hear the ad, get the station's buttons."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.5
+  # Admits the installed 3.41.9; Flutter is never upgraded globally for this app (S4-STACK-01).
+  flutter: ">=3.41.0"
+
+# Exact pins (S4-STACK-02 to -08; design §3.3). permission_handler is 12.0.3, not the plan's 13.0.2,
+# which cannot build on Flutter 3.41.9 (design S4-D33, approved by the user on 8 October 2026).
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: 3.3.2
+  go_router: 17.5.0
+  dio: 5.11.1
+  record: 6.2.1
+  url_launcher: 6.3.3
+  permission_handler: 12.0.3
+  shared_preferences: 2.5.5
+  path_provider: 2.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+  fake_async: 1.3.3
+
+flutter:
+  uses-material-design: true

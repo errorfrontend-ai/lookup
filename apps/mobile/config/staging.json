@@ -1,0 +1,4 @@
+{
+  "LOOKUP_FLAVOUR": "staging",
+  "LOOKUP_API_BASE_URL": "https://api.staging.lookup.invalid/api/v1"
+}
