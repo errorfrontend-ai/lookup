@@ -91,7 +91,14 @@ def _tracked_files() -> list[Path]:
 
 def test_no_dejavu_source_is_copied_in():
     """No file but NOTICE.md carries Dejavu's copyright line, and none defines Dejavu's own functions or class."""
-    markers = re.compile(r"Will Drevo|def get_2D_peaks|def generate_hashes|def fingerprint_worker|class Dejavu\b")
+    # Dejavu's copyright holder and its own definitions, built from pieces so this file never matches itself.
+    markers = re.compile("|".join([
+        "Will" + " Drevo",
+        r"def get_2D" + r"_peaks\(",
+        r"def generate" + r"_hashes\(",
+        r"def _?fingerprint" + r"_worker\(",
+        r"class Deja" + r"vu\b",
+    ]))
     copied = [path.relative_to(SERVICE_ROOT).as_posix() for path in _tracked_files()
               if path.name != "NOTICE.md" and path.suffix in {".py", ".txt", ".md", ".toml", ".cfg", ".sql", ""}
               and markers.search(path.read_text(encoding="utf-8", errors="replace"))]

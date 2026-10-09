@@ -330,8 +330,7 @@ void main() {
     );
 
     test(
-      'the form around a 26,000-byte clip and the request fields stays within 32,768 bytes: the overhead '
-      'is small (the real clip is measured on the emulator, S4-REQUEST-02)',
+      'the form around a 26,000-byte clip and the request fields stays within 32,768 bytes: the overhead is small (the real clip is measured on the emulator, S4-REQUEST-02)',
       () async {
         // 24 kbit/s for 8 s is 24,000 bytes of audio; 26,000 allows for the MP4 header and more.
         final clip = CapturedClip(

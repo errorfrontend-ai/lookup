@@ -1268,7 +1268,10 @@ non-zero on any failure:
    whole body ≤ 32,768 bytes, carrying at least 16,000 bytes of audio (a real 8-second clip is about
    25–27 KB). Then the last clip the fake received from the real recorder is checked by
    `services/fingerprinter/.venv` Python running `tool/check_received_clip.py` (PyAV): AAC, 16,000
-   Hz, one channel, 7.5–8.5 s, file ≤ 32,768 bytes.
+   Hz, one channel, file ≤ 32,768 bytes, and 7.5–10.5 s here: the emulator's virtual microphone hands
+   the recorder more audio than real time (Android logs a buffer overflow as recording starts; the
+   recorder itself runs 8 seconds of wall-clock time, from start to stop in the device log), so the
+   strict 7.5–8.5 s check runs on the phone (§4.9).
 5. A production-flavour release APK built with an `http://` address shows the set-up problem screen,
    and the fake receives nothing (S4-SECURITY-02). Its define file has a valid support number (the
    development fake's), so the `http` address is the only thing wrong with it
@@ -1314,6 +1317,9 @@ emulator off:
    found in the log; "Send a test error" → the report's code is found in the log
    (S4-ERROR-07 part 3, S4-ERRORREPORTING-08 part 3).
 8. Send the app to the background during Listening → back at Home, nothing sent.
+9. The clip's length on real hardware: point the ngrok tunnel at the fake API
+   (`python tool/fake_listener_api.py --port 3999 --save-audio-to clip.m4a`) for one identify, then
+   `tool/check_received_clip.py clip.m4a` with its strict 7.5–8.5 s window (S4-LISTENING-01).
 
 The record names the phone, its Android version, the flavour and build mode, and the outcome of each
 step, and goes into the step's gate record.
@@ -1656,3 +1662,54 @@ Fully verifiable here: 214. Partly: 19. No: 2 (S4-RESULT-08, S4-TESTS-09).
 - **ALL rules**: no use-case layer, no BLoC, no swallowed exit codes, dependencies checked on 3.41.9,
   heavy commands one at a time without Docker, download sizes stated first, wireframes and tokens in
   sync (S4-D24, S4-D28), detailed errors only behind a development flag.
+
+## Gate record (9 October 2026)
+
+**Test runs** on the build machine; the compose Postgres, Valkey and object storage were up for the
+API runs, and no emulator was running then. Flutter is the installed 3.41.9 (Dart 3.11.5), never
+upgraded (S4-STACK-01).
+
+| Suite | Result |
+|---|---|
+| Listener app (`flutter test`) | 1,534 passed, 0 skipped; `flutter analyze` clean; `dart format` changes nothing |
+| Listener app tools (fake API, emulator driver; `unittest`) | 56 passed |
+| API (vitest, real Python workers in `fingerprint-workers.test.ts`) | 38 files, 551 passed, 0 skipped |
+| Contracts (vitest) | 15 files, 480 passed |
+| Portal (vitest) | 44 files, 657 passed; typechecks clean |
+| Fingerprint service (pytest) | 189 passed, 0 skipped |
+| Evidence checker | every ticked requirement names a test that exists |
+
+**Emulator run** (release APK on the `lookup_test` device, Android 13, against the fake API, Docker
+closed): 15 of 16 steps passed on the final build — first launch registers once; Home → Permission →
+the system dialog → Listening → Result; the copy sheet when a call cannot open; no match; Busy on
+screen, then the automatic retry with one idempotency key; the reference code of the echoed request
+id; No connection, then "Send again"; a crash report reaching `/client-errors`; no second
+registration after a restart; every recognize request at most 32,768 bytes with a real clip (28–31
+KB); a production build given an `http://` address refuses to start and sends nothing. The clip
+check failed at 9.02 s against the strict 7.5–8.5 s window: the emulator's virtual microphone hands
+the recorder more audio than real time (the device log shows the recorder ran 8.1 s of wall-clock
+time), so the emulator now allows up to 10.5 s and the strict window moved to the phone (§4.7, §4.9).
+The device-log privacy step (S4-PRIVACY-04) was added after that run and still has to run on the
+emulator, which needs Docker closed.
+
+**Screens for review** (S4-D28, S4-DESIGN-01): 49 screenshots of every state at 360 and 320 dp, and
+at text scale 2.0, published for the user:
+https://claude.ai/artifact/AeGE7FppiVxBFJ6qkz5hHw. The user's answers are recorded here when given.
+
+**The slice running** (S4-SLICEVERIFY-04): the API answered `GET /api/v1/health` with 200, the portal
+answered on http://localhost:5180, and both workers ran two jobs at a time with fresh heartbeats.
+Not done here: a run from a fresh database volume (S4-SLICEVERIFY-01), which would erase the
+development data; continuous integration starts from a fresh database on every run (deploy phase).
+
+**Found and fixed at the gate**: recording took the phone's audio focus and would have paused a
+radio playing on the same phone (S4-D34); a recorder that broke mid-recording was noticed only
+after 8 seconds; faults on the phone showed as "No connection"; images could be redirected to http;
+Result was silent for screen readers; the ring jumped between Listening and Identifying; the
+identify disc shrank its words at large text; the copy sheet and snack bars used Material's default
+timings; a shared fixture held invisible characters unescaped; an engine rule test matched its own
+source once committed.
+
+**Open at this gate**, each with its reason in the checklist: the run on the user's phone (ngrok, the
+phone model, S4-TESTS-09, S4-SLICEVERIFY-05 to -09) and the support WhatsApp number (S4-USABILITY-02);
+the device-log privacy step on the emulator (S4-PRIVACY-04); the offer text, which waits for a card
+field (S4-RESULT-08); and the review items checked at the gate above.

@@ -1075,17 +1075,63 @@ def check_recognize_request_sizes(fake_api: FakeApiControl) -> str:
             f'{SMALLEST_CLIP_BYTES:,})')
 
 
+# What must never reach the device log outside a development build with verbose logs (S4-PRIVACY-04).
+FAKE_INSTALL_TOKEN = re.compile(r'fake\.[A-Za-z0-9_-]{16,}\.token')
+CARD_PHONE_NUMBER = re.compile(r'\+?2609[0-9]{8}')
+REQUEST_BODY_FIELDS = ('idempotency_key', 'clip_duration_milliseconds', 'captured_at', 'install_id')
+
+
+def private_values_in_device_log(device_log: str, log: dict[str, Any]) -> list[str]:
+    """Every private value found in the device log: an install id the fake saw registered, an install
+    token it issued, an Authorization header, a card's phone number, a request body's field names, or
+    the clip's bytes. Each problem names what was found, never the value itself."""
+    problems = []
+    install_ids = {request['install_id'] for request in log.get('requests', []) if request.get('install_id')}
+    if any(install_id in device_log for install_id in install_ids):
+        problems.append('an install id')
+    if FAKE_INSTALL_TOKEN.search(device_log):
+        problems.append('an install token')
+    if 'Bearer ' in device_log or 'Authorization:' in device_log:
+        problems.append('an Authorization header')
+    if CARD_PHONE_NUMBER.search(device_log):
+        problems.append('a phone number from a card')
+    if any(field in device_log for field in REQUEST_BODY_FIELDS):
+        problems.append('a request body')
+    if 'ftypM4A' in device_log:
+        problems.append('audio bytes')
+    return problems
+
+
+def check_device_log_holds_no_private_values(device: AdbDevice, fake_api: FakeApiControl) -> str:
+    """S4-PRIVACY-04 on the emulator: after every journey, the whole device log is read. The build is the
+    development flavour with verbose logs off, the nearest to production that can reach the fake over
+    http; the Dart tests show staging and production write nothing at all."""
+    device_log = device.adb('logcat', '-d', check=False, timeout_seconds=60)
+    if len(device_log) < 1_000:
+        raise StepFailed('the device log could not be read')
+    problems = private_values_in_device_log(device_log, fake_api.request_log())
+    if problems:
+        raise StepFailed('the device log holds ' + ', '.join(problems))
+    return f'{len(device_log.splitlines()):,} lines read: no install id, token, Authorization header, card phone number, request body or audio'
+
+
+EMULATOR_LONGEST_CLIP_SECONDS = 10.5
+
+
 def check_received_clip(clip_path: Path) -> str:
     if not clip_path.exists():
         raise StepFailed('the fake API saved no clip: no recognize request reached it')
     if not FINGERPRINTER_PYTHON.exists():
         raise StepFailed(f"{FINGERPRINTER_PYTHON} is missing: the clip check runs on the fingerprinter's Python (PyAV)")
-    completed = subprocess.run([str(FINGERPRINTER_PYTHON), str(CLIP_CHECKER), str(clip_path)], capture_output=True,
+    # The emulator's virtual microphone gives the recorder more audio than real time, so a clip of 8 seconds
+    # of recording decodes to 8 to 10 seconds here; the strict 7.5-8.5 s check runs on the phone (design §4.9).
+    completed = subprocess.run([str(FINGERPRINTER_PYTHON), str(CLIP_CHECKER), str(clip_path),
+                                '--longest-seconds', str(EMULATOR_LONGEST_CLIP_SECONDS)], capture_output=True,
                                text=True, errors='replace', timeout=180)
     output = (completed.stdout + completed.stderr).strip()
     if completed.returncode != 0:
         raise StepFailed(output or f'the clip check failed with exit code {completed.returncode}')
-    return output
+    return f'{output} (the emulator allows up to {EMULATOR_LONGEST_CLIP_SECONDS} s: its microphone over-delivers)'
 
 
 def production_build_refuses_cleartext(device: AdbDevice, fake_api: HttpFakeApi, apk_path: Path,
@@ -1216,6 +1262,8 @@ def run(tools: Tools, record: RunRecord, skip_build: bool) -> None:
         record.steps.extend(run_journeys(context, JOURNEYS, first_number=len(record.steps) + 1))
         record.step('every recognize request is at most 32,768 bytes and carries a real clip (S4-REQUEST-02)',
                     lambda: check_recognize_request_sizes(fake_api), is_required=False)
+        record.step('the device log holds no install id, token, phone number, request body or audio (S4-PRIVACY-04)',
+                    lambda: check_device_log_holds_no_private_values(device, fake_api), is_required=False)
         record.step('the clip the real recorder sent', lambda: check_received_clip(clip_path), is_required=False)
         production_driver = Driver(device, PRODUCTION_PACKAGE)
         record.step('a production build given an http address refuses to start',

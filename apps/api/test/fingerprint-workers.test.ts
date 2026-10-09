@@ -251,7 +251,7 @@ describe('the fingerprint workers, end to end', () => {
     }
   }, 120_000);
 
-  it('each clip finds its own ad: a clip of a second published ad gets that ad’s buttons, and a clip of the first still gets the first’s', async () => {
+  it('each clip finds its own ad: a clip of a second published ad gets that ad’s buttons, and a clip of the first still gets the first’s; a label edited in the portal reaches the next listener', async () => {
     const send = await as(owner);
     const bookingCard = {
       schema_version: 1,
@@ -271,6 +271,12 @@ describe('the fingerprint workers, end to end', () => {
     const first = await recognize(client, { installToken: await newInstallToken(), audio: audio('clip.m4a') });
     expect(first.body).toMatchObject({ status: 'MATCH', result: { title: 'Summer service offer' } });
     expect(first.body.result.card.actions).toEqual(CALL_CARD.actions);
+
+    // A label edited in the portal while the ad is live is what the very next listener sees.
+    const relabelled = { ...bookingCard, actions: [{ ...bookingCard.actions[0], label: 'Book a table' }] };
+    expect((await send('put', `/api/v1/stations/${owner.stationId}/ads/${secondAdId}/card`, relabelled)).status).toBe(200);
+    const afterEdit = await recognize(client, { installToken: await newInstallToken(), audio: audio('second-clip.m4a') });
+    expect(afterEdit.body.result.card.actions).toEqual(relabelled.actions);
   }, 120_000);
 
   it('a corrupt file ends FAILED with a reason the station can read, and stores no recording', async () => {

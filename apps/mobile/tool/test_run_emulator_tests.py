@@ -20,7 +20,8 @@ import run_emulator_tests as runner  # noqa: E402  (the tool folder is put on th
 from run_emulator_tests import (  # noqa: E402
     LABELS, RECOGNIZE_PATH, CardExpectation, Driver, RunContext, Screen, StepFailed, docker_process_names,
     emulator_serials, find_nodes, find_permission_allow_button, node_to_tap, parse_screen_dump, parse_window_size,
-    phone_number_display, problems_with_request_sizes, problems_with_sends, process_names_from_tasklist,
+    phone_number_display, private_values_in_device_log, problems_with_request_sizes, problems_with_sends,
+    process_names_from_tasklist,
     reference_code_for_request_id, refused_requests, requests_to, run_journeys)
 
 APP = 'zm.lookup.listener.development'
@@ -251,6 +252,31 @@ class RequestLogTest(unittest.TestCase):
     def test_answers_in_another_order_are_a_problem(self) -> None:
         self.assertIn("not ['busy', 'match']", problems_with_sends([recognize_request('match', 'key-1', 'id-1')],
                                                                    ['busy', 'match'])[0])
+
+
+class DeviceLogPrivacyTest(unittest.TestCase):
+    """S4-PRIVACY-04: the device log after the journeys holds no install id, token, phone number, body or audio."""
+
+    INSTALL_ID = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f'
+    LOG = {'requests': [{'path': '/api/v1/installs', 'install_id': INSTALL_ID}]}
+    QUIET_LOG = '10-08 21:46:22.761  2153  2174 I flutter : Using the Impeller rendering backend (OpenGLES).\n' * 40
+
+    def test_an_ordinary_device_log_passes(self) -> None:
+        self.assertEqual(private_values_in_device_log(self.QUIET_LOG, self.LOG), [])
+
+    def test_each_private_value_is_found_and_named_never_repeated(self) -> None:
+        cases = {
+            'an install id': f'I flutter : registered {self.INSTALL_ID}',
+            'an install token': 'I flutter : token fake.AbCdEfGhIjKlMnOpQrSt0123.token',
+            'an Authorization header': 'I flutter : Authorization: Bearer x',
+            'a phone number from a card': 'I flutter : calling +260977123456',
+            'a request body': 'I flutter : {"idempotency_key": "x"}',
+            'audio bytes': 'I flutter : ....ftypM4A ....',
+        }
+        for name, line in cases.items():
+            problems = private_values_in_device_log(self.QUIET_LOG + line, self.LOG)
+            self.assertIn(name, problems, line)
+            self.assertNotIn(self.INSTALL_ID, ' '.join(problems))
 
 
 class RequestSizeTest(unittest.TestCase):

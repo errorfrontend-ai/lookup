@@ -14,7 +14,7 @@
       {
         "type": "CALL",
         "id": "0192a6c4-0000-4000-8000-000000000002",
-        "label": "  ﻿",
+        "label": "\u00a0\u2028\ufeff",
         "style": "SECONDARY",
         "phone_number_e164": "+260966123456"
       }

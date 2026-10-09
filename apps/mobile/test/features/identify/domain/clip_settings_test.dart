@@ -15,8 +15,7 @@ void main() {
   });
 
   test(
-    'the settings: 8 seconds at 24 kbit/s is 24,000 bytes of audio, leaving room in 32 KB for the header '
-    'and the form (the real clip is measured on the emulator, S4-REQUEST-02)',
+    'the settings: 8 seconds at 24 kbit/s is 24,000 bytes of audio, leaving room in 32 KB for the header and the form (the real clip is measured on the emulator, S4-REQUEST-02)',
     () {
       const settings = ClipSettings.standard;
       final audioBytes = settings.bitRateBitsPerSecond ~/ 8 * settings.clipDurationSeconds;
