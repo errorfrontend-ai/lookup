@@ -1713,3 +1713,46 @@ source once committed.
 phone model, S4-TESTS-09, S4-SLICEVERIFY-05 to -09) and the support WhatsApp number (S4-USABILITY-02);
 the device-log privacy step on the emulator (S4-PRIVACY-04); the offer text, which waits for a card
 field (S4-RESULT-08); and the review items checked at the gate above.
+
+### After the gate (10 October 2026)
+
+**Emulator runs 4 and 5** (Docker closed, the APKs of 8 October, which are newer than the last app
+change):
+- **Run 4: 16 of 17 steps passed.** The device-log privacy step passed (16,467 lines read). The clip
+  check passed within the emulator's 10.5 s allowance.
+- **The run 4 failure.** "No match" showed "No connection": the stand-in had read the whole request,
+  and the app's screen changed 0.25 s after the recording ended, too soon for a timeout. The device
+  log shows the emulator was overloaded at that moment (frames taking about 800 ms), and the
+  stand-in's code and the no-match fixture had not changed since run 3.
+- **Run 5: all 17 steps passed**, including "no match" and the privacy step (15,331 lines). The run 4
+  failure is therefore recorded as a one-off connection drop inside the emulator. If it comes back,
+  the next step is to make the app record the failure's type in the run's evidence.
+- S4-PRIVACY-04 is ticked on these runs.
+
+**Walkthrough with the user** (S4-D28):
+- **The station website and the emulator app, shown live.** The emulator's window froze twice. The
+  first freeze was in its host-GPU drawing. The second came after a link button opened the
+  test image's blank stand-in browser (`com.android.fakesystemapp`), which the window did not
+  repaint. Software drawing (`-gpu swiftshader_indirect`) and pressing Back over adb recovered it.
+  Neither is an app fault: the automated-test image has no browser, WhatsApp or Maps.
+- **The user asked whose the sample phone numbers are.** `+260 97 712 3456` and
+  `+260 96 612 3456` are invented, first typed into the shared fixtures on 5 October 2026, but they
+  follow the real numbering plan. Replacing them with numbers that cannot reach anyone is
+  proposed and not yet decided.
+
+**The phone check** (§4.9), done in part, on the user's own phone:
+- **Set-up.** Windows names the phone "POWER 80"; its Android version was not given. The
+  development flavour, release mode, arm and arm64, was sideloaded over USB as a file, against the
+  stand-in through an ngrok tunnel (ngrok 3.39.11, signature checked).
+- **What passed:**
+  - the install;
+  - registration;
+  - the real microphone dialog;
+  - an 8-second clip of 27,332 bytes sent over https;
+  - the Result with all four button types;
+  - the user confirmed the dialler, WhatsApp, Maps and the browser opened ("everything checks
+    out"). This is step 4 of §4.9, against the stand-in's card.
+- **Not done yet:** steps 1, 3 and 5–8 against the real stack, and the strict clip-length check
+  (step 9).
+- **One thing to ask.** The phone registered twice with two different install ids; whether the
+  app was reinstalled in between is to be asked.
