@@ -1,0 +1,63 @@
+{
+  "description": "A station that has not given a city: city is sent as null, never left out",
+  "response": {
+    "status": "MATCH",
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "is_deferred": false,
+    "captured_at": "2026-10-07T06:30:00Z",
+    "result": {
+      "kind": "CAMPAIGN",
+      "station": {
+        "id": "0192a6c4-1111-4000-8000-000000000004",
+        "name": "Station D",
+        "frequency_label": "95.7 FM",
+        "city": null,
+        "logo": null
+      },
+      "client": {
+        "name": "Brand A",
+        "logo": null
+      },
+      "title": "Summer service offer",
+      "card": {
+        "schema_version": 1,
+        "layout": "VERTICAL_STACK",
+        "header_image": null,
+        "actions": [
+          {
+            "type": "CALL",
+            "id": "0192a6c4-0000-4000-8000-000000000031",
+            "label": "Call us",
+            "style": "PRIMARY",
+            "phone_number_e164": "+447700900007"
+          },
+          {
+            "type": "WHATSAPP",
+            "id": "0192a6c4-0000-4000-8000-000000000032",
+            "label": "WhatsApp us",
+            "style": "SECONDARY",
+            "phone_number_e164": "+447700900008",
+            "prefilled_text": "Hi, I heard your ad on 95.7 FM.\nPlease send prices."
+          },
+          {
+            "type": "MAP",
+            "id": "0192a6c4-0000-4000-8000-000000000033",
+            "label": "Find our shop",
+            "style": "OUTLINE",
+            "latitude": -17.8419,
+            "longitude": 25.8543,
+            "place_name": "Mosi-oa-Tunya Road, Livingstone"
+          },
+          {
+            "type": "LINK",
+            "id": "0192a6c4-0000-4000-8000-000000000034",
+            "label": "See the menu",
+            "style": "OUTLINE",
+            "url": "https://example.com/livingstone/menu?utm_source=lookup"
+          }
+        ]
+      }
+    }
+  }
+}

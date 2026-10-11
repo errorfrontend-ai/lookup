@@ -1,0 +1,21 @@
+{
+  "description": "A station's status stays on the server",
+  "expected_issues": [
+    {
+      "path": "stations.0",
+      "code": "unrecognized_keys"
+    }
+  ],
+  "response": {
+    "stations": [
+      {
+        "id": "0192a6c4-1111-4000-8000-000000000001",
+        "name": "Station A",
+        "frequency_label": "98.1 FM",
+        "city": "Lusaka",
+        "logo": null,
+        "status": "ACTIVE"
+      }
+    ]
+  }
+}

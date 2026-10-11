@@ -1,5 +1,11 @@
 {
   "description": "The matched recording is never named",
+  "expected_issues": [
+    {
+      "path": "result",
+      "code": "unrecognized_keys"
+    }
+  ],
   "response": {
     "status": "MATCH",
     "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
@@ -12,6 +18,7 @@
         "id": "0192a6c4-1111-4000-8000-000000000001",
         "name": "Station A",
         "frequency_label": "98.1 FM",
+        "city": "Lusaka",
         "logo": null
       },
       "client": {
@@ -29,14 +36,14 @@
             "id": "0192a6c4-0000-4000-8000-000000000001",
             "label": "Call us",
             "style": "PRIMARY",
-            "phone_number_e164": "+260977123456"
+            "phone_number_e164": "+447700900001"
           },
           {
             "type": "WHATSAPP",
             "id": "0192a6c4-0000-4000-8000-000000000002",
             "label": "WhatsApp us",
             "style": "SECONDARY",
-            "phone_number_e164": "+260966123456",
+            "phone_number_e164": "+447700900002",
             "prefilled_text": "Hi, I heard your ad on 98.1 FM.\nPlease send prices."
           },
           {
@@ -53,7 +60,7 @@
             "id": "0192a6c4-0000-4000-8000-000000000004",
             "label": "See the menu",
             "style": "OUTLINE",
-            "url": "https://example.co.zm/menu?utm_source=lookup"
+            "url": "https://example.com/menu?utm_source=lookup"
           }
         ]
       },

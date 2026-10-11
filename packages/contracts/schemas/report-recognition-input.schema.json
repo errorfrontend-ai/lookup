@@ -1,0 +1,31 @@
+{
+  "$id": "https://contracts.lookup.invalid/report-recognition-input/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ReportRecognitionInput",
+  "$defs": {
+    "ReportRecognitionInput": {
+      "type": "object",
+      "properties": {
+        "station_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "WRONG_OR_MISLEADING_BUTTONS",
+            "NUMBER_OR_LINK_DOES_NOT_WORK",
+            "LOOKS_LIKE_A_SCAM",
+            "SOMETHING_ELSE"
+          ]
+        }
+      },
+      "required": [
+        "station_id",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "description": "A tap named a button that is not on the card version shown: the outbox deletes the item and sends a crash report",
+  "http_status": 422,
+  "body": {
+    "error": {
+      "code": "ACTION_NOT_ON_CARD",
+      "message": "That button isn't on this card.",
+      "request_id": "8a1d4f7c-0e3b-4a5d-b29f-2b7e0d3a6c8f"
+    }
+  }
+}

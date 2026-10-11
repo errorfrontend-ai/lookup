@@ -21,3 +21,6 @@ playwright-report/
 spike/corpus/*
 !spike/corpus/.gitkeep
 spike/reports/
+
+# Private working copies that Claude Code agents create inside the repository.
+/.claude/worktrees/

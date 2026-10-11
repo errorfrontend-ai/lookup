@@ -1,0 +1,12 @@
+{
+  "description": "A clip sent from the outbox: is_deferred \"true\", the idempotency key and capture time made when it was recorded at 10:00, sent_at taken just before this attempt at 11:30, and the station that was \"My station\" at capture as the hint",
+  "fields": {
+    "clip_duration_milliseconds": "8000",
+    "codec": "aac",
+    "idempotency_key": "7c2e9a4b-1d3f-4a6e-8b5c-2f1e0d9c8b7a",
+    "captured_at": "2026-10-08T10:00:00.000Z",
+    "sent_at": "2026-10-08T11:30:00.000Z",
+    "is_deferred": "true",
+    "station_hint": "0192a6c4-1111-4000-8000-000000000002"
+  }
+}

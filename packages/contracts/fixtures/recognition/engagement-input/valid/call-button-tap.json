@@ -1,0 +1,10 @@
+{
+  "description": "The listener tapped \"Call us\" on the card of match-campaign.json 20 seconds after the clip was heard, and the tap was sent at once: ids and the phone times only",
+  "body": {
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "station_id": "0192a6c4-1111-4000-8000-000000000001",
+    "action_id": "0192a6c4-0000-4000-8000-000000000001",
+    "occurred_at": "2026-10-07T06:30:20.500Z",
+    "sent_at": "2026-10-07T06:30:21.000Z"
+  }
+}

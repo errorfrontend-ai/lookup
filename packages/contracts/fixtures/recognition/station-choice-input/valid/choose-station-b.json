@@ -1,0 +1,6 @@
+{
+  "description": "The listener tapped Station B in the chooser of choose-station.json: only the station id travels; the recognition is in the path",
+  "body": {
+    "station_id": "0192a6c4-1111-4000-8000-000000000002"
+  }
+}

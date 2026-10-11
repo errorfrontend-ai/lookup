@@ -1,0 +1,11 @@
+{
+  "description": "Another station of this chooser was chosen earlier, by a choice or a tap: the outbox deletes the item and sends a crash report",
+  "http_status": 422,
+  "body": {
+    "error": {
+      "code": "STATION_ALREADY_CHOSEN",
+      "message": "A station was already chosen for this recording.",
+      "request_id": "6e9b2d5a-8c1f-4e3b-a07d-0f5c8b1e4a6d"
+    }
+  }
+}

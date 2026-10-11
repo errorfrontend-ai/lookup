@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { emitActionCardJsonSchema } from '../src/action-card/action-card-schema.js';
 import { emitClientErrorReportJsonSchema } from '../src/client-errors/client-error-schemas.js';
 import { emitErrorEnvelopeJsonSchema } from '../src/errors/error-envelope-schema.js';
+import { emitRecordEngagementInputJsonSchema } from '../src/recognition/engagement-schemas.js';
 import {
   emitIngestJobDataJsonSchema,
   emitIngestJobResultJsonSchema,
@@ -16,7 +17,10 @@ import {
   emitRecognizeJobResultJsonSchema,
 } from '../src/recognition/fingerprint-job-schemas.js';
 import { emitInstallRegistrationJsonSchema, emitRegisterInstallInputJsonSchema } from '../src/recognition/listener-install-schemas.js';
+import { emitListenerStationListJsonSchema } from '../src/recognition/listener-station-schemas.js';
+import { emitReportRecognitionInputJsonSchema } from '../src/recognition/recognition-report-schemas.js';
 import { emitRecognizeRequestFieldsJsonSchema, emitRecognizeResponseJsonSchema } from '../src/recognition/recognize-schemas.js';
+import { emitRecognitionStationChoiceInputJsonSchema } from '../src/recognition/station-choice-schemas.js';
 
 export const JSON_SCHEMA_FILES = {
   'action-card.schema.json': emitActionCardJsonSchema,
@@ -26,6 +30,10 @@ export const JSON_SCHEMA_FILES = {
   'install-registration.schema.json': emitInstallRegistrationJsonSchema,
   'recognize-request-fields.schema.json': emitRecognizeRequestFieldsJsonSchema,
   'recognize-response.schema.json': emitRecognizeResponseJsonSchema,
+  'listener-station-list.schema.json': emitListenerStationListJsonSchema,
+  'recognition-station-choice-input.schema.json': emitRecognitionStationChoiceInputJsonSchema,
+  'record-engagement-input.schema.json': emitRecordEngagementInputJsonSchema,
+  'report-recognition-input.schema.json': emitReportRecognitionInputJsonSchema,
   'recognize-job-data.schema.json': emitRecognizeJobDataJsonSchema,
   'recognize-job-result.schema.json': emitRecognizeJobResultJsonSchema,
   'ingest-job-data.schema.json': emitIngestJobDataJsonSchema,

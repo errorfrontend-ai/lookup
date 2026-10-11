@@ -1,0 +1,12 @@
+{
+  "description": "The station is named by its id, never its name",
+  "expected_issues": [
+    {
+      "path": "station_id",
+      "code": "invalid_format"
+    }
+  ],
+  "body": {
+    "station_id": "Station B"
+  }
+}

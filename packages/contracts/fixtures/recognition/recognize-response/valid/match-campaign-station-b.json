@@ -1,0 +1,63 @@
+{
+  "description": "The ad is on air at Station B (here, decided by the listener's hint): its own campaign card, the one the chooser offers for Station B",
+  "response": {
+    "status": "MATCH",
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "is_deferred": false,
+    "captured_at": "2026-10-07T06:30:00Z",
+    "result": {
+      "kind": "CAMPAIGN",
+      "station": {
+        "id": "0192a6c4-1111-4000-8000-000000000002",
+        "name": "Station B",
+        "frequency_label": "104.3 FM",
+        "city": "Kitwe",
+        "logo": null
+      },
+      "client": {
+        "name": "Brand A",
+        "logo": null
+      },
+      "title": "Summer service offer",
+      "card": {
+        "schema_version": 1,
+        "layout": "VERTICAL_STACK",
+        "header_image": null,
+        "actions": [
+          {
+            "type": "CALL",
+            "id": "0192a6c4-0000-4000-8000-000000000011",
+            "label": "Call us",
+            "style": "PRIMARY",
+            "phone_number_e164": "+447700900003"
+          },
+          {
+            "type": "WHATSAPP",
+            "id": "0192a6c4-0000-4000-8000-000000000012",
+            "label": "WhatsApp us",
+            "style": "SECONDARY",
+            "phone_number_e164": "+447700900004",
+            "prefilled_text": "Hi, I heard your ad on 104.3 FM.\nPlease send prices."
+          },
+          {
+            "type": "MAP",
+            "id": "0192a6c4-0000-4000-8000-000000000013",
+            "label": "Find our shop",
+            "style": "OUTLINE",
+            "latitude": -12.8024,
+            "longitude": 28.2132,
+            "place_name": "Freedom Avenue, Kitwe"
+          },
+          {
+            "type": "LINK",
+            "id": "0192a6c4-0000-4000-8000-000000000014",
+            "label": "See the menu",
+            "style": "OUTLINE",
+            "url": "https://example.com/kitwe/menu?utm_source=lookup"
+          }
+        ]
+      }
+    }
+  }
+}

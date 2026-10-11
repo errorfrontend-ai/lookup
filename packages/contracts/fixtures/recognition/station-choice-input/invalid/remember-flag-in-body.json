@@ -1,0 +1,13 @@
+{
+  "description": "The \"Remember my station\" tick never leaves the phone",
+  "expected_issues": [
+    {
+      "path": "",
+      "code": "unrecognized_keys"
+    }
+  ],
+  "body": {
+    "station_id": "0192a6c4-1111-4000-8000-000000000002",
+    "remember_my_station": "true"
+  }
+}

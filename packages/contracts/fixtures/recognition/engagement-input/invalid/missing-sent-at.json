@@ -1,0 +1,15 @@
+{
+  "description": "When this attempt left the phone is required, so the server can correct a wrong clock",
+  "expected_issues": [
+    {
+      "path": "sent_at",
+      "code": "invalid_type"
+    }
+  ],
+  "body": {
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "station_id": "0192a6c4-1111-4000-8000-000000000001",
+    "action_id": "0192a6c4-0000-4000-8000-000000000001",
+    "occurred_at": "2026-10-07T06:30:20.500Z"
+  }
+}

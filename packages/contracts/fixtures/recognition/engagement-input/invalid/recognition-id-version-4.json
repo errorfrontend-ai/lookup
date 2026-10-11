@@ -1,0 +1,16 @@
+{
+  "description": "Recognition ids are UUID version 7",
+  "expected_issues": [
+    {
+      "path": "recognition_id",
+      "code": "invalid_format"
+    }
+  ],
+  "body": {
+    "recognition_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "station_id": "0192a6c4-1111-4000-8000-000000000001",
+    "action_id": "0192a6c4-0000-4000-8000-000000000001",
+    "occurred_at": "2026-10-07T06:30:20.500Z",
+    "sent_at": "2026-10-07T06:30:21.000Z"
+  }
+}

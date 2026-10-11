@@ -14,7 +14,8 @@
             },
             "recognition_id": {
               "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "description": "A recognition id: a lower-case UUID version 7"
             },
             "request_id": {
               "type": "string",
@@ -52,7 +53,8 @@
             },
             "recognition_id": {
               "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "description": "A recognition id: a lower-case UUID version 7"
             },
             "request_id": {
               "type": "string",
@@ -86,7 +88,8 @@
             },
             "recognition_id": {
               "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "description": "A recognition id: a lower-case UUID version 7"
             },
             "request_id": {
               "type": "string",
@@ -133,41 +136,7 @@
           ]
         },
         "station": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            },
-            "name": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 120
-            },
-            "frequency_label": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 32
-            },
-            "logo": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/PublicImage"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "id",
-            "name",
-            "frequency_label",
-            "logo"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/ListenerStation"
         },
         "client": {
           "type": "object",
@@ -209,6 +178,56 @@
         "client",
         "title",
         "card"
+      ],
+      "additionalProperties": false
+    },
+    "ListenerStation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "frequency_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "city": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "logo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PublicImage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "frequency_label",
+        "city",
+        "logo"
       ],
       "additionalProperties": false
     },

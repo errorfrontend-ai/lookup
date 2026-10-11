@@ -1,0 +1,13 @@
+{
+  "description": "The reason is one of the four",
+  "expected_issues": [
+    {
+      "path": "reason",
+      "code": "invalid_value"
+    }
+  ],
+  "body": {
+    "station_id": "0192a6c4-1111-4000-8000-000000000001",
+    "reason": "SPAM"
+  }
+}

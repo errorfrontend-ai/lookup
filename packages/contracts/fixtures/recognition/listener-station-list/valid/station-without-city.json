@@ -1,0 +1,21 @@
+{
+  "description": "A station that has not given a city: city is null, never left out",
+  "response": {
+    "stations": [
+      {
+        "id": "0192a6c4-1111-4000-8000-000000000001",
+        "name": "Station A",
+        "frequency_label": "98.1 FM",
+        "city": "Lusaka",
+        "logo": null
+      },
+      {
+        "id": "0192a6c4-1111-4000-8000-000000000004",
+        "name": "Station D",
+        "frequency_label": "95.7 FM",
+        "city": null,
+        "logo": null
+      }
+    ]
+  }
+}

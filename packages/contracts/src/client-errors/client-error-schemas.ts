@@ -16,6 +16,8 @@ export const ClientErrorReport = z
     /** The API request that failed, when there was one, so the two log lines can be joined. */
     relatedRequestId: z.uuid().optional(),
     appVersion: z.string().max(40).optional(),
+    /** When it happened, for a report the listener app queued offline and sends later (ISO 8601 with an offset). */
+    occurredAt: z.iso.datetime({ offset: true }).optional(),
   })
   .meta({ id: 'ClientErrorReport' });
 export type ClientErrorReport = z.infer<typeof ClientErrorReport>;

@@ -52,6 +52,12 @@ const CODES_THE_APP_MAPS = [
   'CAPTURE_EXPIRED',
   'CAPTURE_TIME_INVALID',
   'FORBIDDEN',
+  // P4 and P6: the update gate, and the refusals of a station choice, a tap or a report.
+  'APP_UPDATE_REQUIRED',
+  'STATION_NOT_A_CANDIDATE',
+  'STATION_ALREADY_CHOSEN',
+  'ACTION_NOT_ON_CARD',
+  'NOT_FOUND',
 ];
 
 describe('the error envelopes the listener app maps', () => {

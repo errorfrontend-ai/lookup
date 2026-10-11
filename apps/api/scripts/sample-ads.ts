@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ActionCard } from '@lookup/contracts';
 import type pg from 'pg';
+import { describeActionCardChanges } from '../src/features/action-cards/action-card-changes.js';
 import { createSampleJingleWav } from './sample-audio.js';
 
 export interface SampleStorage {
@@ -27,7 +28,8 @@ interface SampleAd {
   /** How long ago the ad was last changed, so the list has a believable order. */
   changedHoursAgo: number;
   uploadState: 'checked' | 'refused';
-  hasButtons: boolean;
+  /** The number on its Call and WhatsApp buttons, each card its own; null: the ad has no buttons yet. */
+  phoneNumberOnButtons: string | null;
   campaign?: SampleCampaign;
 }
 
@@ -37,26 +39,32 @@ const ALL_DAY_EVERY_DAY = [
   { days: EVERY_DAY, from: '00:00', to: '12:00' },
   { days: EVERY_DAY, from: '12:00', to: '00:00' },
 ];
-const SAMPLE_PHONE = '+260977123456';
+/**
+ * Sample numbers come only from Ofcom's range for drama, +44 7700 900000 to 900999, which is never
+ * given to any phone company, so a sample button can never call or message a real person. There is
+ * no such range for Zambia (P4 design, Q7).
+ */
+export const SAMPLE_PHONE_NUMBER_PREFIX = '+447700900';
+const samplePhoneNumber = (cardNumber: number) => `${SAMPLE_PHONE_NUMBER_PREFIX}${String(cardNumber).padStart(3, '0')}`;
 
 /** Ads in every state the portal shows, so a developer sees each badge, tab and warning at once. */
 const SAMPLE_ADS: SampleAd[] = [
-  { title: 'Summer service offer', clientName: 'Brand A', changedHoursAgo: 2, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: -10, endsInDays: 20, windows: ALL_DAY_EVERY_DAY } },
-  { title: 'Harvest festival', clientName: 'Brand B', changedHoursAgo: 5, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: -20, endsInDays: 1, windows: ALL_DAY_EVERY_DAY } },
-  { title: 'Weekend sale', clientName: 'Brand B', changedHoursAgo: 26, uploadState: 'checked', hasButtons: true, campaign: { status: 'ACTIVE', startsInDays: 3, endsInDays: 28, windows: [{ days: [6, 7], from: '10:00', to: '14:00' }] } },
-  { title: 'New menu launch', clientName: 'Brand A', changedHoursAgo: 30, uploadState: 'checked', hasButtons: true, campaign: { status: 'DRAFT', startsInDays: -2, endsInDays: 20, windows: [{ days: [1, 2, 3, 4, 5], from: '07:00', to: '09:00' }, { days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
-  { title: 'Back to school offer', clientName: 'Brand A', changedHoursAgo: 50, uploadState: 'checked', hasButtons: false },
-  { title: 'Festive greetings', clientName: 'Brand B', changedHoursAgo: 72, uploadState: 'refused', hasButtons: false },
-  { title: 'Spring promo', clientName: 'Brand A', changedHoursAgo: 24 * 14, uploadState: 'checked', hasButtons: true, campaign: { status: 'ENDED', startsInDays: -45, endsInDays: -15, windows: [{ days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
+  { title: 'Summer service offer', clientName: 'Brand A', changedHoursAgo: 2, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(1), campaign: { status: 'ACTIVE', startsInDays: -10, endsInDays: 20, windows: ALL_DAY_EVERY_DAY } },
+  { title: 'Harvest festival', clientName: 'Brand B', changedHoursAgo: 5, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(2), campaign: { status: 'ACTIVE', startsInDays: -20, endsInDays: 1, windows: ALL_DAY_EVERY_DAY } },
+  { title: 'Weekend sale', clientName: 'Brand B', changedHoursAgo: 26, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(3), campaign: { status: 'ACTIVE', startsInDays: 3, endsInDays: 28, windows: [{ days: [6, 7], from: '10:00', to: '14:00' }] } },
+  { title: 'New menu launch', clientName: 'Brand A', changedHoursAgo: 30, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(4), campaign: { status: 'DRAFT', startsInDays: -2, endsInDays: 20, windows: [{ days: [1, 2, 3, 4, 5], from: '07:00', to: '09:00' }, { days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
+  { title: 'Back to school offer', clientName: 'Brand A', changedHoursAgo: 50, uploadState: 'checked', phoneNumberOnButtons: null },
+  { title: 'Festive greetings', clientName: 'Brand B', changedHoursAgo: 72, uploadState: 'refused', phoneNumberOnButtons: null },
+  { title: 'Spring promo', clientName: 'Brand A', changedHoursAgo: 24 * 14, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(5), campaign: { status: 'ENDED', startsInDays: -45, endsInDays: -15, windows: [{ days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
 ];
 
-function buttonsFor(clientName: string): ActionCard {
+function buttonsFor(clientName: string, phoneNumber: string): ActionCard {
   return ActionCard.parse({
     schema_version: 1,
     layout: 'VERTICAL_STACK',
     actions: [
-      { type: 'CALL', id: randomUUID(), label: `Call ${clientName}`, style: 'PRIMARY', phone_number_e164: SAMPLE_PHONE },
-      { type: 'WHATSAPP', id: randomUUID(), label: 'Chat on WhatsApp', style: 'SECONDARY', phone_number_e164: SAMPLE_PHONE, prefilled_text: `Hi ${clientName}, I heard your ad on the radio.` },
+      { type: 'CALL', id: randomUUID(), label: `Call ${clientName}`, style: 'PRIMARY', phone_number_e164: phoneNumber },
+      { type: 'WHATSAPP', id: randomUUID(), label: 'Chat on WhatsApp', style: 'SECONDARY', phone_number_e164: phoneNumber, prefilled_text: `Hi ${clientName}, I heard your ad on the radio.` },
       { type: 'MAP', id: randomUUID(), label: 'Get directions', style: 'OUTLINE', latitude: -15.4167, longitude: 28.2833, place_name: 'Cairo Road, Lusaka' },
     ],
   });
@@ -135,11 +143,11 @@ export async function seedSampleAds(
         await storageClient.send(new PutObjectCommand({ Bucket: storage.bucket, Key: objectKey, Body: jingle, ContentType: 'audio/wav' }));
       }
       let cardId: string | null = null;
-      if (sample.hasButtons) {
+      if (sample.phoneNumberOnButtons) {
         cardId = randomUUID();
         await client.query(
           `INSERT INTO app.action_cards (id, station_id, client_id, schema_version, content) VALUES ($1, $2, $3, 1, $4::jsonb)`,
-          [cardId, stationId, clientId, JSON.stringify(buttonsFor(sample.clientName))],
+          [cardId, stationId, clientId, JSON.stringify(buttonsFor(sample.clientName, sample.phoneNumberOnButtons))],
         );
       }
       await client.query(
@@ -182,3 +190,59 @@ export async function seedSampleAds(
 }
 
 export const SAMPLE_AD_TITLES = SAMPLE_ADS.map((sample) => sample.title);
+
+/**
+ * Development data seeded before the safe numbers still has sample cards with realistic numbers. Card
+ * versions are never edited, so each sample ad whose current card the seed made (no portal user made
+ * it) and that has a number outside the drama range gets a new version with its safe number, as the
+ * portal would save it: the ad and its ACTIVE or PAUSED campaign point to the new version, and the
+ * history records which fields changed (never the numbers). A card a developer saved in the portal is
+ * left alone. Running it again changes nothing. Returns how many cards it replaced.
+ */
+export async function giveSampleCardsSafeNumbers(client: pg.Client, stationId: string, ownerId: string): Promise<number> {
+  let replacedCount = 0;
+  for (const sample of SAMPLE_ADS) {
+    const safeNumber = sample.phoneNumberOnButtons;
+    if (!safeNumber) continue;
+    const current = (
+      await client.query(
+        `SELECT ads.id AS ad_id, card.id AS card_id, card.client_id, card.content
+           FROM app.ads JOIN app.action_cards AS card ON card.id = ads.current_action_card_id
+          WHERE ads.station_id = $1 AND ads.title = $2 AND card.created_by_portal_user_id IS NULL`,
+        [stationId, sample.title],
+      )
+    ).rows[0] as { ad_id: string; card_id: string; client_id: string; content: ActionCard } | undefined;
+    if (!current) continue;
+    const hasRealisticNumber = current.content.actions.some(
+      (action) => (action.type === 'CALL' || action.type === 'WHATSAPP') && !action.phone_number_e164.startsWith(SAMPLE_PHONE_NUMBER_PREFIX),
+    );
+    if (!hasRealisticNumber) continue;
+
+    const safeCard = ActionCard.parse({
+      ...current.content,
+      actions: current.content.actions.map((action) =>
+        action.type === 'CALL' || action.type === 'WHATSAPP' ? { ...action, phone_number_e164: safeNumber } : action,
+      ),
+    });
+    const safeCardId = randomUUID();
+    await client.query('BEGIN');
+    try {
+      await client.query(`INSERT INTO app.action_cards (id, station_id, client_id, schema_version, content) VALUES ($1, $2, $3, 1, $4::jsonb)`, [
+        safeCardId, stationId, current.client_id, JSON.stringify(safeCard),
+      ]);
+      await client.query(`UPDATE app.ads SET current_action_card_id = $2 WHERE id = $1`, [current.ad_id, safeCardId]);
+      await client.query(`UPDATE app.campaigns SET action_card_id = $2 WHERE ad_id = $1 AND status IN ('ACTIVE', 'PAUSED')`, [current.ad_id, safeCardId]);
+      await client.query(
+        `INSERT INTO app.audit_events (station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id)
+         VALUES ($1, $2, 'action_card_saved', 'action_card', $3, $4, 'development-seed')`,
+        [stationId, ownerId, safeCardId, JSON.stringify({ adId: current.ad_id, previousActionCardId: current.card_id, changedFields: describeActionCardChanges(current.content, safeCard) })],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    }
+    replacedCount += 1;
+  }
+  return replacedCount;
+}

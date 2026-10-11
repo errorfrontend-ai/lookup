@@ -1,0 +1,35 @@
+{
+  "description": "Each station appears once (a rule JSON Schema cannot express, so zod only)",
+  "zod_only": true,
+  "expected_issues": [
+    {
+      "path": "stations.2.id",
+      "code": "station_listed_twice"
+    }
+  ],
+  "response": {
+    "stations": [
+      {
+        "id": "0192a6c4-1111-4000-8000-000000000001",
+        "name": "Station A",
+        "frequency_label": "98.1 FM",
+        "city": "Lusaka",
+        "logo": null
+      },
+      {
+        "id": "0192a6c4-1111-4000-8000-000000000002",
+        "name": "Station B",
+        "frequency_label": "104.3 FM",
+        "city": "Kitwe",
+        "logo": null
+      },
+      {
+        "id": "0192a6c4-1111-4000-8000-000000000001",
+        "name": "Station A",
+        "frequency_label": "98.1 FM",
+        "city": "Lusaka",
+        "logo": null
+      }
+    ]
+  }
+}

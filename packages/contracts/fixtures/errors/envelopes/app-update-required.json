@@ -1,0 +1,11 @@
+{
+  "description": "The install registered with an app version below the minimum, on any install-token route: the app shows \"Please update the app\", keeps every waiting item and pauses sending until its version changes",
+  "http_status": 426,
+  "body": {
+    "error": {
+      "code": "APP_UPDATE_REQUIRED",
+      "message": "Please update the app.",
+      "request_id": "2a5d8f1c-4e7b-4a9d-8c3f-6b1e4d7a0c2f"
+    }
+  }
+}

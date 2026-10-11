@@ -1,0 +1,10 @@
+{
+  "description": "The station is required",
+  "expected_issues": [
+    {
+      "path": "station_id",
+      "code": "invalid_type"
+    }
+  ],
+  "body": {}
+}

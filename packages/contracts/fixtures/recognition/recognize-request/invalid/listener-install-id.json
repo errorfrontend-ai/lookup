@@ -1,5 +1,11 @@
 {
   "description": "Any field beyond the contract's is refused: the install id goes only to registration, never with a clip",
+  "expected_issues": [
+    {
+      "path": "",
+      "code": "unrecognized_keys"
+    }
+  ],
   "fields": {
     "clip_duration_milliseconds": "8000",
     "codec": "aac",

@@ -1,5 +1,5 @@
 {
-  "description": "On air at two stations: the listener picks (from P4)",
+  "description": "The ad is on air at Station A and Station B at once: the listener picks theirs. Every candidate carries its own card inline, in the order the app must show them (as in the Chooser wireframe: Station A, 98.1 FM, Lusaka; Station B, 104.3 FM, Kitwe)",
   "response": {
     "status": "CHOOSE_STATION",
     "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
@@ -13,6 +13,7 @@
           "id": "0192a6c4-1111-4000-8000-000000000001",
           "name": "Station A",
           "frequency_label": "98.1 FM",
+          "city": "Lusaka",
           "logo": null
         },
         "client": {
@@ -30,14 +31,14 @@
               "id": "0192a6c4-0000-4000-8000-000000000001",
               "label": "Call us",
               "style": "PRIMARY",
-              "phone_number_e164": "+260977123456"
+              "phone_number_e164": "+447700900001"
             },
             {
               "type": "WHATSAPP",
               "id": "0192a6c4-0000-4000-8000-000000000002",
               "label": "WhatsApp us",
               "style": "SECONDARY",
-              "phone_number_e164": "+260966123456",
+              "phone_number_e164": "+447700900002",
               "prefilled_text": "Hi, I heard your ad on 98.1 FM.\nPlease send prices."
             },
             {
@@ -54,7 +55,7 @@
               "id": "0192a6c4-0000-4000-8000-000000000004",
               "label": "See the menu",
               "style": "OUTLINE",
-              "url": "https://example.co.zm/menu?utm_source=lookup"
+              "url": "https://example.com/menu?utm_source=lookup"
             }
           ]
         }
@@ -64,7 +65,8 @@
         "station": {
           "id": "0192a6c4-1111-4000-8000-000000000002",
           "name": "Station B",
-          "frequency_label": "89.5 FM",
+          "frequency_label": "104.3 FM",
+          "city": "Kitwe",
           "logo": null
         },
         "client": {
@@ -79,34 +81,34 @@
           "actions": [
             {
               "type": "CALL",
-              "id": "0192a6c4-0000-4000-8000-000000000001",
+              "id": "0192a6c4-0000-4000-8000-000000000011",
               "label": "Call us",
               "style": "PRIMARY",
-              "phone_number_e164": "+260977123456"
+              "phone_number_e164": "+447700900003"
             },
             {
               "type": "WHATSAPP",
-              "id": "0192a6c4-0000-4000-8000-000000000002",
+              "id": "0192a6c4-0000-4000-8000-000000000012",
               "label": "WhatsApp us",
               "style": "SECONDARY",
-              "phone_number_e164": "+260966123456",
-              "prefilled_text": "Hi, I heard your ad on 98.1 FM.\nPlease send prices."
+              "phone_number_e164": "+447700900004",
+              "prefilled_text": "Hi, I heard your ad on 104.3 FM.\nPlease send prices."
             },
             {
               "type": "MAP",
-              "id": "0192a6c4-0000-4000-8000-000000000003",
+              "id": "0192a6c4-0000-4000-8000-000000000013",
               "label": "Find our shop",
               "style": "OUTLINE",
-              "latitude": -15.4167,
-              "longitude": 28.2833,
-              "place_name": "Cairo Road, Lusaka"
+              "latitude": -12.8024,
+              "longitude": 28.2132,
+              "place_name": "Freedom Avenue, Kitwe"
             },
             {
               "type": "LINK",
-              "id": "0192a6c4-0000-4000-8000-000000000004",
+              "id": "0192a6c4-0000-4000-8000-000000000014",
               "label": "See the menu",
               "style": "OUTLINE",
-              "url": "https://example.co.zm/menu?utm_source=lookup"
+              "url": "https://example.com/kitwe/menu?utm_source=lookup"
             }
           ]
         }

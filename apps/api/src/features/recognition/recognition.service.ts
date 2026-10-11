@@ -290,7 +290,9 @@ export class RecognitionService {
   ): RecognitionResult {
     return {
       kind,
-      station: { id: shown.stationId, name: shown.stationName, frequency_label: shown.frequencyLabel, logo: null },
+      // The contract now always carries the station's city. The Step 3 lookups do not read it, so it is
+      // sent as "not given" (null) until the P4 resolution functions return it (P4 design, Piece 2).
+      station: { id: shown.stationId, name: shown.stationName, frequency_label: shown.frequencyLabel, city: null, logo: null },
       client: { name: shown.clientName, logo: null },
       title: shown.title,
       // No screen sets header images or logos yet (S3-D21).

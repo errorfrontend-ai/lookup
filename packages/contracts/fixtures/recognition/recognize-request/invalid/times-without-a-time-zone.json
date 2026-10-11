@@ -1,5 +1,15 @@
 {
   "description": "Local times with no Z or offset (what Dart's toIso8601String() gives for a local DateTime): refused, so the app must convert to UTC first",
+  "expected_issues": [
+    {
+      "path": "captured_at",
+      "code": "invalid_format"
+    },
+    {
+      "path": "sent_at",
+      "code": "invalid_format"
+    }
+  ],
   "fields": {
     "clip_duration_milliseconds": "8000",
     "codec": "aac",

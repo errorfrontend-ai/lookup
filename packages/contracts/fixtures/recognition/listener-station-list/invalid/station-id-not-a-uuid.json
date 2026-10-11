@@ -1,0 +1,20 @@
+{
+  "description": "Stations are named by their id",
+  "expected_issues": [
+    {
+      "path": "stations.0.id",
+      "code": "invalid_format"
+    }
+  ],
+  "response": {
+    "stations": [
+      {
+        "id": "station-a",
+        "name": "Station A",
+        "frequency_label": "98.1 FM",
+        "city": "Lusaka",
+        "logo": null
+      }
+    ]
+  }
+}

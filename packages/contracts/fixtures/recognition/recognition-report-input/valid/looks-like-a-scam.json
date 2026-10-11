@@ -1,0 +1,7 @@
+{
+  "description": "\"Report this\" on the result of match-campaign.json, with the reason \"It looks like a scam\": the station shown and one of the four reasons",
+  "body": {
+    "station_id": "0192a6c4-1111-4000-8000-000000000001",
+    "reason": "LOOKS_LIKE_A_SCAM"
+  }
+}

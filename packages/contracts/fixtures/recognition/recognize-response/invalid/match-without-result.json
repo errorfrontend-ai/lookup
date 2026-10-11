@@ -1,5 +1,11 @@
 {
   "description": "A match always carries its result",
+  "expected_issues": [
+    {
+      "path": "result",
+      "code": "invalid_type"
+    }
+  ],
   "response": {
     "status": "MATCH",
     "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",

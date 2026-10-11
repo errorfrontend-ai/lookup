@@ -1,0 +1,18 @@
+{
+  "description": "The hint is a station id, never its name",
+  "expected_issues": [
+    {
+      "path": "station_hint",
+      "code": "invalid_format"
+    }
+  ],
+  "fields": {
+    "clip_duration_milliseconds": "8000",
+    "codec": "aac",
+    "idempotency_key": "3b9e7c1a-5d2f-4e8b-9a6c-1f0d2e3c4b5a",
+    "captured_at": "2026-10-08T09:15:02.123Z",
+    "sent_at": "2026-10-08T09:15:10.456Z",
+    "is_deferred": "false",
+    "station_hint": "Station B"
+  }
+}

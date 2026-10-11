@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ActionCard } from '../src/action-card/action-card-schema.js';
+import { LISTENER_STATION_LIST_RULE_REASONS } from '../src/recognition/listener-station-schemas.js';
+import { RECOGNIZE_REQUEST_REASONS, RECOGNIZE_RESPONSE_RULE_REASONS } from '../src/recognition/recognize-schemas.js';
 import { reasonCodeForIssue, VALIDATION_REASON_CODES } from '../src/validation-reason-codes.js';
 
 describe('reasonCodeForIssue', () => {
@@ -18,6 +20,13 @@ describe('reasonCodeForIssue', () => {
     const codes = result.success ? [] : result.error.issues.map(reasonCodeForIssue);
     expect(codes).toEqual(['link_uses_url_shortener']);
     expect(VALIDATION_REASON_CODES.has('link_uses_url_shortener')).toBe(true);
+  });
+
+  it('relays the recognize form rule, but no rule of an answer the server sends', () => {
+    expect(RECOGNIZE_REQUEST_REASONS).toEqual(['audio_part_before_fields']);
+    expect(VALIDATION_REASON_CODES.has('audio_part_before_fields')).toBe(true);
+    for (const reason of [...RECOGNIZE_RESPONSE_RULE_REASONS, ...LISTENER_STATION_LIST_RULE_REASONS]) expect(VALIDATION_REASON_CODES.has(reason), reason).toBe(false);
+    expect([...RECOGNIZE_RESPONSE_RULE_REASONS, ...LISTENER_STATION_LIST_RULE_REASONS]).toEqual(['candidate_station_repeated', 'station_listed_twice']);
   });
 
   it('reports only "custom" for a reason that is not on the list, so free text never reaches a person', () => {

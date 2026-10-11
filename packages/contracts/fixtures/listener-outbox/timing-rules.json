@@ -1,0 +1,22 @@
+{
+  "description": "The numbers the listener app's outbox and the API agree on (contract §3): limits on the phone, how long items live, the waits, the backoff and the server's deferred allowance and waits. listener-outbox-rules.ts and the app's constants equal these",
+  "timing_rules": {
+    "maximum_stored_clips": 5,
+    "stored_clip_lifetime_seconds": 86400,
+    "follow_up_item_lifetime_seconds": 604800,
+    "maximum_follow_up_items": 200,
+    "maximum_queued_client_error_reports": 20,
+    "sending_delay_maximum_seconds": 120,
+    "sending_delay_for_new_item_while_online_maximum_seconds": 10,
+    "deferred_shed_retry_after_minimum_seconds": 60,
+    "deferred_shed_retry_after_maximum_seconds": 300,
+    "longest_honoured_retry_after_seconds": 3600,
+    "backoff_first_wait_seconds": 30,
+    "backoff_longest_wait_seconds": 1800,
+    "backoff_lowest_jitter_factor": 0.5,
+    "registrations_after_refused_token_per_run": 1,
+    "deferred_allowance_per_hour": 10,
+    "live_server_wait_milliseconds": 2500,
+    "deferred_server_wait_milliseconds": 5000
+  }
+}

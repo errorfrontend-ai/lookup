@@ -1,5 +1,11 @@
 {
   "description": "Recognition ids are UUID version 7",
+  "expected_issues": [
+    {
+      "path": "recognition_id",
+      "code": "invalid_format"
+    }
+  ],
   "response": {
     "status": "NO_MATCH",
     "recognition_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",

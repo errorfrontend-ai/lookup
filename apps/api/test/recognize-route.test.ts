@@ -108,7 +108,7 @@ describe('POST /api/v1/recognize', () => {
         is_deferred: false,
         result: {
           kind: 'CAMPAIGN',
-          station: { id: ad.stationId, frequency_label: '98.1 FM', logo: null },
+          station: { id: ad.stationId, frequency_label: '98.1 FM', city: null, logo: null },
           client: { name: 'Brand A', logo: null },
           title: 'Summer service offer',
           card: { schema_version: 1, layout: 'VERTICAL_STACK', header_image: null, actions: CALL_CARD.actions },

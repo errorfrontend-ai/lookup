@@ -30,6 +30,12 @@ export const ERROR_CATALOG = {
   RECOGNITION_IN_PROGRESS: { httpStatus: 409, message: 'This recording is still being identified.' },
   CAPTURE_EXPIRED: { httpStatus: 422, message: 'This recording is too old to identify.' },
   CAPTURE_TIME_INVALID: { httpStatus: 422, message: "This recording's time is not valid." },
+  // The listener app from P4: the update gate on every install-token route, and the permanent refusals
+  // of a station choice, a button tap or a report, which the phone deletes from its outbox (and reports).
+  APP_UPDATE_REQUIRED: { httpStatus: 426, message: 'Please update the app.' },
+  STATION_NOT_A_CANDIDATE: { httpStatus: 422, message: "That station isn't one shown for this recording." },
+  STATION_ALREADY_CHOSEN: { httpStatus: 422, message: 'A station was already chosen for this recording.' },
+  ACTION_NOT_ON_CARD: { httpStatus: 422, message: "That button isn't on this card." },
   RECOGNITION_BUSY: { httpStatus: 503, message: 'Look Up is busy right now. Please try again in a moment.' },
   RECOGNITION_TIMEOUT: { httpStatus: 503, message: 'That took too long. Please try again.' },
   INTERNAL: { httpStatus: 500, message: 'Something went wrong on our side. Please try again.' },

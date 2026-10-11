@@ -11,7 +11,7 @@ import pg from 'pg';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { PasswordPolicy } from '../src/features/authentication/password-policy.js';
 import { loadDatabaseSetupConfig } from './database-setup-config.js';
-import { type SampleStorage, seedSampleAds } from './sample-ads.js';
+import { giveSampleCardsSafeNumbers, type SampleStorage, seedSampleAds } from './sample-ads.js';
 
 export interface DevelopmentSeed {
   stationName: string;
@@ -111,7 +111,9 @@ async function seedFromEnvironment(): Promise<string> {
   await client.connect();
   try {
     const createdCount = await seedSampleAds(client, stationId, storage, ownerId);
-    return `Development data ready: Station A (${stationId}), its owner, two clients and ${createdCount === 0 ? 'its sample ads (already there)' : `${createdCount} new sample ads`}.`;
+    const safeNumberCount = await giveSampleCardsSafeNumbers(client, stationId, ownerId);
+    const safeNumbersNote = safeNumberCount === 0 ? '' : ` ${safeNumberCount} older sample cards now have safe sample phone numbers.`;
+    return `Development data ready: Station A (${stationId}), its owner, two clients and ${createdCount === 0 ? 'its sample ads (already there)' : `${createdCount} new sample ads`}.${safeNumbersNote}`;
   } finally {
     await client.end();
   }

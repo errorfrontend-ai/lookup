@@ -1,0 +1,1590 @@
+{
+  "description": "What the listener app's outbox does with an item after each answer (contract §3, R9; corrections 4, 7 and 11). Each row is one case: the item kind and the answer (HTTP, HTTP_WITH_UNREADABLE_BODY for a 200 the app could not read, NO_ANSWER, PHONE_FAULT); for HTTP the status, or for a default row the status class; the error code (null: any code, or none); the Retry-After in seconds (null: no header). For one kind the most specific row decides: the status with the code, else the status with a null code, else the status class. action and wait are what the policy returns for exactly that case. wait: SECONDS (a Retry-After clamped to 1 to 3,600, or the default: 3 for a 409, 60 for a 429), BACKOFF (min(30 x 2^(n-1), 1800) seconds x a random factor from 0.5 to 1 after the n-th failure), RANDOM_SECONDS (a deferred clip whose 502, 503 or 504 carries no Retry-After waits a random 60 to 300 seconds), or null. Groups: clips (DEFERRED_CLIP), follow-ups (STATION_CHOICE, ENGAGEMENT, RECOGNITION_REPORT) and crash reports (CLIENT_ERROR_REPORT, which is never reported about). A crash report answered 426, which POST /client-errors never gives, is kept and backs off",
+  "rows": [
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 200,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP_WITH_UNREADABLE_BODY",
+      "http_status": 200,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "2xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "3xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "INVALID_AUDIO",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "VALIDATION_FAILED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "BAD_REQUEST",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": "INSTALL_TOKEN_INVALID",
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 403,
+      "http_status_class": null,
+      "error_code": "FORBIDDEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 404,
+      "http_status_class": null,
+      "error_code": "NOT_FOUND",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 405,
+      "http_status_class": null,
+      "error_code": "METHOD_NOT_ALLOWED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": "RECOGNITION_IN_PROGRESS",
+      "retry_after_seconds": 3,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 413,
+      "http_status_class": null,
+      "error_code": "PAYLOAD_TOO_LARGE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 415,
+      "http_status_class": null,
+      "error_code": "UNSUPPORTED_MEDIA_TYPE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "CAPTURE_EXPIRED",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "CAPTURE_TIME_INVALID",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": "APP_UPDATE_REQUIRED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": 2400,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 2400
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": 7200,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3600
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "4xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 500,
+      "http_status_class": null,
+      "error_code": "INTERNAL",
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "RECOGNITION_BUSY",
+      "retry_after_seconds": 187,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 187
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "RECOGNITION_TIMEOUT",
+      "retry_after_seconds": 300,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 300
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "SERVICE_UNAVAILABLE",
+      "retry_after_seconds": 15,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 15
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "RECOGNITION_BUSY",
+      "retry_after_seconds": 0,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 1
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 502,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "RANDOM_SECONDS",
+        "minimum_seconds": 60,
+        "maximum_seconds": 300
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "RANDOM_SECONDS",
+        "minimum_seconds": 60,
+        "maximum_seconds": 300
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 504,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "RANDOM_SECONDS",
+        "minimum_seconds": 60,
+        "maximum_seconds": 300
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 504,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": 120,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 120
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "5xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "NO_ANSWER",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF_AND_RUN_ENDS",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "PHONE_FAULT",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 204,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "2xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "3xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "VALIDATION_FAILED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": "INSTALL_TOKEN_INVALID",
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 403,
+      "http_status_class": null,
+      "error_code": "FORBIDDEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 404,
+      "http_status_class": null,
+      "error_code": "NOT_FOUND",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 405,
+      "http_status_class": null,
+      "error_code": "METHOD_NOT_ALLOWED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": 5,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 5
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 413,
+      "http_status_class": null,
+      "error_code": "PAYLOAD_TOO_LARGE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 415,
+      "http_status_class": null,
+      "error_code": "UNSUPPORTED_MEDIA_TYPE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "STATION_NOT_A_CANDIDATE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "STATION_ALREADY_CHOSEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": "APP_UPDATE_REQUIRED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": 45,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 45
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "4xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 500,
+      "http_status_class": null,
+      "error_code": "INTERNAL",
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "SERVICE_UNAVAILABLE",
+      "retry_after_seconds": 6,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 6
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 502,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 504,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "5xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "NO_ANSWER",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF_AND_RUN_ENDS",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "PHONE_FAULT",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 204,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "2xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "3xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "VALIDATION_FAILED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": "INSTALL_TOKEN_INVALID",
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 403,
+      "http_status_class": null,
+      "error_code": "FORBIDDEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 404,
+      "http_status_class": null,
+      "error_code": "NOT_FOUND",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 405,
+      "http_status_class": null,
+      "error_code": "METHOD_NOT_ALLOWED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": 5,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 5
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 413,
+      "http_status_class": null,
+      "error_code": "PAYLOAD_TOO_LARGE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 415,
+      "http_status_class": null,
+      "error_code": "UNSUPPORTED_MEDIA_TYPE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "STATION_NOT_A_CANDIDATE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "STATION_ALREADY_CHOSEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "ACTION_NOT_ON_CARD",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": "APP_UPDATE_REQUIRED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": 45,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 45
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "4xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 500,
+      "http_status_class": null,
+      "error_code": "INTERNAL",
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "SERVICE_UNAVAILABLE",
+      "retry_after_seconds": 6,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 6
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 502,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 504,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "5xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "NO_ANSWER",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF_AND_RUN_ENDS",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "PHONE_FAULT",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 204,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "2xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "3xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "VALIDATION_FAILED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": "INSTALL_TOKEN_INVALID",
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "REGISTER_AGAIN_AND_RESEND",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 403,
+      "http_status_class": null,
+      "error_code": "FORBIDDEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 404,
+      "http_status_class": null,
+      "error_code": "NOT_FOUND",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 405,
+      "http_status_class": null,
+      "error_code": "METHOD_NOT_ALLOWED",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": 5,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 5
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 413,
+      "http_status_class": null,
+      "error_code": "PAYLOAD_TOO_LARGE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 415,
+      "http_status_class": null,
+      "error_code": "UNSUPPORTED_MEDIA_TYPE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "STATION_NOT_A_CANDIDATE",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 422,
+      "http_status_class": null,
+      "error_code": "STATION_ALREADY_CHOSEN",
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": "APP_UPDATE_REQUIRED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": 45,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 45
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "4xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 500,
+      "http_status_class": null,
+      "error_code": "INTERNAL",
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "SERVICE_UNAVAILABLE",
+      "retry_after_seconds": 6,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 6
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 502,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 504,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "5xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "NO_ANSWER",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF_AND_RUN_ENDS",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "PHONE_FAULT",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE_AND_REPORT",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 202,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "2xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "3xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 400,
+      "http_status_class": null,
+      "error_code": "VALIDATION_FAILED",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 401,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 403,
+      "http_status_class": null,
+      "error_code": "FORBIDDEN",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 404,
+      "http_status_class": null,
+      "error_code": "NOT_FOUND",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 409,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_WAITS",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 3
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 413,
+      "http_status_class": null,
+      "error_code": "PAYLOAD_TOO_LARGE",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 415,
+      "http_status_class": null,
+      "error_code": "UNSUPPORTED_MEDIA_TYPE",
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": 30,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 30
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "4xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 500,
+      "http_status_class": null,
+      "error_code": "INTERNAL",
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": "SERVICE_UNAVAILABLE",
+      "retry_after_seconds": 20,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 20
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 503,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 502,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 504,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": null,
+      "http_status_class": "5xx",
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "NO_ANSWER",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "ITEM_BACKS_OFF_AND_RUN_ENDS",
+      "wait": {
+        "kind": "BACKOFF"
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "PHONE_FAULT",
+      "http_status": null,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "DELETE",
+      "wait": null
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "description": "The recognition is named by the path, never the body",
+  "expected_issues": [
+    {
+      "path": "",
+      "code": "unrecognized_keys"
+    }
+  ],
+  "body": {
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "station_id": "0192a6c4-1111-4000-8000-000000000002"
+  }
+}

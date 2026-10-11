@@ -1,0 +1,10 @@
+{
+  "description": "A tap on Station B's \"WhatsApp us\" in the chooser of choose-station.json, kept in the outbox and sent the next morning; both times with the phone's time zone offset",
+  "body": {
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "station_id": "0192a6c4-1111-4000-8000-000000000002",
+    "action_id": "0192a6c4-0000-4000-8000-000000000012",
+    "occurred_at": "2026-10-07T08:31:05.000+02:00",
+    "sent_at": "2026-10-08T07:45:00.000+02:00"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "description": "A follow-up for a recognition the server does not know, that another install made, that is not finished or (for a choice) that is not a chooser: the outbox deletes the item and sends a crash report",
+  "http_status": 404,
+  "body": {
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "Not found.",
+      "request_id": "0c3f6b9e-2a5d-4c7f-8d4b-4d9a2f5c8e0b"
+    }
+  }
+}

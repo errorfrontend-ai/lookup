@@ -1,0 +1,14 @@
+{
+  "description": "There is no free text in a report",
+  "expected_issues": [
+    {
+      "path": "",
+      "code": "unrecognized_keys"
+    }
+  ],
+  "body": {
+    "station_id": "0192a6c4-1111-4000-8000-000000000001",
+    "reason": "SOMETHING_ELSE",
+    "comment": "The number did not answer"
+  }
+}

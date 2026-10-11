@@ -1,0 +1,11 @@
+{
+  "description": "A choice, tap or report named a station the answer did not show (or not the chosen one): the outbox deletes the item and sends a crash report",
+  "http_status": 422,
+  "body": {
+    "error": {
+      "code": "STATION_NOT_A_CANDIDATE",
+      "message": "That station isn't one shown for this recording.",
+      "request_id": "4c7f0b3e-6a9d-4c1f-9e5b-8d3a6f9c2e4b"
+    }
+  }
+}

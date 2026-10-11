@@ -1,0 +1,6 @@
+{
+  "description": "No station is listed yet: an empty list is valid",
+  "response": {
+    "stations": []
+  }
+}

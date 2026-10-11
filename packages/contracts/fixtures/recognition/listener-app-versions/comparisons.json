@@ -1,0 +1,161 @@
+{
+  "description": "How two listener app versions compare (compareListenerAppVersions and the app): major, minor, patch, then build, a missing build counting as 0; -1 when first is older, 0 when the same, 1 when newer, null when either cannot be read",
+  "comparisons": [
+    {
+      "description": "a later build of the same version is newer",
+      "first": "0.1.0+1",
+      "second": "0.1.0+2",
+      "expected": -1
+    },
+    {
+      "description": "a later minor version is newer, whatever the build",
+      "first": "0.1.0+2",
+      "second": "0.2.0",
+      "expected": -1
+    },
+    {
+      "description": "the order holds across both steps",
+      "first": "0.1.0+1",
+      "second": "0.2.0",
+      "expected": -1
+    },
+    {
+      "description": "the same comparison the other way round",
+      "first": "0.2.0",
+      "second": "0.1.0+2",
+      "expected": 1
+    },
+    {
+      "description": "a missing build counts as 0",
+      "first": "1.0.0",
+      "second": "1.0.0+0",
+      "expected": 0
+    },
+    {
+      "description": "the same the other way round",
+      "first": "1.0.0+0",
+      "second": "1.0.0",
+      "expected": 0
+    },
+    {
+      "description": "a version equals itself",
+      "first": "1.0.0",
+      "second": "1.0.0",
+      "expected": 0
+    },
+    {
+      "description": "the minimum that turns the gate off equals itself",
+      "first": "0.0.0",
+      "second": "0.0.0",
+      "expected": 0
+    },
+    {
+      "description": "every real version is above 0.0.0",
+      "first": "0.1.0",
+      "second": "0.0.0",
+      "expected": 1
+    },
+    {
+      "description": "parts compare as numbers, not as text",
+      "first": "0.10.0",
+      "second": "0.9.9",
+      "expected": 1
+    },
+    {
+      "description": "builds compare as numbers, not as text",
+      "first": "1.0.0+10",
+      "second": "1.0.0+9",
+      "expected": 1
+    },
+    {
+      "description": "a later major version is newer, whatever follows",
+      "first": "2.0.0",
+      "second": "1.99.99+999",
+      "expected": 1
+    },
+    {
+      "description": "the patch decides before the build",
+      "first": "1.2.3+4",
+      "second": "1.2.4",
+      "expected": -1
+    },
+    {
+      "description": "leading zeros do not change a number",
+      "first": "1.0.0+01",
+      "second": "1.0.0+1",
+      "expected": 0
+    },
+    {
+      "description": "the largest parts it reads",
+      "first": "9999.9999.9999+999999999",
+      "second": "9999.9999.9999+999999998",
+      "expected": 1
+    },
+    {
+      "description": "a missing part cannot be compared",
+      "first": "1.0",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "a pre-release cannot be compared",
+      "first": "1.0.0",
+      "second": "1.0.0-beta",
+      "expected": null
+    },
+    {
+      "description": "a \"+\" with no build cannot be compared",
+      "first": "1.0.0+",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "a leading letter cannot be compared",
+      "first": "v1.0.0",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "a space cannot be compared",
+      "first": " 1.0.0",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "a trailing space cannot be compared",
+      "first": "1.0.0 ",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "a part of five digits cannot be compared",
+      "first": "10000.0.0",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "a build of ten digits cannot be compared",
+      "first": "1.0.0+1234567890",
+      "second": "1.0.0",
+      "expected": null
+    },
+    {
+      "description": "an empty version cannot be compared",
+      "first": "",
+      "second": "0.0.0",
+      "expected": null
+    },
+    {
+      "description": "either side being unreadable gives null",
+      "first": "1.0.0",
+      "second": "not-a-version",
+      "expected": null
+    },
+    {
+      "description": "digits other than ASCII 0 to 9 cannot be compared",
+      "first": "\u0661.\u0660.\u0660",
+      "second": "1.0.0",
+      "expected": null
+    }
+  ]
+}
