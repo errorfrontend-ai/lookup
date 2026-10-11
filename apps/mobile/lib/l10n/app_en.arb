@@ -1,0 +1,413 @@
+{
+  "@@locale": "en",
+  "appTitle": "Look Up",
+  "@appTitle": {
+    "description": "The app's name: Home's title and the name in the phone's list of recent apps."
+  },
+  "closeButton": "Close",
+  "@closeButton": {
+    "description": "A Close button, or what screen readers announce for the Close ×: ends what is under way or closes a sheet."
+  },
+  "cancelButton": "Cancel",
+  "@cancelButton": {
+    "description": "The button that stops listening, identifying or a busy wait and goes Home."
+  },
+  "backButton": "Back",
+  "@backButton": {
+    "description": "What screen readers announce for the Back arrow on the microphone screen."
+  },
+  "backToHomeButton": "Back to home",
+  "@backToHomeButton": {
+    "description": "The button, and the Back arrow's spoken label, that goes to Home."
+  },
+  "tryAgainButton": "Try again",
+  "@tryAgainButton": {
+    "description": "The button that starts a new listening after a failure or no match."
+  },
+  "developmentOnlyDetails": "Details (development only)",
+  "@developmentOnlyDetails": {
+    "description": "The heading of technical details shown only in a development build of the app; never seen by a listener."
+  },
+  "homeHeading": "Heard an ad on the radio?",
+  "@homeHeading": {
+    "description": "Home's main question, over the identify button."
+  },
+  "homeInstruction": "Tap the button and hold your phone near the radio while the ad plays.",
+  "@homeInstruction": {
+    "description": "How identifying works, under the question on Home."
+  },
+  "homeDataNote": "{seconds, plural, =1{About 1 second of listening · about 25 KB of data} other{About {seconds} seconds of listening · about 25 KB of data}}",
+  "@homeDataNote": {
+    "description": "What one identify costs, under the identify button: how long the app listens and how much mobile data the upload uses.",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "description": "The length of the clip in seconds, e.g. 8."
+      }
+    }
+  },
+  "identifyButtonLabel": "Tap to identify",
+  "@identifyButtonLabel": {
+    "description": "The words drawn on the big round identify button on Home."
+  },
+  "identifyButtonSpokenLabel": "Identify the ad playing now",
+  "@identifyButtonSpokenLabel": {
+    "description": "What screen readers announce for the big round identify button."
+  },
+  "sendTestErrorButton": "Send a test error",
+  "@sendTestErrorButton": {
+    "description": "A development-only button on Home that throws a test error on purpose; never in a listener's build."
+  },
+  "permissionHeading": "Look Up needs your microphone",
+  "@permissionHeading": {
+    "description": "The heading of the screen that asks for the microphone."
+  },
+  "permissionExplanation": "We listen for a few seconds to recognise the ad on the radio. We don't keep the recording.",
+  "@permissionExplanation": {
+    "description": "Why the app needs the microphone."
+  },
+  "permissionPromiseOnlyWhenYouTap": "Only when you tap Identify — never in the background.",
+  "@permissionPromiseOnlyWhenYouTap": {
+    "description": "The first promise, after a tick: when the app listens."
+  },
+  "permissionPromiseNeverWhoYouAre": "Radio stations see how many people used their buttons — never who you are.",
+  "@permissionPromiseNeverWhoYouAre": {
+    "description": "The second promise, after a tick: what stations learn."
+  },
+  "permissionRefusedOnceNote": "You chose not to allow the microphone. Look Up can't identify an ad without it.",
+  "@permissionRefusedOnceNote": {
+    "description": "Shown after the listener refused the microphone once."
+  },
+  "permissionRefusedForGoodNote": "The microphone is turned off for Look Up. You can turn it on in your phone's settings.",
+  "@permissionRefusedForGoodNote": {
+    "description": "Shown when the phone will not ask for the microphone again."
+  },
+  "allowMicrophoneButton": "Allow microphone",
+  "@allowMicrophoneButton": {
+    "description": "The main button, which opens the phone's own microphone prompt."
+  },
+  "openPhoneSettingsButton": "Open phone settings",
+  "@openPhoneSettingsButton": {
+    "description": "The button that opens the app's page in the phone's settings."
+  },
+  "notNowButton": "Not now",
+  "@notNowButton": {
+    "description": "The button that leaves the microphone screen without asking."
+  },
+  "permissionSaidNoBefore": "Said no before?",
+  "@permissionSaidNoBefore": {
+    "description": "The words before the small \"Open phone settings\" button under the main buttons."
+  },
+  "listeningHeading": "Listening…",
+  "@listeningHeading": {
+    "description": "The heading while the app records the clip."
+  },
+  "listeningInstruction": "Keep your phone near the radio",
+  "@listeningInstruction": {
+    "description": "The instruction while the app records the clip."
+  },
+  "listeningSecondsLeft": "{seconds, plural, =1{1 second left} other{{seconds} seconds left}}",
+  "@listeningSecondsLeft": {
+    "description": "The countdown while recording, e.g. \"8 seconds left\".",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "description": "Whole seconds of recording left."
+      }
+    }
+  },
+  "cancelListeningLabel": "Cancel listening",
+  "@cancelListeningLabel": {
+    "description": "What screen readers announce for the Close × while recording."
+  },
+  "identifyingHeading": "Identifying…",
+  "@identifyingHeading": {
+    "description": "The heading while the clip is sent and checked."
+  },
+  "identifyingExplanation": "This usually takes a few seconds.",
+  "@identifyingExplanation": {
+    "description": "Under the heading while the clip is sent and checked."
+  },
+  "cancelIdentifyingLabel": "Cancel identifying",
+  "@cancelIdentifyingLabel": {
+    "description": "What screen readers announce for the Close × while identifying."
+  },
+  "busyHeading": "Lots of people are listening right now",
+  "@busyHeading": {
+    "description": "The heading when the service had no room and the app will send the clip again by itself."
+  },
+  "busyExplanation": "We kept your clip and will try again automatically. You don't need to record again.",
+  "@busyExplanation": {
+    "description": "Under the busy heading."
+  },
+  "busyCountdownLabel": "Trying again in",
+  "@busyCountdownLabel": {
+    "description": "The words before the countdown to the next automatic send."
+  },
+  "busyCountdown": "{seconds} s",
+  "@busyCountdown": {
+    "description": "The countdown to the next automatic send as drawn, e.g. \"12 s\".",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "description": "Whole seconds until the app sends again."
+      }
+    }
+  },
+  "busyCountdownSpoken": "{seconds, plural, =1{1 second} other{{seconds} seconds}}",
+  "@busyCountdownSpoken": {
+    "description": "The countdown as screen readers say it, e.g. \"12 seconds\".",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "description": "Whole seconds until the app sends again."
+      }
+    }
+  },
+  "tryNowButton": "Try now",
+  "@tryNowButton": {
+    "description": "The button that sends the kept clip at once instead of waiting."
+  },
+  "noMatchHeading": "We couldn't recognise that",
+  "@noMatchHeading": {
+    "description": "The heading when the clip was heard but not recognised."
+  },
+  "noMatchExplanation": "It may not be an ad we know yet, or it was too noisy to hear clearly.",
+  "@noMatchExplanation": {
+    "description": "Under the no-match heading."
+  },
+  "noMatchTipsHeading": "Try this",
+  "@noMatchTipsHeading": {
+    "description": "The heading of the numbered tips."
+  },
+  "noMatchTipTurnUp": "Turn the radio up, or move your phone closer.",
+  "@noMatchTipTurnUp": {
+    "description": "The first numbered tip."
+  },
+  "noMatchTipTapDuringAd": "Tap while the ad is playing — not during music or talk.",
+  "@noMatchTipTapDuringAd": {
+    "description": "The second numbered tip."
+  },
+  "noMatchTipStepAway": "Step away from traffic or other noise if you can.",
+  "@noMatchTipStepAway": {
+    "description": "The third numbered tip."
+  },
+  "errorSomethingWentWrongHeading": "Something went wrong on our side",
+  "@errorSomethingWentWrongHeading": {
+    "description": "The heading of a failure on the server or on the phone."
+  },
+  "errorExplanationWithCode": "Please try again. If it keeps happening, share this code with support so we can find the problem.",
+  "@errorExplanationWithCode": {
+    "description": "Under the failure heading when a reference code is shown."
+  },
+  "errorExplanationTryAgain": "Please try again.",
+  "@errorExplanationTryAgain": {
+    "description": "Under the failure heading when no reference code can be shown yet."
+  },
+  "errorRecordingUnusableHeading": "We couldn't use that recording",
+  "@errorRecordingUnusableHeading": {
+    "description": "The heading when the service could not use the clip."
+  },
+  "errorRecordingUnusableExplanation": "Please try again, with your phone close to the radio.",
+  "@errorRecordingUnusableExplanation": {
+    "description": "Under the unusable-recording heading."
+  },
+  "errorNoConnectionHeading": "No connection",
+  "@errorNoConnectionHeading": {
+    "description": "The heading when no answer came over the network."
+  },
+  "errorNoConnectionExplanation": "We couldn't reach Look Up. We kept your clip, so you can send it again when you have signal.",
+  "@errorNoConnectionExplanation": {
+    "description": "Under the no-connection heading."
+  },
+  "sendAgainButton": "Send again",
+  "@sendAgainButton": {
+    "description": "The button that sends the kept clip again after no connection."
+  },
+  "errorTooManyTriesHeading": "Too many tries",
+  "@errorTooManyTriesHeading": {
+    "description": "The heading when the listener identified too often."
+  },
+  "errorTooManyTriesShortWaitExplanation": "You've identified a lot in a short time. Please wait a minute, then try again.",
+  "@errorTooManyTriesShortWaitExplanation": {
+    "description": "Under the too-many-tries heading when the wait is a minute or less."
+  },
+  "errorTooManyTriesLaterExplanation": "Please try again later.",
+  "@errorTooManyTriesLaterExplanation": {
+    "description": "Under the too-many-tries heading when the wait is longer."
+  },
+  "errorNewerAppHeading": "This needs a newer Look Up",
+  "@errorNewerAppHeading": {
+    "description": "The heading when the answer is one this version of the app cannot show."
+  },
+  "errorNewerAppSeveralStationsExplanation": "This ad is on more than one station, and this version of the app can't show that yet.",
+  "@errorNewerAppSeveralStationsExplanation": {
+    "description": "Under the newer-app heading when the ad is on several stations."
+  },
+  "errorNewerAppUnknownAnswerExplanation": "We found an answer this version of the app can't show yet.",
+  "@errorNewerAppUnknownAnswerExplanation": {
+    "description": "Under the newer-app heading for any other answer it cannot show."
+  },
+  "referenceCodeLabel": "Reference code",
+  "@referenceCodeLabel": {
+    "description": "The label over the code the listener can share with support, e.g. \"6F1C-2D3E\"."
+  },
+  "copyButton": "Copy",
+  "@copyButton": {
+    "description": "The button that copies the reference code."
+  },
+  "codeCopiedConfirmation": "Code copied",
+  "@codeCopiedConfirmation": {
+    "description": "The short confirmation after the reference code was copied."
+  },
+  "supportChatButton": "Message support on WhatsApp",
+  "@supportChatButton": {
+    "description": "The button under the reference code that opens a WhatsApp chat with Look Up support."
+  },
+  "supportChatMessage": "Hello Look Up support, my reference code is {referenceCode}.",
+  "@supportChatMessage": {
+    "description": "The message typed into the support chat, so the listener only has to press send.",
+    "placeholders": {
+      "referenceCode": {
+        "type": "String",
+        "description": "The reference code, e.g. 6F1C-2D3E.",
+        "example": "6F1C-2D3E"
+      }
+    }
+  },
+  "resultFoundIt": "Found it",
+  "@resultFoundIt": {
+    "description": "The heading beside the Back arrow when the ad was recognised."
+  },
+  "resultViaStation": "via {stationName} · {frequencyLabel}",
+  "@resultViaStation": {
+    "description": "Under the advertiser: the station that played the ad.",
+    "placeholders": {
+      "stationName": {
+        "type": "String",
+        "description": "The station's name.",
+        "example": "Station A"
+      },
+      "frequencyLabel": {
+        "type": "String",
+        "description": "The station's frequency.",
+        "example": "98.1 FM"
+      }
+    }
+  },
+  "resultClientDefaultNote": "This ad isn't on air right now, so these are {clientName}'s usual contact details.",
+  "@resultClientDefaultNote": {
+    "description": "Under the ad's title when the card is the advertiser's usual one rather than the campaign's.",
+    "placeholders": {
+      "clientName": {
+        "type": "String",
+        "description": "The advertiser's name.",
+        "example": "Brand A"
+      }
+    }
+  },
+  "resultUpdateAppHint": "Some buttons need a newer version of Look Up.",
+  "@resultUpdateAppHint": {
+    "description": "Under the title when some buttons are of a kind this version cannot show."
+  },
+  "resultNoButtons": "This ad has no buttons right now.",
+  "@resultNoButtons": {
+    "description": "Under the title when the card has no button the app can show."
+  },
+  "moreOptionsButton": "More options",
+  "@moreOptionsButton": {
+    "description": "The button under the fourth button that shows the rest."
+  },
+  "launchFailureHeading": "Couldn't open this",
+  "@launchFailureHeading": {
+    "description": "The heading of the sheet shown when the phone could not open a button's address."
+  },
+  "launchFailureNumberExplanation": "Your phone couldn't open it. You can copy the number instead.",
+  "@launchFailureNumberExplanation": {
+    "description": "On the sheet, for a call or WhatsApp button."
+  },
+  "launchFailureLinkExplanation": "Your phone couldn't open it. You can copy the link instead.",
+  "@launchFailureLinkExplanation": {
+    "description": "On the sheet, for a map or link button."
+  },
+  "copyNumberButton": "Copy number",
+  "@copyNumberButton": {
+    "description": "The button that copies the phone number."
+  },
+  "copyLinkButton": "Copy link",
+  "@copyLinkButton": {
+    "description": "The button that copies the link."
+  },
+  "numberCopiedConfirmation": "Number copied",
+  "@numberCopiedConfirmation": {
+    "description": "The short confirmation after the number was copied."
+  },
+  "linkCopiedConfirmation": "Link copied",
+  "@linkCopiedConfirmation": {
+    "description": "The short confirmation after the link was copied."
+  },
+  "plainErrorFallbackMessage": "This part couldn't be shown.",
+  "@plainErrorFallbackMessage": {
+    "description": "Shown in place of a part of a screen that failed to draw."
+  },
+  "setUpProblemHeading": "This copy of Look Up isn't set up correctly.",
+  "@setUpProblemHeading": {
+    "description": "The only words a wrongly built copy of the app shows."
+  },
+  "configurationProblemFlavourNotRecognised": "LOOKUP_FLAVOUR is missing or is not development, staging or production.",
+  "@configurationProblemFlavourNotRecognised": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemGradleFlavourDiffers": "The Android build flavour (--flavor) is not the one LOOKUP_FLAVOUR names.",
+  "@configurationProblemGradleFlavourDiffers": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemApiBaseUrlMissing": "LOOKUP_API_BASE_URL is missing.",
+  "@configurationProblemApiBaseUrlMissing": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemApiBaseUrlMalformed": "LOOKUP_API_BASE_URL is not a plain http or https address with a host (no spaces, user name, query or fragment).",
+  "@configurationProblemApiBaseUrlMalformed": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemApiBaseUrlNotEndingApiVersion1": "LOOKUP_API_BASE_URL does not end with /api/v1.",
+  "@configurationProblemApiBaseUrlNotEndingApiVersion1": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemApiBaseUrlNotHttps": "LOOKUP_API_BASE_URL must use https outside the development flavour.",
+  "@configurationProblemApiBaseUrlNotHttps": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemErrorDetailsFlagNotTrueOrFalse": "LOOKUP_SHOW_ERROR_DETAILS is neither true nor false.",
+  "@configurationProblemErrorDetailsFlagNotTrueOrFalse": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemErrorDetailsOutsideDevelopment": "LOOKUP_SHOW_ERROR_DETAILS is on outside the development flavour.",
+  "@configurationProblemErrorDetailsOutsideDevelopment": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemDeveloperToolsFlagNotTrueOrFalse": "LOOKUP_SHOW_DEVELOPER_TOOLS is neither true nor false.",
+  "@configurationProblemDeveloperToolsFlagNotTrueOrFalse": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemDeveloperToolsOutsideDevelopment": "LOOKUP_SHOW_DEVELOPER_TOOLS is on outside the development flavour.",
+  "@configurationProblemDeveloperToolsOutsideDevelopment": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemVerboseLogsFlagNotTrueOrFalse": "LOOKUP_VERBOSE_LOGS is neither true nor false.",
+  "@configurationProblemVerboseLogsFlagNotTrueOrFalse": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemVerboseLogsOutsideDevelopment": "LOOKUP_VERBOSE_LOGS is on outside the development flavour.",
+  "@configurationProblemVerboseLogsOutsideDevelopment": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemSupportWhatsAppNumberMissing": "LOOKUP_SUPPORT_WHATSAPP_NUMBER is missing; staging and production builds must have it.",
+  "@configurationProblemSupportWhatsAppNumberMissing": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemSupportWhatsAppNumberNotE164": "LOOKUP_SUPPORT_WHATSAPP_NUMBER is not an E.164 number such as +260971234567.",
+  "@configurationProblemSupportWhatsAppNumberNotE164": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  }
+}

@@ -8,6 +8,7 @@ import 'package:lookup_listener/core/widgets/screen_frame.dart';
 import 'package:lookup_listener/features/identify/presentation/identify_button.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/identify/presentation/send_test_error_button.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// Home, the `idle` state at `/` (design §2.2; wireframe Main): "Look Up" at the top, and at the
 /// bottom, in the thumb zone, the question, how it works, the big "Tap to identify" control and
@@ -22,16 +23,10 @@ import 'package:lookup_listener/features/identify/presentation/send_test_error_b
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
-  static const String heading = 'Heard an ad on the radio?';
-
-  static const String instruction =
-      'Tap the button and hold your phone near the radio while the ad plays.';
-
   /// What one identify costs: the clip's length from the clip settings (S4-LISTENING-03), and the
   /// size of the upload it makes (S4-D31).
-  static String get dataNote =>
-      'About ${RecognitionFlow.clipSettings.clipDurationSeconds} seconds of listening '
-      '· about 25 KB of data';
+  static String dataNoteOf(AppLocalizations words) =>
+      words.homeDataNote(RecognitionFlow.clipSettings.clipDurationSeconds);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,12 +34,13 @@ class HomeScreen extends ConsumerWidget {
     final colours = tokens.colours;
     final spacing = tokens.spacing;
     final typeStyles = tokens.typeStyles;
+    final words = AppLocalizations.of(context);
     final showsDeveloperTools = ref.watch(appConfigurationProvider).showsDeveloperTools;
     final mutedBody = typeStyles.body.copyWith(color: colours.muted);
     return ScreenFrame(
       title: Row(
         children: [
-          Expanded(child: Text('Look Up', style: typeStyles.title)),
+          Expanded(child: Text(words.appTitle, style: typeStyles.title)),
           // Flexible, so its words wrap rather than push past the edge at large text sizes.
           if (showsDeveloperTools) const Flexible(child: SendTestErrorButton()),
         ],
@@ -61,10 +57,10 @@ class HomeScreen extends ConsumerWidget {
         children: [
           Semantics(
             header: true,
-            child: Text(heading, textAlign: TextAlign.center, style: typeStyles.display),
+            child: Text(words.homeHeading, textAlign: TextAlign.center, style: typeStyles.display),
           ),
           SizedBox(height: spacing.space2),
-          Text(instruction, textAlign: TextAlign.center, style: mutedBody),
+          Text(words.homeInstruction, textAlign: TextAlign.center, style: mutedBody),
           // 32 dp to the disc; its halo takes 28 of them, as the wireframe draws it.
           SizedBox(height: spacing.space8),
           IdentifyButton(
@@ -72,7 +68,7 @@ class HomeScreen extends ConsumerWidget {
           ),
           SizedBox(height: spacing.space8 + spacing.space3),
           Text(
-            dataNote,
+            dataNoteOf(words),
             textAlign: TextAlign.center,
             style: typeStyles.caption.copyWith(color: colours.muted),
           ),

@@ -18,6 +18,7 @@ void main() {
     expect(ListenerInstallStore.installIdKey, 'listener_install_id');
     expect(ListenerInstallStore.installTokenKey, 'listener_install_token');
     expect(ListenerInstallStore.tokenExpiresAtKey, 'listener_install_token_expires_at');
+    expect(ListenerInstallStore.registeredAppVersionKey, 'listener_install_registered_app_version');
   });
 
   test(
@@ -42,22 +43,68 @@ void main() {
     expect((await SharedPreferences.getInstance()).getKeys(), isEmpty);
   });
 
-  test('a token and its expiry are stored and read back in UTC', () async {
-    final store = _newStore();
-    final installId = (await store.readOrCreate()).installId;
-    await store.saveToken(
-      installToken: 'aaa.bbb.ccc',
-      expiresAt: DateTime.parse('2026-11-07T14:00:00+02:00'),
-    );
+  test(
+    'a registration is stored and read back: the token, its expiry in UTC, the version',
+    () async {
+      final store = _newStore();
+      final installId = (await store.readOrCreate()).installId;
+      await store.saveRegistration(
+        installToken: 'aaa.bbb.ccc',
+        expiresAt: DateTime.parse('2026-11-07T14:00:00+02:00'),
+        appVersion: '0.1.0+1',
+      );
+      final read = await _newStore().read();
+      expect(read?.installId, installId);
+      expect(read?.installToken, 'aaa.bbb.ccc');
+      expect(read?.tokenExpiresAt, DateTime.utc(2026, 11, 7, 12));
+      expect(read?.tokenExpiresAt?.isUtc, isTrue);
+      expect(read?.registeredAppVersion, '0.1.0+1');
+      expect(
+        (await SharedPreferences.getInstance()).getString('listener_install_token_expires_at'),
+        '2026-11-07T12:00:00.000Z',
+      );
+    },
+  );
+
+  test('an install a Step 4 app registered has no version stored', () async {
+    SharedPreferences.setMockInitialValues({
+      'listener_install_id': _storedInstallId,
+      'listener_install_token': 'aaa.bbb.ccc',
+      'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
+    });
     final read = await _newStore().read();
-    expect(read?.installId, installId);
     expect(read?.installToken, 'aaa.bbb.ccc');
-    expect(read?.tokenExpiresAt, DateTime.utc(2026, 11, 7, 12));
-    expect(read?.tokenExpiresAt?.isUtc, isTrue);
-    expect(
-      (await SharedPreferences.getInstance()).getString('listener_install_token_expires_at'),
-      '2026-11-07T12:00:00.000Z',
+    expect(read?.registeredAppVersion, isNull);
+  });
+
+  test('two engines: a token one stores is the token the other reads next (P6-D45)', () async {
+    // Each engine has its own cached SharedPreferences over the same stored values.
+    SharedPreferences.setMockInitialValues({'listener_install_id': _storedInstallId});
+    final foregroundPreferences = await SharedPreferences.getInstance();
+    SharedPreferences.resetStatic();
+    final backgroundPreferences = await SharedPreferences.getInstance();
+    expect(backgroundPreferences, isNot(same(foregroundPreferences)));
+    final foreground = ListenerInstallStore(
+      randomUuid: RandomUuid(),
+      openPreferences: () async => foregroundPreferences,
     );
+    final background = ListenerInstallStore(
+      randomUuid: RandomUuid(),
+      openPreferences: () async => backgroundPreferences,
+    );
+    expect((await foreground.read())?.installToken, isNull);
+
+    await background.saveRegistration(
+      installToken: 'from.the.background',
+      expiresAt: DateTime.utc(2026, 11, 7, 12),
+      appVersion: '0.1.0+1',
+    );
+    // Without a reload the foreground's cache would still hold no token.
+    expect(foregroundPreferences.getString('listener_install_token'), isNull);
+
+    final read = await foreground.read();
+    expect(read?.installToken, 'from.the.background');
+    expect(read?.registeredAppVersion, '0.1.0+1');
   });
 
   test('forgetting the token keeps the install id', () async {
@@ -71,6 +118,15 @@ void main() {
     expect(read?.installId, _storedInstallId);
     expect(read?.installToken, isNull);
     expect((await SharedPreferences.getInstance()).getKeys(), {'listener_install_id'});
+
+    SharedPreferences.setMockInitialValues({
+      'listener_install_id': _storedInstallId,
+      'listener_install_token': 'aaa.bbb.ccc',
+      'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
+      'listener_install_registered_app_version': '0.1.0+1',
+    });
+    await _newStore().forgetToken();
+    expect((await _newStore().read())?.registeredAppVersion, '0.1.0+1');
   });
 
   test('a token without a readable expiry is treated as no token', () async {
@@ -84,20 +140,25 @@ void main() {
     expect(read?.tokenExpiresAt, isNull);
   });
 
-  test('a stored install id the API would refuse is replaced, with its token', () async {
-    SharedPreferences.setMockInitialValues({
-      'listener_install_id': 'not-a-uuid',
-      'listener_install_token': 'aaa.bbb.ccc',
-      'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
-    });
-    expect(await _newStore().read(), isNull);
-    final created = await _newStore().readOrCreate();
-    expect(created.installId, matches(_versionFourUuid));
-    expect(created.installToken, isNull);
-    final preferences = await SharedPreferences.getInstance();
-    expect(preferences.getString('listener_install_id'), created.installId);
-    expect(preferences.getString('listener_install_token'), isNull);
-  });
+  test(
+    'a stored install id the API would refuse is replaced, with its token and version',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'listener_install_id': 'not-a-uuid',
+        'listener_install_token': 'aaa.bbb.ccc',
+        'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
+        'listener_install_registered_app_version': '0.1.0+1',
+      });
+      expect(await _newStore().read(), isNull);
+      final created = await _newStore().readOrCreate();
+      expect(created.installId, matches(_versionFourUuid));
+      expect(created.installToken, isNull);
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString('listener_install_id'), created.installId);
+      expect(preferences.getString('listener_install_token'), isNull);
+      expect(preferences.getString('listener_install_registered_app_version'), isNull);
+    },
+  );
 
   test('a readable install id is never replaced', () async {
     SharedPreferences.setMockInitialValues({'listener_install_id': _storedInstallId});

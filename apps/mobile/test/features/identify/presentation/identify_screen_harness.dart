@@ -12,6 +12,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_state.dart'
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/result/data/action_launcher.dart';
 import 'package:lookup_listener/features/result/data/clipboard_writer.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 import '../../../support/example_app_configurations.dart';
 import '../../../support/expect_no_technical_text.dart';
@@ -39,11 +40,12 @@ final class IdentifyScreenHarness {
   final FakeActionLauncher launcher;
   final FakeClipboardWriter clipboard = FakeClipboardWriter();
 
-  /// Shows [screen] on [phoneScreen].
+  /// Shows [screen] on [phoneScreen], in the light theme unless [theme] is given.
   Future<void> pump(
     WidgetTester tester,
     Widget screen, {
     PhoneScreen phoneScreen = PhoneScreen.standard,
+    ThemeData? theme,
   }) async {
     phoneScreen.applyTo(tester);
     await tester.pumpWidget(
@@ -55,7 +57,12 @@ final class IdentifyScreenHarness {
           clipboardWriterProvider.overrideWithValue(clipboard),
         ],
         retry: (retryCount, error) => null,
-        child: MaterialApp(theme: LookUpTheme.light(), home: screen),
+        child: MaterialApp(
+          theme: theme ?? LookUpTheme.light(),
+          localizationsDelegates: FallbackLocalizations.delegates,
+          supportedLocales: FallbackLocalizations.supportedLocales,
+          home: screen,
+        ),
       ),
     );
   }

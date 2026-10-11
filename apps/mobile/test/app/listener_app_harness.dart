@@ -11,6 +11,7 @@ import 'package:lookup_listener/app/app_router.dart';
 import 'package:lookup_listener/app/look_up_app.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
+import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
@@ -94,6 +95,8 @@ final class ListenerAppHarness {
       'listener_install_id': installId,
       if (hasStoredToken) 'listener_install_token': 'stored.install.token',
       if (hasStoredToken) 'listener_install_token_expires_at': tokenExpiry.toIso8601String(),
+      // Registered with the running version, as after any launch of this app (contract §1.1).
+      if (hasStoredToken) 'listener_install_registered_app_version': AppVersion.current,
     });
     phoneScreen.applyTo(tester);
     await tester.pumpWidget(

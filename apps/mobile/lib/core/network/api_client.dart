@@ -8,20 +8,25 @@ import '../identifiers/random_uuid.dart';
 import '../time/clock.dart';
 import 'api_answer.dart';
 import 'api_multipart_file.dart';
+import 'listener_route.dart';
 
 export 'api_answer.dart';
 export 'api_multipart_file.dart';
+export 'listener_route.dart';
 
 /// The app's one way to the Look Up API (design §3.8), on Dio 5.11.1.
 ///
-/// - Paths are relative to `LOOKUP_API_BASE_URL` (`installs`, `recognize`, `client-errors`).
+/// - Paths are relative to `LOOKUP_API_BASE_URL` (`ListenerRoute`: `installs`, `recognize`,
+///   `stations`, `recognitions/<id>/choice`, `client-errors`, …).
 /// - Plain `http` is refused in Dart unless the flavour is development, and nothing is sent,
 ///   because Dart's HTTP client cannot be relied on to obey Android's network-security settings
 ///   (S4-D25). Redirects are not followed, so an `https` request can never be led to `http`.
 /// - Every HTTP attempt carries a new version-4 `X-Request-Id`, made before the request so the
 ///   caller knows it even when no answer comes (S4-D9).
-/// - The install token travels only as `Authorization: Bearer` and only to listener routes
-///   (S4-INSTALLS-03).
+/// - The install token travels only as `Authorization: Bearer`, only to the listener routes, and
+///   to `installs` only for a re-registration (`ListenerRoute`; S4-INSTALLS-03, amendment A3).
+/// - `getJson` sends a stored entity tag as `If-None-Match`, and a 304 is an ordinary answer with
+///   no body (design §3.12; contract §1.4).
 /// - Timeouts: connect 15 s, send 30 s (an 8 s clip on slow 2G), receive 15 s (S4-D12).
 /// - Dio accepts every status and hands back plain text; the app decodes it, so no status and no
 ///   body raises an exception. Every method returns an [ApiAnswer] and never throws; no exception
@@ -62,15 +67,20 @@ class ApiClient {
   /// How long the answer may take once sent; the API waits at most 2.5 s for a worker.
   static const Duration receiveTimeout = Duration(seconds: 15);
 
-  /// The routes that need the install token. Any other route is sent without it, even when a
-  /// caller passes one: `/installs` and `/client-errors` must never carry it.
-  static const Set<String> listenerRoutePaths = {'recognize'};
-
   /// The request-id header, sent on every attempt and echoed by the API.
   static const String requestIdHeader = 'X-Request-Id';
 
   static const String _authorizationHeader = 'Authorization';
   static const String _acceptHeader = 'Accept';
+  static const String _ifNoneMatchHeader = 'If-None-Match';
+
+  /// The longest entity tag the app keeps or sends; the API's are a short hash of the body.
+  static const int longestEntityTag = 256;
+
+  /// An HTTP entity tag (RFC 9110 §8.8.3), strong or weak, in printable ASCII only: `"abc"` or
+  /// `W/"abc"`. Nothing else is sent as `If-None-Match` or kept from an `ETag`, so a header can
+  /// never be broken or forged through one.
+  static final RegExp _entityTag = RegExp(r'^(?:W/)?"[\x21\x23-\x7E]*"$');
 
   /// A relative path in lower-case words joined by hyphens and slashes, e.g. `client-errors`:
   /// nothing that could leave the API's base address.
@@ -98,7 +108,8 @@ class ApiClient {
     String? installToken,
     String? requestId,
     CancelToken? cancelToken,
-  }) => _post(
+  }) => _send(
+    'POST',
     path,
     buildData: () => body,
     contentType: Headers.jsonContentType,
@@ -106,6 +117,33 @@ class ApiClient {
     requestId: requestId,
     cancelToken: cancelToken,
   );
+
+  /// Reads [path] with a GET (design §3.12): the station list.
+  ///
+  /// [ifNoneMatch] is the entity tag of the copy the app holds, from an earlier answer's
+  /// [ApiAnswerReceived.entityTag]; the API answers 304 with no body when it still holds. A tag
+  /// that is not a well-formed entity tag is not sent, so the API simply answers in full.
+  /// [requestId] is used as for [postJson].
+  Future<ApiAnswer> getJson(
+    String path, {
+    String? installToken,
+    String? ifNoneMatch,
+    String? requestId,
+    CancelToken? cancelToken,
+  }) => _send(
+    'GET',
+    path,
+    buildData: () => null,
+    contentType: null,
+    installToken: installToken,
+    requestId: requestId,
+    cancelToken: cancelToken,
+    ifNoneMatch: ifNoneMatch != null && isEntityTag(ifNoneMatch) ? ifNoneMatch : null,
+  );
+
+  /// Whether [value] is an entity tag the app may keep and send back.
+  static bool isEntityTag(String value) =>
+      value.length <= longestEntityTag && _entityTag.hasMatch(value);
 
   /// Sends a `multipart/form-data` request to [path]: the text [fields] in the order given, then
   /// [file] last.
@@ -116,7 +154,8 @@ class ApiClient {
     String? installToken,
     String? requestId,
     CancelToken? cancelToken,
-  }) => _post(
+  }) => _send(
+    'POST',
     path,
     buildData: () => FormData()
       ..fields.addAll(fields)
@@ -137,28 +176,32 @@ class ApiClient {
     cancelToken: cancelToken,
   );
 
-  Future<ApiAnswer> _post(
+  Future<ApiAnswer> _send(
+    String method,
     String path, {
-    required Object Function() buildData,
+    required Object? Function() buildData,
     required String? contentType,
     required String? installToken,
     required String? requestId,
     required CancelToken? cancelToken,
+    String? ifNoneMatch,
   }) async {
     final sentRequestId = requestId != null && _versionFourUuid.hasMatch(requestId)
         ? requestId
         : _randomUuid.generate();
     final startedAt = _clock.monotonicElapsed();
     final answer = await _attempt(
+      method,
       path,
       sentRequestId: sentRequestId,
       buildData: buildData,
       contentType: contentType,
       installToken: installToken,
       cancelToken: cancelToken,
+      ifNoneMatch: ifNoneMatch,
     );
     _developmentLog.recordRequest(
-      method: 'POST',
+      method: method,
       path: _relativePath.hasMatch(path) ? path : '(refused path)',
       requestId: sentRequestId,
       duration: _clock.monotonicElapsed() - startedAt,
@@ -170,17 +213,23 @@ class ApiClient {
         ApiAnswerReceived() => null,
         ApiAnswerNotReceived(:final reason) => reason.name,
       },
+      faultTypeName: switch (answer) {
+        ApiAnswerReceived() => null,
+        ApiAnswerNotReceived(:final faultTypeName) => faultTypeName,
+      },
     );
     return answer;
   }
 
   Future<ApiAnswer> _attempt(
+    String method,
     String path, {
     required String sentRequestId,
-    required Object Function() buildData,
+    required Object? Function() buildData,
     required String? contentType,
     required String? installToken,
     required CancelToken? cancelToken,
+    required String? ifNoneMatch,
   }) async {
     ApiAnswer noAnswer(ApiNoAnswerReason reason, {String? faultTypeName}) => ApiAnswerNotReceived(
       sentRequestId: sentRequestId,
@@ -192,30 +241,34 @@ class ApiClient {
       final address = _addressFor(path);
       if (!_maySendTo(address)) return noAnswer(ApiNoAnswerReason.plainHttpRefused);
 
-      final carriesInstallToken = installToken != null && listenerRoutePaths.contains(path);
+      final carriesInstallToken = installToken != null && ListenerRoute.mayCarryInstallToken(path);
       // `String`, not `Object?`: for any other type Dio switches itself to decoding JSON, and a
       // broken JSON body would then fail as if no answer had come.
-      final response = await _dio.postUri<String>(
+      final response = await _dio.requestUri<String>(
         address,
         data: buildData(),
         cancelToken: cancelToken,
         options: Options(
+          method: method,
           contentType: contentType,
           headers: {
             requestIdHeader: sentRequestId,
             _acceptHeader: Headers.jsonContentType,
             if (carriesInstallToken) _authorizationHeader: 'Bearer $installToken',
+            _ifNoneMatchHeader: ?ifNoneMatch,
           },
         ),
       );
       final status = response.statusCode;
       if (status == null) return noAnswer(ApiNoAnswerReason.unexpectedFailure);
       final text = response.data;
+      final entityTag = _singleHeaderValue(response.headers, 'etag');
       return ApiAnswerReceived(
         sentRequestId: sentRequestId,
         status: status,
         echoedRequestId: _singleHeaderValue(response.headers, 'x-request-id'),
         retryAfter: _singleHeaderValue(response.headers, 'retry-after'),
+        entityTag: entityTag != null && isEntityTag(entityTag) ? entityTag : null,
         body: ApiAnswerBody.fromText(text ?? ''),
       );
     } on DioException catch (exception) {

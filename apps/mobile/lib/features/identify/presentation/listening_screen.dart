@@ -3,13 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/core/widgets/screen_frame.dart';
-import 'package:lookup_listener/features/identify/presentation/identifying_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/level_bars.dart';
 import 'package:lookup_listener/features/identify/presentation/level_ring.dart';
 import 'package:lookup_listener/features/identify/presentation/listening_layout.dart';
 import 'package:lookup_listener/features/identify/presentation/progress_track.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/identify/presentation/system_back_to_home.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// Listening, the `recording` state at `/listening` (design §2.4; wireframe Listening): the ring and
 /// the level bars follow the live level, and a bar and "[n] seconds left" count the clip down. After
@@ -26,14 +26,6 @@ class ListeningScreen extends ConsumerWidget {
   /// The countdown, from the clip's length in seconds to 0.
   final int secondsLeft;
 
-  static const String heading = 'Listening…';
-
-  static const String instruction = 'Keep your phone near the radio';
-
-  /// "8 seconds left", "1 second left", "0 seconds left".
-  static String countdownText(int secondsLeft) =>
-      secondsLeft == 1 ? '1 second left' : '$secondsLeft seconds left';
-
   /// How much of the clip is recorded: 0.625 with 3 of 8 seconds left.
   static double recordedFraction(int secondsLeft) {
     final clipSeconds = RecognitionFlow.clipSettings.clipDurationSeconds;
@@ -44,27 +36,32 @@ class ListeningScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colours = context.lookUpTokens.colours;
     final flow = ref.read(recognitionFlowProvider.notifier);
+    final words = AppLocalizations.of(context);
     return SystemBackToHome(
       child: ScreenFrame(
-        exitButton: ScreenExitButton.close(label: 'Cancel listening', onPressed: flow.backToHome),
+        exitButton: ScreenExitButton.close(
+          label: words.cancelListeningLabel,
+          onPressed: flow.backToHome,
+        ),
         // Centred in the space between the header and the footer, as the wireframe draws it, and
         // shared with Identifying so the ring stays put when the clip is sent.
         body: Expanded(
           child: ListeningLayout(
             ring: LevelRing(levelFraction: levelFraction),
-            heading: heading,
-            headingToFit: IdentifyingScreen.heading,
-            text: instruction,
-            textToFit: IdentifyingScreen.explanation,
+            heading: words.listeningHeading,
+            headingToFit: words.identifyingHeading,
+            text: words.listeningInstruction,
+            textToFit: words.identifyingExplanation,
             levelBars: LevelBars(levelFraction: levelFraction),
             progressTrack: ProgressTrack(
               fraction: recordedFraction(secondsLeft),
               fillColour: colours.accent,
             ),
-            countdown: countdownText(secondsLeft),
+            // "8 seconds left", "1 second left", "0 seconds left".
+            countdown: words.listeningSecondsLeft(secondsLeft),
           ),
         ),
-        footer: [OutlinedButton(onPressed: flow.backToHome, child: const Text('Cancel'))],
+        footer: [OutlinedButton(onPressed: flow.backToHome, child: Text(words.cancelButton))],
       ),
     );
   }

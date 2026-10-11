@@ -2,12 +2,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// Home's one big control (design §2.2; wireframe Main): a 200 dp accent disc with the microphone
-/// above "Tap to identify", inside two soft halo rings, low on the screen where a thumb reaches it.
+/// above "Tap to identify" (`identifyButtonLabel`), inside two soft halo rings, low on the screen
+/// where a thumb reaches it.
 ///
-/// Screen readers hear "Identify the ad playing now", a button: the drawn words assume the
-/// listener can see the disc.
+/// Screen readers hear "Identify the ad playing now" (`identifyButtonSpokenLabel`), a button: the
+/// drawn words assume the listener can see the disc.
 ///
 /// At larger text sizes the disc grows with the text (200 dp times the text scale), so its words
 /// are drawn at the size the listener chose (S4-RESPONSIVE-03). It grows no wider than the screen
@@ -17,12 +19,6 @@ import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 class IdentifyButton extends StatelessWidget {
   const IdentifyButton({super.key, required this.onPressed});
 
-  /// The words drawn on the disc.
-  static const String label = 'Tap to identify';
-
-  /// What screen readers announce.
-  static const String semanticsLabel = 'Identify the ad playing now';
-
   final VoidCallback onPressed;
 
   @override
@@ -30,6 +26,8 @@ class IdentifyButton extends StatelessWidget {
     final tokens = context.lookUpTokens;
     final colours = tokens.colours;
     final spacing = tokens.spacing;
+    final words = AppLocalizations.of(context);
+    final label = words.identifyButtonLabel;
     // 200 dp across at normal text, a 56 dp icon; rings 12 and 28 dp wide (the wireframe's 14 dp
     // ring is taken to the nearest token, design §2.1).
     final standardDiameter = spacing.space10 * 5;
@@ -53,11 +51,16 @@ class IdentifyButton extends StatelessWidget {
     // disc makes the whole label shrink instead of breaking in the middle.
     final layoutWidth = math.max(
       diameter - 2 * contentPadding,
-      _widestWordWidth(DefaultTextStyle.of(context).style.merge(labelStyle), textScaler, context),
+      _widestWordWidth(
+        label,
+        DefaultTextStyle.of(context).style.merge(labelStyle),
+        textScaler,
+        context,
+      ),
     );
     return Semantics(
       button: true,
-      label: semanticsLabel,
+      label: words.identifyButtonSpokenLabel,
       onTap: onPressed,
       excludeSemantics: true,
       child: DecoratedBox(
@@ -105,8 +108,13 @@ class IdentifyButton extends StatelessWidget {
     );
   }
 
-  /// How wide the label's longest word is when drawn in [style] at the listener's text size.
-  static double _widestWordWidth(TextStyle style, TextScaler textScaler, BuildContext context) {
+  /// How wide [label]'s longest word is when drawn in [style] at the listener's text size.
+  static double _widestWordWidth(
+    String label,
+    TextStyle style,
+    TextScaler textScaler,
+    BuildContext context,
+  ) {
     var widest = 0.0;
     for (final word in label.split(' ')) {
       final painter = TextPainter(

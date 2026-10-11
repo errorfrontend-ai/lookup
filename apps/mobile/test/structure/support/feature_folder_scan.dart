@@ -3,7 +3,7 @@ import 'dart:io';
 /// The folder rules of design §3.1 (S4-STRUCTURE-01, -02, -04), checked over a `lib/` folder:
 /// `features/` holds exactly `identify` and `result`; each holds exactly `presentation`, `domain`
 /// and `data` and no loose files; each layer holds Dart code; and `lib/` itself holds only `app/`,
-/// `core/`, `features/` and `main.dart`.
+/// `core/`, `features/`, `l10n/` (the language files, P6 design §3.1, §3.17) and `main.dart`.
 final class FeatureFolderScan {
   FeatureFolderScan._(this.featureNames, this.dartFileCountsByLayerFolder, this.violations);
 
@@ -80,8 +80,8 @@ final class FeatureFolderScan {
   /// The layers every feature has (S4-STRUCTURE-02).
   static const List<String> expectedLayers = ['presentation', 'domain', 'data'];
 
-  /// What `lib/` may hold at its top (§3.1).
-  static const List<String> allowedTopLevelFolders = ['app', 'core', 'features'];
+  /// What `lib/` may hold at its top (§3.1; `l10n` from the P6 design's §3.1).
+  static const List<String> allowedTopLevelFolders = ['app', 'core', 'features', 'l10n'];
   static const List<String> allowedTopLevelFiles = ['main.dart'];
 
   /// The folders found under `lib/features/`.

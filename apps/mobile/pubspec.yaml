@@ -13,6 +13,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # The SDK's own localisations; intl is the version the SDK pins (P6-D22, design §3.3, §3.17).
+  flutter_localizations:
+    sdk: flutter
+  intl: 0.20.2
   flutter_riverpod: 3.3.2
   go_router: 17.5.0
   dio: 5.11.1
@@ -30,3 +34,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Generates lib/l10n/app_localizations*.dart from lib/l10n/app_en.arb (l10n.yaml, design §3.17).
+  generate: true

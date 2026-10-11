@@ -5,6 +5,7 @@ import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/presentation/identify_button.dart';
 
 import '../../../support/phone_screen.dart';
+import '../../../support/english_words.dart';
 
 void main() {
   testWidgets('an accent disc 200 dp across with "Tap to identify" in the on-accent colour', (
@@ -23,7 +24,7 @@ void main() {
     expect(material.color, colours.accent);
     expect(material.shape, isA<CircleBorder>());
     expect(tester.getSize(find.byType(InkWell)), const Size(200, 200));
-    final label = tester.widget<Text>(find.text(IdentifyButton.label));
+    final label = tester.widget<Text>(find.text(englishWords.identifyButtonLabel));
     expect(label.style!.color, colours.onAccent);
     expect(label.style!.fontWeight, FontWeight.w700);
     expect(tester.widget<Icon>(find.byIcon(Icons.mic_none)).size, 56);
@@ -51,7 +52,7 @@ void main() {
         body: Center(child: IdentifyButton(onPressed: () => presses++)),
       ),
     );
-    tester.semantics.tap(find.semantics.byLabel(IdentifyButton.semanticsLabel));
+    tester.semantics.tap(find.semantics.byLabel(englishWords.identifyButtonSpokenLabel));
     await tester.pump();
     expect(presses, 1);
     semantics.dispose();
@@ -118,7 +119,7 @@ Future<void> _showButton(WidgetTester tester, PhoneScreen phoneScreen) => phoneS
 /// The size the label's letters are drawn at on screen: its font size at the listener's text
 /// scale, times any shrinking to fit the disc.
 double _drawnFontSizeOfLabel(WidgetTester tester) {
-  final label = find.text(IdentifyButton.label);
+  final label = find.text(englishWords.identifyButtonLabel);
   final shrinking = tester.getRect(label).height / tester.getSize(label).height;
   final scaled = MediaQuery.textScalerOf(tester.element(label)).scale(18);
   return double.parse((scaled * shrinking).toStringAsFixed(3));
@@ -127,21 +128,24 @@ double _drawnFontSizeOfLabel(WidgetTester tester) {
 /// "Tap to identify" sits inside the disc on two lines, "Tap to" and "identify": no word is broken.
 void _expectWordsWholeInsideTheDisc(WidgetTester tester) {
   final disc = tester.getRect(find.byType(InkWell));
-  final words = tester.getRect(find.text(IdentifyButton.label));
+  final words = tester.getRect(find.text(englishWords.identifyButtonLabel));
   expect(disc.contains(words.topLeft) && disc.contains(words.bottomRight), isTrue);
   final paragraph = tester.renderObject<RenderParagraph>(
-    find.descendant(of: find.text(IdentifyButton.label), matching: find.byType(RichText)),
+    find.descendant(
+      of: find.text(englishWords.identifyButtonLabel),
+      matching: find.byType(RichText),
+    ),
   );
   // What is left of the label from the first letter of each line on.
   final lines = <String>[];
   double? previousTop;
-  for (final (index, letter) in IdentifyButton.label.split('').indexed) {
+  for (final (index, letter) in englishWords.identifyButtonLabel.split('').indexed) {
     if (letter == ' ') continue;
     final top = paragraph
         .getBoxesForSelection(TextSelection(baseOffset: index, extentOffset: index + 1))
         .first
         .top;
-    if (top != previousTop) lines.add(IdentifyButton.label.substring(index));
+    if (top != previousTop) lines.add(englishWords.identifyButtonLabel.substring(index));
     previousTop = top;
   }
   expect(lines, ['Tap to identify', 'identify'], reason: 'a word was broken across lines');

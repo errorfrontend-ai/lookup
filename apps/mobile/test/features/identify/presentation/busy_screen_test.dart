@@ -4,11 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/busy_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/progress_track.dart';
 
 import '../../../app/listener_app_harness.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 IdentifyScreenHarness _harness() =>
     IdentifyScreenHarness(state: const BusyState(retryDelaySeconds: 12, secondsUntilRetry: 12));
@@ -77,7 +77,7 @@ void main() {
       final countdown = tester.widget<Text>(find.text('12 s'));
       expect(countdown.style!.fontFeatures, contains(const FontFeature.tabularFigures()));
       expect(countdown.semanticsLabel, '12 seconds');
-      expect(BusyScreen.countdownSemanticsLabel(1), '1 second');
+      expect(englishWords.busyCountdownSpoken(1), '1 second');
       semantics.dispose();
     });
 
@@ -166,7 +166,7 @@ void main() {
       await scrollToAndTap(tester, find.text('Cancel'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/');
-      expect(find.text(HomeScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.homeHeading), findsOneWidget);
       expect(harness.flow(tester).hasKeptClip, isFalse);
       expect(harness.recorder.clipFileNames, isEmpty);
 

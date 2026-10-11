@@ -1,7 +1,7 @@
 // Turns packages/design-tokens/tokens.json into lib/core/theme/look_up_tokens.dart, the app's
 // `LookUpTokens` theme extension, so the app and the portal take their colours, type scale, spacing,
-// radii, sizes and durations from one file (design §3.18, S4-THEME-02). Run from apps/mobile after
-// changing tokens.json:
+// radii, sizes, durations and window breakpoints from one file (design §3.18, S4-THEME-02; P6 design
+// §3.19). Run from apps/mobile after changing tokens.json:
 //
 //   dart run tool/generate_design_tokens.dart
 //
@@ -17,12 +17,25 @@ const String generatedFileHeading =
     '// Generated from packages/design-tokens/tokens.json — do not edit by hand.';
 
 /// The groups of tokens.json the generator turns into Dart.
-const Set<String> _readGroups = {'color', 'type', 'space', 'radius', 'size', 'motion'};
+const Set<String> _readGroups = {
+  'color',
+  'type',
+  'space',
+  'radius',
+  'size',
+  'motion',
+  'breakpoint',
+};
 
-/// Groups of tokens.json the app does not read: `meta` is notes, `font` names web fonts (the app
-/// uses the phone's system font, S4-THEME-04), and `breakpoint` has no use before Phase 6. Any other
-/// unknown group stops the generator, so a new kind of token is never dropped unseen.
-const Set<String> _ignoredGroups = {'meta', 'font', 'breakpoint'};
+/// Groups of tokens.json the app does not read: `meta` is notes and `font` names web fonts (the app
+/// uses the phone's system font, S4-THEME-04). Any other unknown group stops the generator, so a
+/// new kind of token is never dropped unseen.
+const Set<String> _ignoredGroups = {'meta', 'font'};
+
+/// The breakpoints the app reads (`breakpoint.app`, the Material window size classes, design
+/// §3.19); `breakpoint.web` is the portal's.
+const String _appBreakpoints = 'app';
+const String _webBreakpoints = 'web';
 
 /// tokens.json keys that are abbreviations, and the full-word names the app uses for them.
 const Map<String, String> _radiusNames = {
@@ -53,6 +66,7 @@ const Map<String, String> _tokenGroups = {
   'radii': 'LookUpRadii',
   'sizes': 'LookUpSizes',
   'motion': 'LookUpMotion',
+  'breakpoints': 'LookUpBreakpoints',
 };
 
 final RegExp _fieldNamePattern = RegExp(r'^[a-z][A-Za-z0-9]*$');
@@ -119,6 +133,27 @@ String generateLookUpTokensSource(String tokensJson) {
     motion[_checkFieldName(name, path)] = 'Duration(milliseconds: ${_numberSource(value, path)})';
   });
 
+  final breakpointGroups = _readObject(tokens['breakpoint'], 'breakpoint');
+  for (final name in breakpointGroups.keys) {
+    if (name != _appBreakpoints && name != _webBreakpoints) {
+      throw FormatException('breakpoint.$name: only breakpoint.app and breakpoint.web are known');
+    }
+  }
+  final breakpoints = <String, String>{};
+  num? previousWidth;
+  _readObject(breakpointGroups[_appBreakpoints], 'breakpoint.app').forEach((name, value) {
+    final path = 'breakpoint.app.$name';
+    final source = _numberSource(value, path);
+    final width = value! as num;
+    // Each window size class starts where the narrower one ends, so the widths only grow.
+    if (previousWidth != null && width <= previousWidth!) {
+      throw FormatException('$path must be wider than the breakpoint before it');
+    }
+    previousWidth = width;
+    breakpoints[_checkFieldName(name, path)] = source;
+  });
+  if (breakpoints.isEmpty) throw const FormatException('breakpoint.app names no breakpoint');
+
   return [
     _fileStartSource,
     _tokensClassSource(),
@@ -168,6 +203,16 @@ String generateLookUpTokensSource(String tokensJson) {
       fieldType: 'Duration',
       values: motion,
     ),
+    _constantGroupSource(
+      className: 'LookUpBreakpoints',
+      documentation: '''
+/// The narrowest window, in logical pixels, of each Material window size class (compact, medium,
+/// expanded): `WindowSizeClass.of` reads the window's width against them (design §3.19). The
+/// portal's own breakpoints are left out.
+''',
+      fieldType: 'double',
+      values: breakpoints,
+    ),
   ].join('\n');
 }
 
@@ -199,7 +244,7 @@ String _tokensClassSource() {
 
   return '''
 /// The design tokens this app shares with the portal, as one theme extension, so no widget holds
-/// its own colour, type size, spacing, radius or duration. Widgets read them with
+/// its own colour, type size, spacing, radius, duration or breakpoint. Widgets read them with
 /// `context.lookUpTokens`.
 @immutable
 class LookUpTokens extends ThemeExtension<LookUpTokens> {
@@ -207,11 +252,11 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
   const LookUpTokens({
 ${eachGroup((field, type) => '    required this.$field,\n')}  });
 
-  /// The light theme: the only one the app shows in Step 4.
+  /// The light theme's values.
   static const LookUpTokens light = LookUpTokens(
 ${tokensConstant('light')}  );
 
-  /// The dark theme's values, generated now and shown from Phase 6 (P6-THEME-01).
+  /// The dark theme's values, shown when the phone is set to dark (P6-THEME-01).
   static const LookUpTokens dark = LookUpTokens(
 ${tokensConstant('dark')}  );
 ${eachGroup((field, type) => '\n  final $type $field;\n')}

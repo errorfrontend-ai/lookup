@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../configuration/configuration_problem.dart';
 import '../theme/look_up_tokens.dart';
 import 'screen_frame.dart';
@@ -16,17 +17,39 @@ import 'state_icon_circle.dart';
 class SetUpProblemScreen extends StatelessWidget {
   const SetUpProblemScreen({super.key, required this.problems, this.showsProblems = false});
 
-  /// The words every build shows.
-  static const String heading = "This copy of Look Up isn't set up correctly.";
-
-  /// The heading of the development-only list.
-  static const String detailsHeading = 'Details (development only)';
-
   /// What the configuration check found.
   final List<ConfigurationProblem> problems;
 
   /// True only for a development build (`AppConfigurationRefused.isDevelopmentBuild`).
   final bool showsProblems;
+
+  /// What is wrong, in words a developer can act on: the setting and the rule it breaks, never its
+  /// value. Shown only in a development build.
+  static String describe(ConfigurationProblem problem, AppLocalizations words) => switch (problem) {
+    ConfigurationProblem.flavourNotRecognised => words.configurationProblemFlavourNotRecognised,
+    ConfigurationProblem.gradleFlavourDiffers => words.configurationProblemGradleFlavourDiffers,
+    ConfigurationProblem.apiBaseUrlMissing => words.configurationProblemApiBaseUrlMissing,
+    ConfigurationProblem.apiBaseUrlMalformed => words.configurationProblemApiBaseUrlMalformed,
+    ConfigurationProblem.apiBaseUrlNotEndingApiVersion1 =>
+      words.configurationProblemApiBaseUrlNotEndingApiVersion1,
+    ConfigurationProblem.apiBaseUrlNotHttps => words.configurationProblemApiBaseUrlNotHttps,
+    ConfigurationProblem.errorDetailsFlagNotTrueOrFalse =>
+      words.configurationProblemErrorDetailsFlagNotTrueOrFalse,
+    ConfigurationProblem.errorDetailsOutsideDevelopment =>
+      words.configurationProblemErrorDetailsOutsideDevelopment,
+    ConfigurationProblem.developerToolsFlagNotTrueOrFalse =>
+      words.configurationProblemDeveloperToolsFlagNotTrueOrFalse,
+    ConfigurationProblem.developerToolsOutsideDevelopment =>
+      words.configurationProblemDeveloperToolsOutsideDevelopment,
+    ConfigurationProblem.verboseLogsFlagNotTrueOrFalse =>
+      words.configurationProblemVerboseLogsFlagNotTrueOrFalse,
+    ConfigurationProblem.verboseLogsOutsideDevelopment =>
+      words.configurationProblemVerboseLogsOutsideDevelopment,
+    ConfigurationProblem.supportWhatsAppNumberMissing =>
+      words.configurationProblemSupportWhatsAppNumberMissing,
+    ConfigurationProblem.supportWhatsAppNumberNotE164 =>
+      words.configurationProblemSupportWhatsAppNumberNotE164,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +57,7 @@ class SetUpProblemScreen extends StatelessWidget {
     final colours = tokens.colours;
     final spacing = tokens.spacing;
     final typeStyles = tokens.typeStyles;
+    final words = AppLocalizations.of(context);
     return ScreenFrame(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -44,16 +68,16 @@ class SetUpProblemScreen extends StatelessWidget {
             circleColour: colours.dangerSoft,
           ),
           SizedBox(height: spacing.space5),
-          Semantics(header: true, child: Text(heading, style: typeStyles.headline)),
+          Semantics(
+            header: true,
+            child: Text(words.setUpProblemHeading, style: typeStyles.headline),
+          ),
           if (showsProblems && problems.isNotEmpty) ...[
             SizedBox(height: spacing.space5),
-            Text(detailsHeading, style: typeStyles.label),
+            Text(words.developmentOnlyDetails, style: typeStyles.label),
             for (final problem in problems) ...[
               SizedBox(height: spacing.space2),
-              Text(
-                problem.developerDescription,
-                style: typeStyles.body.copyWith(color: colours.muted),
-              ),
+              Text(describe(problem, words), style: typeStyles.body.copyWith(color: colours.muted)),
             ],
           ],
         ],

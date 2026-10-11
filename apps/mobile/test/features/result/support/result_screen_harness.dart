@@ -11,6 +11,7 @@ import 'package:lookup_listener/features/result/data/clipboard_writer.dart';
 import 'package:lookup_listener/features/result/domain/action_card_reader.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 import '../../../support/contract_fixtures.dart';
 import '../../../support/phone_screen.dart';
@@ -63,7 +64,12 @@ final class ResultScreenHarness {
           actionLauncherProvider.overrideWithValue(launcher),
           clipboardWriterProvider.overrideWithValue(clipboard),
         ],
-        child: MaterialApp(theme: theme ?? LookUpTheme.light(), home: home),
+        child: MaterialApp(
+          theme: theme ?? LookUpTheme.light(),
+          localizationsDelegates: FallbackLocalizations.delegates,
+          supportedLocales: FallbackLocalizations.supportedLocales,
+          home: home,
+        ),
       ),
     );
   }

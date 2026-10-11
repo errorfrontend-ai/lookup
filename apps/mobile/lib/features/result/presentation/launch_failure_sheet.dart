@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/result/data/clipboard_writer.dart';
 import 'package:lookup_listener/features/result/domain/phone_number_display.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// What the "Couldn't open this" sheet offers to copy instead of the button's address (S4-D19).
 /// Sealed, so the sheet words each kind with no default branch.
@@ -71,15 +72,10 @@ class LaunchFailureSheet extends ConsumerWidget {
     final spacing = tokens.spacing;
     final typeStyles = tokens.typeStyles;
     final offer = this.offer;
+    final words = AppLocalizations.of(context);
     final (explanation, copyLabel) = switch (offer) {
-      PhoneNumberCopyOffer() => (
-        "Your phone couldn't open it. You can copy the number instead.",
-        'Copy number',
-      ),
-      LinkCopyOffer() => (
-        "Your phone couldn't open it. You can copy the link instead.",
-        'Copy link',
-      ),
+      PhoneNumberCopyOffer() => (words.launchFailureNumberExplanation, words.copyNumberButton),
+      LinkCopyOffer() => (words.launchFailureLinkExplanation, words.copyLinkButton),
     };
     return SingleChildScrollView(
       child: Padding(
@@ -88,7 +84,10 @@ class LaunchFailureSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Semantics(header: true, child: Text("Couldn't open this", style: typeStyles.title)),
+            Semantics(
+              header: true,
+              child: Text(words.launchFailureHeading, style: typeStyles.title),
+            ),
             SizedBox(height: spacing.space2),
             Text(explanation, style: typeStyles.body.copyWith(color: tokens.colours.muted)),
             if (offer is PhoneNumberCopyOffer) ...[
@@ -98,7 +97,10 @@ class LaunchFailureSheet extends ConsumerWidget {
             SizedBox(height: spacing.space6),
             FilledButton(onPressed: () => _copy(context, ref), child: Text(copyLabel)),
             SizedBox(height: spacing.space2),
-            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(words.closeButton),
+            ),
           ],
         ),
       ),
@@ -110,9 +112,10 @@ class LaunchFailureSheet extends ConsumerWidget {
     final navigator = Navigator.of(context);
     final motion = context.lookUpTokens.motion;
     final disablesAnimations = MediaQuery.disableAnimationsOf(context);
+    final words = AppLocalizations.of(context);
     final confirmation = switch (offer) {
-      PhoneNumberCopyOffer() => 'Number copied',
-      LinkCopyOffer() => 'Link copied',
+      PhoneNumberCopyOffer() => words.numberCopiedConfirmation,
+      LinkCopyOffer() => words.linkCopiedConfirmation,
     };
     final hasCopied = await ref.read(clipboardWriterProvider).copyText(offer.copiedText);
     // Confirm only a copy that happened; otherwise the sheet stays, with "Close" to leave.

@@ -5,6 +5,7 @@ import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 
 import '../../support/expect_no_technical_text.dart';
 import '../../support/phone_screen.dart';
+import '../../support/english_words.dart';
 
 const List<ConfigurationProblem> _problems = [
   ConfigurationProblem.apiBaseUrlNotHttps,
@@ -20,12 +21,12 @@ void main() {
 
     expect(find.text("This copy of Look Up isn't set up correctly."), findsOneWidget);
     expect(
-      tester.getSemantics(find.text(SetUpProblemScreen.heading)),
-      matchesSemantics(label: SetUpProblemScreen.heading, isHeader: true),
+      tester.getSemantics(find.text(englishWords.setUpProblemHeading)),
+      matchesSemantics(label: englishWords.setUpProblemHeading, isHeader: true),
     );
-    expect(find.text(SetUpProblemScreen.detailsHeading), findsNothing);
+    expect(find.text(englishWords.developmentOnlyDetails), findsNothing);
     for (final problem in _problems) {
-      expect(find.text(problem.developerDescription), findsNothing);
+      expect(find.text(SetUpProblemScreen.describe(problem, englishWords)), findsNothing);
     }
     expectNoTechnicalText(tester, alsoForbidden: ['LOOKUP_', 'https', 'flavour']);
     semantics.dispose();
@@ -42,9 +43,9 @@ void main() {
       tester,
       const SetUpProblemScreen(problems: _problems, showsProblems: true),
     );
-    expect(find.text(SetUpProblemScreen.detailsHeading), findsOneWidget);
+    expect(find.text(englishWords.developmentOnlyDetails), findsOneWidget);
     for (final problem in _problems) {
-      expect(find.text(problem.developerDescription), findsOneWidget);
+      expect(find.text(SetUpProblemScreen.describe(problem, englishWords)), findsOneWidget);
     }
   });
 
@@ -63,7 +64,9 @@ void main() {
         const SetUpProblemScreen(problems: ConfigurationProblem.values, showsProblems: true),
       );
       expect(tester.takeException(), isNull);
-      final lastProblem = find.text(ConfigurationProblem.values.last.developerDescription);
+      final lastProblem = find.text(
+        SetUpProblemScreen.describe(ConfigurationProblem.values.last, englishWords),
+      );
       await tester.ensureVisible(lastProblem);
       await tester.pump();
       expect(tester.takeException(), isNull);

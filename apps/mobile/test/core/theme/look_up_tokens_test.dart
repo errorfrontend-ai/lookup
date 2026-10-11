@@ -193,6 +193,17 @@ void main() {
       expect(LookUpSpacing.standard.space6, 24);
     });
 
+    test("the app's window size breakpoints, and not the portal's (design §3.19)", () {
+      final appBreakpoints =
+          (tokens['breakpoint']! as Map<String, Object?>)['app']! as Map<String, Object?>;
+      const breakpoints = LookUpBreakpoints.standard;
+      expect(breakpoints.compact, appBreakpoints['compact']);
+      expect(breakpoints.medium, appBreakpoints['medium']);
+      expect(breakpoints.expanded, appBreakpoints['expanded']);
+      expect((breakpoints.medium, breakpoints.expanded), (600, 840));
+      expect(LookUpTokens.light.breakpoints, same(LookUpTokens.dark.breakpoints));
+    });
+
     test('no type style names a font family (the system font, S4-THEME-04)', () {
       const type = LookUpTypeStyles.standard;
       for (final style in [
@@ -212,25 +223,32 @@ void main() {
     });
   });
 
-  group('contrast (WCAG AA) in the light theme the app shows', () {
-    for (final pair in _textPairs) {
-      test('${pair.what} reaches 4.5:1', () {
-        const colours = LookUpColours.light;
-        expect(
-          _contrastRatio(pair.foreground(colours), pair.background(colours)),
-          greaterThanOrEqualTo(4.5),
-        );
-      });
-    }
-    for (final pair in _iconPairs) {
-      test('${pair.what} reaches 3:1', () {
-        const colours = LookUpColours.light;
-        expect(
-          _contrastRatio(pair.foreground(colours), pair.background(colours)),
-          greaterThanOrEqualTo(3),
-        );
-      });
-    }
+  // P6-ACCESSIBILITY-03: every pair the app draws, in both palettes, because the app follows the
+  // phone's light or dark setting (P6-THEME-01).
+  for (final (name, colours) in [('light', LookUpColours.light), ('dark', LookUpColours.dark)]) {
+    group('contrast (WCAG AA) in the $name theme', () {
+      for (final pair in _textPairs) {
+        test('${pair.what} reaches 4.5:1', () {
+          expect(
+            _contrastRatio(pair.foreground(colours), pair.background(colours)),
+            greaterThanOrEqualTo(4.5),
+          );
+        });
+      }
+      for (final pair in _iconPairs) {
+        test('${pair.what} reaches 3:1', () {
+          expect(
+            _contrastRatio(pair.foreground(colours), pair.background(colours)),
+            greaterThanOrEqualTo(3),
+          );
+        });
+      }
+    });
+  }
+
+  test('the contrast check can fail: a divider colour is too faint for text in either theme', () {
+    expect(_contrastRatio(LookUpColours.light.line, LookUpColours.light.surface), lessThan(3));
+    expect(_contrastRatio(LookUpColours.dark.lineSoft, LookUpColours.dark.surface), lessThan(3));
   });
 
   group('LookUpTokens as a theme extension', () {
@@ -242,6 +260,7 @@ void main() {
       expect(changed.radii, same(LookUpTokens.light.radii));
       expect(changed.sizes, same(LookUpTokens.light.sizes));
       expect(changed.motion, same(LookUpTokens.light.motion));
+      expect(changed.breakpoints, same(LookUpTokens.light.breakpoints));
       expect(LookUpTokens.light.copyWith().colours, same(LookUpColours.light));
     });
 
@@ -299,6 +318,18 @@ void main() {
       final tokens = decodedTokens();
       (tokens['radius']! as Map<String, Object?>)['extra-large'] = 32;
       expectRefused(tokens, 'extra-large');
+    });
+
+    test('app breakpoints that do not grow, or a breakpoint group it does not know', () {
+      final shrinking = decodedTokens();
+      final appBreakpoints =
+          (shrinking['breakpoint']! as Map<String, Object?>)['app']! as Map<String, Object?>;
+      appBreakpoints['expanded'] = 500;
+      expectRefused(shrinking, 'expanded narrower than medium');
+
+      final unknown = decodedTokens();
+      (unknown['breakpoint']! as Map<String, Object?>)['watch'] = <String, Object?>{'small': 200};
+      expectRefused(unknown, 'breakpoint.watch');
     });
 
     test('a size that is neither a number nor a ratio', () {

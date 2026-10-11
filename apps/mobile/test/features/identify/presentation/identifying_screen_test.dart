@@ -3,7 +3,6 @@ import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
-import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/identifying_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/level_bars.dart';
 import 'package:lookup_listener/features/identify/presentation/level_ring.dart';
@@ -13,6 +12,7 @@ import 'package:lookup_listener/features/identify/presentation/progress_track.da
 import '../../../app/listener_app_harness.dart';
 import '../../../support/phone_screen.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 IdentifyScreenHarness _harness() => IdentifyScreenHarness(state: const UploadingState());
 
@@ -67,10 +67,10 @@ void main() {
           expect(tester.takeException(), isNull);
           expect(tester.getCenter(find.byType(LevelRing)), ringOnListening);
           // The room kept for Listening's words is never drawn or announced.
-          expect(find.bySemanticsLabel(ListeningScreen.heading), findsNothing);
-          expect(find.bySemanticsLabel(ListeningScreen.instruction), findsNothing);
-          expect(find.bySemanticsLabel(ListeningScreen.countdownText(8)), findsNothing);
-          expect(find.bySemanticsLabel(IdentifyingScreen.heading), findsOneWidget);
+          expect(find.bySemanticsLabel(englishWords.listeningHeading), findsNothing);
+          expect(find.bySemanticsLabel(englishWords.listeningInstruction), findsNothing);
+          expect(find.bySemanticsLabel(englishWords.listeningSecondsLeft(8)), findsNothing);
+          expect(find.bySemanticsLabel(englishWords.identifyingHeading), findsOneWidget);
           semantics.dispose();
         },
       );
@@ -125,7 +125,7 @@ void main() {
       await scrollToAndTap(tester, find.text('Cancel'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/');
-      expect(find.text(HomeScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.homeHeading), findsOneWidget);
       expect(harness.flow(tester).hasKeptClip, isFalse);
       expect(harness.adapter.requests, hasLength(1));
     });

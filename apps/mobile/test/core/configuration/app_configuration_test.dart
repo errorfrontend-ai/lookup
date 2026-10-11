@@ -3,8 +3,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
+import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 
 import '../../support/repository_file_locator.dart';
+import '../../support/english_words.dart';
 
 /// A development build for the emulator, as config/development.json sets it up.
 const Map<String, String> _developmentDefines = {
@@ -362,8 +364,8 @@ void main() {
 
   test('every problem has a developer description that names no value', () {
     for (final problem in ConfigurationProblem.values) {
-      expect(problem.developerDescription, isNotEmpty);
-      expect(problem.developerDescription, isNot(contains('10.0.2.2')));
+      expect(SetUpProblemScreen.describe(problem, englishWords), isNotEmpty);
+      expect(SetUpProblemScreen.describe(problem, englishWords), isNot(contains('10.0.2.2')));
     }
   });
 

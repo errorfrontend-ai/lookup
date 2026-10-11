@@ -8,6 +8,7 @@ void main() {
     installId: installId,
     installToken: 'token-value',
     tokenExpiresAt: expiresAt,
+    registeredAppVersion: '0.1.0+1',
   );
 
   group('needsRegistrationAt', () {
@@ -47,19 +48,36 @@ void main() {
     );
   });
 
-  test('withToken keeps the install id and stores the expiry in UTC', () {
+  test('withToken keeps the install id, stores the expiry in UTC and the registered version', () {
     const credentials = ListenerInstallCredentials(installId: installId);
-    final renewed = credentials.withToken('new', DateTime.parse('2026-11-07T14:00:00+02:00'));
+    final renewed = credentials.withToken(
+      'new',
+      DateTime.parse('2026-11-07T14:00:00+02:00'),
+      registeredAppVersion: '0.2.0+3',
+    );
     expect(renewed.installId, installId);
     expect(renewed.installToken, 'new');
     expect(renewed.tokenExpiresAt, DateTime.utc(2026, 11, 7, 12));
     expect(renewed.tokenExpiresAt!.isUtc, isTrue);
+    expect(renewed.registeredAppVersion, '0.2.0+3');
   });
 
-  test('withoutToken keeps only the install id', () {
+  test('withoutToken keeps the install id and the version it registered with', () {
     final refused = withToken.withoutToken();
     expect(refused.installId, installId);
     expect(refused.installToken, isNull);
     expect(refused.tokenExpiresAt, isNull);
+    expect(refused.registeredAppVersion, withToken.registeredAppVersion);
+  });
+
+  test('is registered with a version only when it stored exactly that one (contract §1.1)', () {
+    expect(withToken.isRegisteredWith('0.1.0+1'), isTrue);
+    expect(withToken.isRegisteredWith('0.1.0+2'), isFalse);
+    expect(withToken.isRegisteredWith('0.2.0'), isFalse);
+    // A Step 4 install never stored one: it counts as another version.
+    expect(
+      const ListenerInstallCredentials(installId: installId).isRegisteredWith('0.1.0+1'),
+      isFalse,
+    );
   });
 }

@@ -1,5 +1,6 @@
-/// What the phone knows about its own listener install (design §3.9, S4-D14): the install id it made
-/// for itself on first launch, and the install token the API gave it with the token's expiry.
+/// What the phone knows about its own listener install (design §3.9, S4-D14; P6 design §3.12): the
+/// install id it made for itself on first launch, the install token the API gave it with the token's
+/// expiry, and the app version it registered with.
 ///
 /// The install id is a random version-4 UUID, never a hardware, Android, advertising or IMEI id, so
 /// it cannot be linked to the phone or the person (S4-INSTALLS-01). It leaves the phone only in the
@@ -9,6 +10,7 @@ final class ListenerInstallCredentials {
     required this.installId,
     this.installToken,
     this.tokenExpiresAt,
+    this.registeredAppVersion,
   });
 
   /// How long before the token's expiry the app registers again, so a token never runs out in the
@@ -24,6 +26,16 @@ final class ListenerInstallCredentials {
 
   /// When the API said the token stops working, in UTC; null when there is no token.
   final DateTime? tokenExpiresAt;
+
+  /// The `app_version` the install was last registered with, which the API compares with its
+  /// minimum version (contract §1.1). Null before the first registration and for an install a
+  /// Step 4 app registered, which never stored it: both count as a different version, so the app
+  /// registers again before its next listener request.
+  final String? registeredAppVersion;
+
+  /// Whether the install was last registered with [appVersion]; when not, the app registers again
+  /// with the same install id before using the token (contract §1.1).
+  bool isRegisteredWith(String appVersion) => registeredAppVersion == appVersion;
 
   /// Whether the app must register before using the token, judged by the phone's clock at [now]:
   /// no token, or within [renewalMargin] of its expiry (or past it). The phone's clock can be
@@ -41,14 +53,20 @@ final class ListenerInstallCredentials {
     return installToken != null && expiresAt != null && now.isBefore(expiresAt);
   }
 
-  /// The same install with a new token.
-  ListenerInstallCredentials withToken(String installToken, DateTime expiresAt) =>
-      ListenerInstallCredentials(
-        installId: installId,
-        installToken: installToken,
-        tokenExpiresAt: expiresAt.toUtc(),
-      );
+  /// The same install with a new token, registered with [registeredAppVersion].
+  ListenerInstallCredentials withToken(
+    String installToken,
+    DateTime expiresAt, {
+    required String registeredAppVersion,
+  }) => ListenerInstallCredentials(
+    installId: installId,
+    installToken: installToken,
+    tokenExpiresAt: expiresAt.toUtc(),
+    registeredAppVersion: registeredAppVersion,
+  );
 
-  /// The same install with no token, after the API refused it.
-  ListenerInstallCredentials withoutToken() => ListenerInstallCredentials(installId: installId);
+  /// The same install with no token, after the API refused it; the version it registered with is
+  /// still the one the API holds.
+  ListenerInstallCredentials withoutToken() =>
+      ListenerInstallCredentials(installId: installId, registeredAppVersion: registeredAppVersion);
 }

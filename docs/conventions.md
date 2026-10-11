@@ -18,9 +18,9 @@ have to decode an abbreviation or guess a unit. These rules apply to all product
 Accepted exceptions — universal conventions every reader knows: `id`, `url`, `http`, `json`,
 `sql`, `uuid`, `csv`, `wav`, established acronyms inside a longer name (`FFT`, `SHA-256`, `E.164`,
 `CORS`, `AAC`, `APK`), library-mandated names (pino's `err` log field, Express's `next`, Flutter's
-`build`/`context`, the record package's `noiseSuppress`/`autoGain`/`bitRate` — also when our own
-settings fields mirror them), and import aliases such as `np` for NumPy. Single-letter names only
-for trivial loop counters.
+`build`/`context` and its `l10n.yaml` and `lib/l10n/` for the language files, the record package's
+`noiseSuppress`/`autoGain`/`bitRate` — also when our own settings fields mirror them), and import
+aliases such as `np` for NumPy. Single-letter names only for trivial loop counters.
 
 The same rules apply to the Phase 0 tools in `spike/`. Data already written to disk keeps its
 format: capture-app clip file names (`…_neg_…_8s_…_t1.m4a`), recorded values such as
@@ -48,6 +48,25 @@ A new feature is a new folder under `features/` with its own module, imported on
 `app.module.ts`. A feature may use another feature's building blocks that are meant for sharing
 (the `stations` access guard; the `ads` record and list-query helpers in `ad-records.ts` and `ad-list-query.ts`), never its services or
 private files; rules shared by everything go in `common/`.
+
+## Words on the listener app's screens
+
+Every word a listener sees, development-only text included, is a message in
+`apps/mobile/lib/l10n/app_en.arb`, read through `AppLocalizations.of(context)`; a source scan fails
+the build on words written in Dart (P6 design §3.17, P6-LOCALISATION-01).
+
+| Rule | Write | Not |
+|---|---|---|
+| Keys are whole words in lower camel case, starting with the screen or the thing they belong to | `homeHeading`, `errorNoConnectionExplanation`, `busyCountdownSpoken` | `hdr1`, `err_conn`, `msg42` |
+| A button's words end in `Button`; words only screen readers hear end in `Label` or `SpokenLabel` | `sendAgainButton`, `cancelListeningLabel`, `identifyButtonSpokenLabel` | `sendAgain`, `a11yCancel` |
+| Every message has an `@key` description saying where it shows | `"description": "Under the no-connection heading."` | no description |
+| Counts are ICU plurals; names and codes are typed placeholders with an example | `{seconds, plural, =1{1 second left} other{{seconds} seconds left}}` | `'$seconds seconds left'` in Dart |
+
+The generated `app_localizations*.dart` files are committed. After editing an ARB file, run
+`flutter gen-l10n` (or `flutter pub get`, which runs it); the gate regenerates them and fails on any
+difference. A language is one more ARB file (`app_bem.arb`, `app_ny.arb`) and no code change:
+`fallback_localizations.dart` gives it English Material texts where Flutter ships none. Tests find
+words by their English value (`englishWords.homeHeading`), never by a copy of the text.
 
 ## Names in the database
 

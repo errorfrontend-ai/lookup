@@ -5,6 +5,7 @@ import 'dart:io' show HttpDate, SocketException;
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
+import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
@@ -79,6 +80,8 @@ void main() {
           .now()
           .add(const Duration(days: 30))
           .toIso8601String(),
+    // Registered with the running version, as after any launch of this app (contract §1.1).
+    if (token != null) 'listener_install_registered_app_version': AppVersion.current,
   });
 
   CapturedClip clip() => CapturedClip(

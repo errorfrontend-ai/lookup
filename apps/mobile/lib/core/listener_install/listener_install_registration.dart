@@ -6,7 +6,9 @@ import 'listener_install_credentials.dart';
 import 'listener_install_registration_result.dart';
 
 /// One registration: `POST /api/v1/installs` with the install id, and the answer read into a token
-/// (design §3.9, S4-INSTALLS-04). The request is exactly the contract's `RegisterInstallInput` and
+/// (design §3.9, S4-INSTALLS-04). A re-registration carries the install's own unexpired token as
+/// `Authorization: Bearer`, so the API counts it against the install's own allowance and not the
+/// per-address one that many listeners behind one carrier address share (contract amendment A3). The request is exactly the contract's `RegisterInstallInput` and
 /// the answer is read by the rules of `InstallRegistration`
 /// (packages/contracts/schemas/register-install-input.schema.json and
 /// install-registration.schema.json). When to register is the repository's decision.
@@ -21,8 +23,9 @@ class ListenerInstallRegistration {
        _appVersion = appVersion,
        _readPlatform = readPlatform ?? _readDefaultTargetPlatform;
 
-  /// The route, relative to the API's base address. It carries no install token.
-  static const String path = 'installs';
+  /// The route, relative to the API's base address. It carries an install token only on a
+  /// re-registration (amendment A3).
+  static const String path = ListenerRoute.installs;
 
   /// The longest token the contract allows.
   static const int longestInstallToken = 1024;
@@ -45,6 +48,9 @@ class ListenerInstallRegistration {
   final String _appVersion;
   final TargetPlatform Function() _readPlatform;
 
+  /// The `app_version` this registration sends, which the install is then registered with.
+  String get appVersion => _appVersion;
+
   /// The registration body: the install id, `ANDROID` or `IOS`, and the app's version. Nothing
   /// else, so nothing about the phone or the listener is sent.
   Map<String, Object> requestBodyFor(String installId) => {
@@ -54,9 +60,18 @@ class ListenerInstallRegistration {
   };
 
   /// Registers [credentials]' install id and gives the same install with its new token, or the
-  /// failure as the API client reported it. Never throws.
-  Future<ListenerInstallRegistrationResult> register(ListenerInstallCredentials credentials) async {
-    final answer = await _apiClient.postJson(path, requestBodyFor(credentials.installId));
+  /// failure as the API client reported it. [reRegistrationToken] is the install's own token, still
+  /// inside its lifetime, which a re-registration carries; a first registration, and one after the
+  /// API refused the token, give none. Never throws.
+  Future<ListenerInstallRegistrationResult> register(
+    ListenerInstallCredentials credentials, {
+    String? reRegistrationToken,
+  }) async {
+    final answer = await _apiClient.postJson(
+      path,
+      requestBodyFor(credentials.installId),
+      installToken: reRegistrationToken,
+    );
     switch (answer) {
       case ApiAnswerNotReceived():
         return ListenerInstallNotRegistered(answer: answer);
@@ -103,7 +118,9 @@ class ListenerInstallRegistration {
         ? DateTime.tryParse(expiresAtText)
         : null;
     if (expiresAt == null) return unreadable('expires_at is not a date-time with a time zone');
-    return ListenerInstallRegistered(credentials.withToken(installToken, expiresAt));
+    return ListenerInstallRegistered(
+      credentials.withToken(installToken, expiresAt, registeredAppVersion: _appVersion),
+    );
   }
 
   static TargetPlatform _readDefaultTargetPlatform() => defaultTargetPlatform;

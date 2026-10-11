@@ -82,10 +82,16 @@ void main() {
       );
     });
 
-    test('a folder at the top of lib/ besides app, core and features', () {
+    test('a folder at the top of lib/ besides app, core, features and l10n', () {
       copy.writeFile('utils/string_helpers.dart', 'class StringHelpers {}');
 
       expect(FeatureFolderScan.of(copy.folder).violations, contains(startsWith('lib/utils:')));
+      expect(
+        FeatureFolderScan.of(
+          copy.folder,
+        ).violations.where((violation) => violation.startsWith('lib/l10n')),
+        isEmpty,
+      );
     });
   });
 }

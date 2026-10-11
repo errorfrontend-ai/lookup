@@ -15,6 +15,7 @@ import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 /// Starts the app (design §3.1, §3.7, §3.19), in this order:
 ///
@@ -50,9 +51,12 @@ import 'package:lookup_listener/features/identify/data/clip_recorder_provider.da
     case AppConfigurationRefused(:final problems, :final isDevelopmentBuild):
       startApp(
         MaterialApp(
-          title: LookUpApp.title,
+          onGenerateTitle: LookUpApp.titleOf,
           theme: LookUpTheme.light(),
-          themeMode: ThemeMode.light,
+          darkTheme: LookUpTheme.dark(),
+          themeMode: ThemeMode.system,
+          localizationsDelegates: FallbackLocalizations.delegates,
+          supportedLocales: FallbackLocalizations.supportedLocales,
           debugShowCheckedModeBanner: false,
           home: SetUpProblemScreen(problems: problems, showsProblems: isDevelopmentBuild),
         ),

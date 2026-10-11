@@ -8,7 +8,7 @@
 import 'package:flutter/material.dart';
 
 /// The design tokens this app shares with the portal, as one theme extension, so no widget holds
-/// its own colour, type size, spacing, radius or duration. Widgets read them with
+/// its own colour, type size, spacing, radius, duration or breakpoint. Widgets read them with
 /// `context.lookUpTokens`.
 @immutable
 class LookUpTokens extends ThemeExtension<LookUpTokens> {
@@ -20,9 +20,10 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
     required this.radii,
     required this.sizes,
     required this.motion,
+    required this.breakpoints,
   });
 
-  /// The light theme: the only one the app shows in Step 4.
+  /// The light theme's values.
   static const LookUpTokens light = LookUpTokens(
     colours: LookUpColours.light,
     typeStyles: LookUpTypeStyles.standard,
@@ -30,9 +31,10 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
     radii: LookUpRadii.standard,
     sizes: LookUpSizes.standard,
     motion: LookUpMotion.standard,
+    breakpoints: LookUpBreakpoints.standard,
   );
 
-  /// The dark theme's values, generated now and shown from Phase 6 (P6-THEME-01).
+  /// The dark theme's values, shown when the phone is set to dark (P6-THEME-01).
   static const LookUpTokens dark = LookUpTokens(
     colours: LookUpColours.dark,
     typeStyles: LookUpTypeStyles.standard,
@@ -40,6 +42,7 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
     radii: LookUpRadii.standard,
     sizes: LookUpSizes.standard,
     motion: LookUpMotion.standard,
+    breakpoints: LookUpBreakpoints.standard,
   );
 
   final LookUpColours colours;
@@ -54,6 +57,8 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
 
   final LookUpMotion motion;
 
+  final LookUpBreakpoints breakpoints;
+
   @override
   LookUpTokens copyWith({
     LookUpColours? colours,
@@ -62,6 +67,7 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
     LookUpRadii? radii,
     LookUpSizes? sizes,
     LookUpMotion? motion,
+    LookUpBreakpoints? breakpoints,
   }) {
     return LookUpTokens(
       colours: colours ?? this.colours,
@@ -70,6 +76,7 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
       radii: radii ?? this.radii,
       sizes: sizes ?? this.sizes,
       motion: motion ?? this.motion,
+      breakpoints: breakpoints ?? this.breakpoints,
     );
   }
 
@@ -85,6 +92,7 @@ class LookUpTokens extends ThemeExtension<LookUpTokens> {
       radii: t < 0.5 ? radii : other.radii,
       sizes: t < 0.5 ? sizes : other.sizes,
       motion: t < 0.5 ? motion : other.motion,
+      breakpoints: t < 0.5 ? breakpoints : other.breakpoints,
     );
   }
 }
@@ -451,4 +459,30 @@ class LookUpMotion {
   final Duration base;
 
   final Duration slow;
+}
+
+/// The narrowest window, in logical pixels, of each Material window size class (compact, medium,
+/// expanded): `WindowSizeClass.of` reads the window's width against them (design §3.19). The
+/// portal's own breakpoints are left out.
+@immutable
+class LookUpBreakpoints {
+  /// A group made of these values.
+  const LookUpBreakpoints({
+    required this.compact,
+    required this.medium,
+    required this.expanded,
+  });
+
+  /// The values in tokens.json, the same in light and dark.
+  static const LookUpBreakpoints standard = LookUpBreakpoints(
+    compact: 0,
+    medium: 600,
+    expanded: 840,
+  );
+
+  final double compact;
+
+  final double medium;
+
+  final double expanded;
 }

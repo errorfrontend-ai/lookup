@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/result/data/clipboard_writer.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// The Error screen's reference code (design §2.10, S4-D9; wireframe Error): "Reference code" over
 /// the code in the phone's monospace font, e.g. "6F1C-2D3E", and a "Copy" button that puts the
@@ -15,12 +16,6 @@ class ReferenceCodePanel extends ConsumerWidget {
   /// E.g. "6F1C-2D3E".
   final String referenceCode;
 
-  static const String label = 'Reference code';
-
-  static const String copyLabel = 'Copy';
-
-  static const String copiedConfirmation = 'Code copied';
-
   /// The phone's own monospace font: "monospace" on Android, with the iPhone's equivalents after
   /// it. No font file is shipped (S4-THEME-04).
   static const String monospaceFontFamily = 'monospace';
@@ -32,6 +27,7 @@ class ReferenceCodePanel extends ConsumerWidget {
     final colours = tokens.colours;
     final spacing = tokens.spacing;
     final typeStyles = tokens.typeStyles;
+    final words = AppLocalizations.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colours.surface,
@@ -57,7 +53,7 @@ class ReferenceCodePanel extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  label,
+                  words.referenceCodeLabel,
                   style: typeStyles.caption.copyWith(
                     color: colours.muted,
                     fontWeight: FontWeight.w600,
@@ -82,7 +78,7 @@ class ReferenceCodePanel extends ConsumerWidget {
                 padding: EdgeInsets.symmetric(horizontal: spacing.space4),
                 textStyle: typeStyles.label,
               ),
-              child: const Text(copyLabel),
+              child: Text(words.copyButton),
             ),
           ],
         ),
@@ -94,11 +90,12 @@ class ReferenceCodePanel extends ConsumerWidget {
     final messenger = ScaffoldMessenger.of(context);
     final motion = context.lookUpTokens.motion;
     final disablesAnimations = MediaQuery.disableAnimationsOf(context);
+    final confirmation = AppLocalizations.of(context).codeCopiedConfirmation;
     final hasCopied = await ref.read(clipboardWriterProvider).copyText(referenceCode);
     // Confirm only a copy that happened.
     if (!hasCopied) return;
     messenger.showSnackBar(
-      const SnackBar(content: Text(copiedConfirmation)),
+      SnackBar(content: Text(confirmation)),
       // In and out over motion.base (S4-ACCESSIBILITY-04); no slide when the phone asks for less
       // motion ("Remove animations").
       snackBarAnimationStyle: disablesAnimations

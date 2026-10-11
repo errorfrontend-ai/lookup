@@ -154,6 +154,41 @@ void plantedConfirm(ScaffoldMessengerState messenger, LookUpTokens tokens, bool 
       }
     });
 
+    test(
+      'words from the ARB files, pure interpolations and the language files pass the words rule',
+      () {
+        copy
+          ..writeFile('features/identify/presentation/planted_allowed_words.dart', r'''
+Widget plantedHeading(AppLocalizations words, int number, Object failure) => Column(
+  children: [
+    Text(words.homeHeading),
+    Text('$number'),
+    Text('${failure.runtimeType}\n$failure'),
+    ScreenExitButton.close(label: words.closeButton, onPressed: () {}),
+    const Text('…'),
+  ],
+);
+''')
+          ..writeFile('l10n/planted_language_file.dart', '''
+String get plantedWords => 'Heard an ad on the radio?';
+Widget plantedText() => const Text('Look Up');
+''');
+        final rule = SourceRules.library.singleWhere(
+          (rule) => rule.name == 'words written outside the ARB files',
+        );
+        final violations = rule.findViolationsIn(DartSourceTree.read(copy.folder)).violations;
+
+        expect(
+          violations.where((violation) => violation.contains('planted_allowed_words')),
+          isEmpty,
+        );
+        expect(
+          violations.where((violation) => violation.contains('planted_language_file')),
+          isEmpty,
+        );
+      },
+    );
+
     test('a rule ignores comments, and code ignores what strings say', () {
       copy.writeFile('core/planted_comment.dart', '''
 // print('in a comment'); Colors.red; canLaunchUrl(address); http://api.lookup.invalid
@@ -362,5 +397,47 @@ final List<_PlantedViolation> _plantedViolations = [
     'one-letter catch',
     'core/planted_catch.dart',
     'void plantedTry() {\n  try {\n    plantedTry();\n  } catch (e) {\n    return;\n  }\n}\n',
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/presentation/planted_text.dart',
+    "Widget plantedHeading() => const Text('Heard an ad on the radio?');\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/result/presentation/planted_interpolated_text.dart',
+    "Widget plantedVia(String name) => Text('via \$name');\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'core/widgets/planted_exit_label.dart',
+    'Widget plantedClose(VoidCallback onPressed) =>\n'
+        "    ScreenExitButton.close(label: 'Close', onPressed: onPressed);\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/presentation/planted_spoken_label.dart',
+    'Widget plantedCountdown(int seconds) =>\n'
+        "    Text(words.busyCountdown(seconds), semanticsLabel: '\$seconds seconds');\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'app/planted_tooltip.dart',
+    "Widget plantedBack() => IconButton(onPressed: null, tooltip: r'Back', icon: icon);\n",
+  ),
+  const _PlantedViolation(
+    'MediaQuery.of(context).size',
+    'features/result/presentation/planted_media_query.dart',
+    'double plantedWidth(BuildContext context) => MediaQuery.of(context).size.width;\n',
+  ),
+  const _PlantedViolation(
+    "a theme mode other than the phone's",
+    'app/planted_theme_mode.dart',
+    'Widget plantedApp() => MaterialApp(themeMode: ThemeMode.light);\n',
+  ),
+  const _PlantedViolation(
+    "a theme mode other than the phone's",
+    'core/widgets/planted_dark_theme_mode.dart',
+    'const ThemeMode plantedMode = ThemeMode.dark;\n',
   ),
 ];

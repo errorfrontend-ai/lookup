@@ -3,17 +3,12 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
-import 'package:lookup_listener/features/identify/presentation/busy_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/identify_button.dart';
-import 'package:lookup_listener/features/identify/presentation/identifying_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/permission_screen.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
 import '../features/identify/presentation/identify_screen_harness.dart' show disableAnimations;
 import '../support/expect_no_technical_text.dart';
 import 'listener_app_harness.dart';
+import '../support/english_words.dart';
 
 /// The listener's journeys through the whole app with the flow's fakes (design §4.3, §4.7 step 3
 /// on the PC): every screen is reached by tapping, and every move follows the state.
@@ -25,27 +20,27 @@ void main() {
       final harness = ListenerAppHarness(microphoneAccess: MicrophoneAccess.notAskedYet);
       await harness.pumpApp(tester);
       expect(harness.location(tester), '/');
-      expect(find.text(HomeScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.homeHeading), findsOneWidget);
 
-      await tester.tap(find.text(IdentifyButton.label));
+      await tester.tap(find.text(englishWords.identifyButtonLabel));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/permission');
-      expect(find.text(PermissionScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.permissionHeading), findsOneWidget);
       // The explainer comes first: no system prompt yet (S4-PERMISSION-02).
       expect(harness.permission.promptCount, 0);
 
-      await tester.tap(find.text(PermissionScreen.allowMicrophoneLabel));
+      await tester.tap(find.text(englishWords.allowMicrophoneButton));
       await harness.pumpTransition(tester);
       expect(harness.permission.promptCount, 1);
       expect(harness.location(tester), '/listening');
-      expect(find.text(ListeningScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.listeningHeading), findsOneWidget);
       expect(find.text('8 seconds left'), findsOneWidget);
 
       final answerArrives = Completer<void>();
       harness.answerWithResponseFixture('valid/match-campaign', release: answerArrives.future);
       await harness.recordWholeClip(tester);
       expect(harness.location(tester), '/identifying');
-      expect(find.text(IdentifyingScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.identifyingHeading), findsOneWidget);
 
       answerArrives.complete();
       await harness.pumpTransition(tester);
@@ -60,7 +55,7 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Back to home'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/');
-      expect(find.text(HomeScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.homeHeading), findsOneWidget);
       expect(harness.recognizeRequests, hasLength(1));
       expect(harness.recorder.clipFileNames, isEmpty);
       semantics.dispose();
@@ -77,11 +72,11 @@ void main() {
       ..answerWithResponseFixture('valid/match-campaign');
     await harness.pumpApp(tester);
 
-    await tester.tap(find.text(IdentifyButton.label));
+    await tester.tap(find.text(englishWords.identifyButtonLabel));
     await harness.pumpTransition(tester);
     await harness.recordWholeClip(tester);
     expect(harness.location(tester), '/busy');
-    expect(find.text(BusyScreen.heading), findsOneWidget);
+    expect(find.text(englishWords.busyHeading), findsOneWidget);
     expect(find.text('2 s'), findsOneWidget);
     expect(find.text(ListenerAppHarness.envelopeMessage('recognition-busy')), findsNothing);
 
@@ -107,7 +102,7 @@ void main() {
     harness.answerWithResponseFixture('valid/match-campaign');
     await harness.pumpApp(tester);
 
-    await tester.tap(find.text(IdentifyButton.label));
+    await tester.tap(find.text(englishWords.identifyButtonLabel));
     await harness.pumpTransition(tester);
     await harness.recordWholeClip(tester);
     expect(harness.location(tester), '/error');

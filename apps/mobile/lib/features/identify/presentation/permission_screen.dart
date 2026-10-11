@@ -9,6 +9,7 @@ import 'package:lookup_listener/core/widgets/state_icon_circle.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/identify/presentation/system_back_to_home.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// Permission, the `permissionNeeded` state at `/permission` (design §2.3; wireframe Permission):
 /// why Look Up needs the microphone, shown only after an Identify tap while it is not allowed. The
@@ -25,25 +26,11 @@ class PermissionScreen extends ConsumerWidget {
   /// Which variant: never `MicrophoneAccess.granted`, which records instead.
   final MicrophoneAccess microphoneAccess;
 
-  static const String heading = 'Look Up needs your microphone';
-
-  static const String explanation =
-      "We listen for a few seconds to recognise the ad on the radio. We don't keep the recording.";
-
   /// The promises, each after a tick.
-  static const List<String> promises = [
-    'Only when you tap Identify — never in the background.',
-    'Radio stations see how many people used their buttons — never who you are.',
+  static List<String> promisesOf(AppLocalizations words) => [
+    words.permissionPromiseOnlyWhenYouTap,
+    words.permissionPromiseNeverWhoYouAre,
   ];
-
-  static const String refusedOnceNote =
-      "You chose not to allow the microphone. Look Up can't identify an ad without it.";
-
-  static const String refusedForGoodNote =
-      "The microphone is turned off for Look Up. You can turn it on in your phone's settings.";
-
-  static const String allowMicrophoneLabel = 'Allow microphone';
-  static const String openPhoneSettingsLabel = 'Open phone settings';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,15 +39,16 @@ class PermissionScreen extends ConsumerWidget {
     final spacing = tokens.spacing;
     final typeStyles = tokens.typeStyles;
     final flow = ref.read(recognitionFlowProvider.notifier);
+    final words = AppLocalizations.of(context);
     final isRefusedForGood = microphoneAccess == MicrophoneAccess.refusedForGood;
     final variantNote = switch (microphoneAccess) {
       MicrophoneAccess.notAskedYet || MicrophoneAccess.granted => null,
-      MicrophoneAccess.refusedOnce => refusedOnceNote,
-      MicrophoneAccess.refusedForGood => refusedForGoodNote,
+      MicrophoneAccess.refusedOnce => words.permissionRefusedOnceNote,
+      MicrophoneAccess.refusedForGood => words.permissionRefusedForGoodNote,
     };
     return SystemBackToHome(
       child: ScreenFrame(
-        exitButton: ScreenExitButton.back(label: 'Back', onPressed: flow.backToHome),
+        exitButton: ScreenExitButton.back(label: words.backButton, onPressed: flow.backToHome),
         bodyPadding: EdgeInsets.fromLTRB(spacing.space6, spacing.space4, spacing.space6, 0),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -71,11 +59,17 @@ class PermissionScreen extends ConsumerWidget {
               circleColour: colours.accentSoft,
             ),
             SizedBox(height: spacing.space5),
-            Semantics(header: true, child: Text(heading, style: typeStyles.headline)),
+            Semantics(
+              header: true,
+              child: Text(words.permissionHeading, style: typeStyles.headline),
+            ),
             SizedBox(height: spacing.space5),
-            Text(explanation, style: typeStyles.body.copyWith(color: colours.muted)),
+            Text(
+              words.permissionExplanation,
+              style: typeStyles.body.copyWith(color: colours.muted),
+            ),
             SizedBox(height: spacing.space5),
-            for (final (index, promise) in promises.indexed) ...[
+            for (final (index, promise) in promisesOf(words).indexed) ...[
               if (index > 0) SizedBox(height: spacing.space3),
               _Promise(text: promise),
             ],
@@ -91,9 +85,11 @@ class PermissionScreen extends ConsumerWidget {
             onPressed: isRefusedForGood
                 ? () => unawaited(flow.openPhoneSettings())
                 : () => unawaited(flow.allowMicrophone()),
-            child: Text(isRefusedForGood ? openPhoneSettingsLabel : allowMicrophoneLabel),
+            child: Text(
+              isRefusedForGood ? words.openPhoneSettingsButton : words.allowMicrophoneButton,
+            ),
           ),
-          TextButton(onPressed: flow.backToHome, child: const Text('Not now')),
+          TextButton(onPressed: flow.backToHome, child: Text(words.notNowButton)),
           // Hidden when refused for good: the main button already opens the settings.
           if (!isRefusedForGood) _SettingsLine(onOpen: () => unawaited(flow.openPhoneSettings())),
         ],
@@ -136,15 +132,16 @@ class _SettingsLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.lookUpTokens;
     final caption = tokens.typeStyles.caption;
+    final words = AppLocalizations.of(context);
     return Wrap(
       alignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text('Said no before?', style: caption.copyWith(color: tokens.colours.muted)),
+        Text(words.permissionSaidNoBefore, style: caption.copyWith(color: tokens.colours.muted)),
         TextButton(
           onPressed: onOpen,
           style: TextButton.styleFrom(textStyle: caption.copyWith(fontWeight: FontWeight.w600)),
-          child: const Text(PermissionScreen.openPhoneSettingsLabel),
+          child: Text(words.openPhoneSettingsButton),
         ),
       ],
     );

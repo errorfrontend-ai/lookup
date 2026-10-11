@@ -3,11 +3,11 @@ import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
-import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/no_match_screen.dart';
 
 import '../../../app/listener_app_harness.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 IdentifyScreenHarness _harness() => IdentifyScreenHarness(state: const NoMatchState());
 
@@ -112,12 +112,12 @@ void main() {
       await harness.pumpTransition(tester);
       await harness.recordWholeClip(tester);
       expect(harness.location(tester), '/no-match');
-      expect(find.text(NoMatchScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.noMatchHeading), findsOneWidget);
 
       await scrollToAndTap(tester, find.text('Try again'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/listening');
-      expect(find.text(ListeningScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.listeningHeading), findsOneWidget);
       final keys = harness.recorder.startedIdempotencyKeys;
       expect(keys, hasLength(2));
       expect(keys[1], isNot(keys[0]));

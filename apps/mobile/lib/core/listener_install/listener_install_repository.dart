@@ -16,7 +16,13 @@ export 'listener_install_registration_result.dart';
 ///
 /// - The install id is made once, on first launch, and kept for good.
 /// - It registers in the background on first launch, and again only when the token is missing,
-///   within 24 hours of its expiry, or refused by the API (401) (S4-INSTALLS-02).
+///   within 24 hours of its expiry, refused by the API (401) (S4-INSTALLS-02), or registered with
+///   another app version than the one running (contract §1.1; P6 design §3.12). An install a Step 4
+///   app registered has no version stored, so it registers once more after the update.
+/// - After a version change nothing is sent with the old token: when the registration gets no
+///   answer, the caller gets that failure, not the old token, so a clip is kept for later.
+/// - A re-registration carries the install's own token while it is inside its stored lifetime, as
+///   `Authorization: Bearer` (amendment A3); a first registration, and one after a 401, carry none.
 /// - One registration at a time: every caller during one shares it, so a fast first tap cannot
 ///   register twice and two 401s cannot register twice.
 /// - The phone's clock can be wrong. A token received from the API during this run is used until
@@ -133,8 +139,10 @@ class ListenerInstallRepository {
     final now = _clock.now();
     final installToken = credentials.installToken;
     final isTokenRefused = refusedToken != null && installToken == refusedToken;
+    final isRegisteredWithThisVersion = credentials.isRegisteredWith(_registration.appVersion);
     if (installToken != null &&
         !isTokenRefused &&
+        isRegisteredWithThisVersion &&
         (_isTokenFromThisRun || !credentials.needsRegistrationAt(now))) {
       return ListenerInstallRegistered(credentials);
     }
@@ -146,23 +154,36 @@ class ListenerInstallRepository {
       await _storeQuietly('forget the refused token', _store.forgetToken);
     }
 
-    final result = await _registration.register(_credentials!);
+    final beforeRegistering = _credentials!;
+    // The install's own token, while inside its lifetime by the phone's clock (amendment A3). A
+    // refused token was forgotten above, so a registration after a 401 carries none.
+    final reRegistrationToken = beforeRegistering.hasUnexpiredTokenAt(now)
+        ? beforeRegistering.installToken
+        : null;
+    final result = await _registration.register(
+      beforeRegistering,
+      reRegistrationToken: reRegistrationToken,
+    );
     switch (result) {
       case ListenerInstallRegistered(credentials: final registered):
         _credentials = registered;
         _isTokenFromThisRun = true;
         await _storeQuietly(
           'store the new token',
-          () => _store.saveToken(
+          () => _store.saveRegistration(
             installToken: registered.installToken!,
             expiresAt: registered.tokenExpiresAt!,
+            appVersion: registered.registeredAppVersion!,
           ),
         );
         return result;
       case ListenerInstallNotRegistered():
-        final current = _credentials!;
-        if (!isTokenRefused && current.hasUnexpiredTokenAt(now)) {
-          return ListenerInstallRegistered(current);
+        // A renewal that failed may keep a token still in date; a version change may not, because
+        // nothing is sent with the old token in between (contract §1.1).
+        if (!isTokenRefused &&
+            isRegisteredWithThisVersion &&
+            beforeRegistering.hasUnexpiredTokenAt(now)) {
+          return ListenerInstallRegistered(beforeRegistering);
         }
         return result;
     }

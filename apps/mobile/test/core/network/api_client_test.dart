@@ -168,12 +168,62 @@ void main() {
       expect(latin1.decode(request.bodyBytes), isNot(contains(_installToken)));
     });
 
-    test('never goes to /installs or /client-errors, even when a caller passes it', () async {
+    test('goes to every listener route of the contract, GET or POST (contract §1.0)', () async {
       final client = _clientFor(adapter);
-      for (final path in ['installs', 'client-errors']) {
+      const recognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+      final postPaths = [
+        ListenerRoute.engagements,
+        ListenerRoute.choiceFor(recognitionId),
+        ListenerRoute.reportFor(recognitionId),
+      ];
+      for (final path in postPaths) {
+        adapter.answerJson(204, null);
+        await client.postJson(path, {'a': 'b'}, installToken: _installToken);
+      }
+      adapter.answerJson(200, {'stations': <Object?>[]});
+      await client.getJson(ListenerRoute.stations, installToken: _installToken);
+
+      expect(adapter.requests.map((request) => request.address.path), [
+        '/api/v1/engagements',
+        '/api/v1/recognitions/$recognitionId/choice',
+        '/api/v1/recognitions/$recognitionId/report',
+        '/api/v1/stations',
+      ]);
+      for (final request in adapter.requests) {
+        expect(request.header('Authorization'), 'Bearer $_installToken', reason: request.method);
+        expect(request.bodyText, isNot(contains(_installToken)));
+      }
+    });
+
+    test('goes to /installs only as a re-registration, when the caller gives it (A3)', () async {
+      final client = _clientFor(adapter);
+      adapter
+        ..answerJson(200, {})
+        ..answerJson(200, {});
+      await client.postJson(ListenerRoute.installs, {'a': 'b'}, installToken: _installToken);
+      await client.postJson(ListenerRoute.installs, {'a': 'b'});
+
+      expect(adapter.requests.first.header('Authorization'), 'Bearer $_installToken');
+      expect(adapter.requests.last.hasHeader('Authorization'), isFalse);
+      expect(adapter.requests.first.bodyText, isNot(contains(_installToken)));
+    });
+
+    test('never goes to /client-errors or any other path, even when a caller passes it', () async {
+      final client = _clientFor(adapter);
+      final paths = [
+        ListenerRoute.clientErrors,
+        'recognitions/0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70/delete',
+        'recognitions/not-a-uuid/choice',
+        'recognitions/0199b2c-5a6e-7c3d-8f10-2b3c4d5e6f70/choice',
+        'recognitions/0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70/choice/again',
+        'stations/0192a6c4-1111-4000-8000-000000000001',
+        'recognize-later',
+      ];
+      for (final path in paths) {
         adapter.answerJson(200, {});
         await client.postJson(path, {'a': 'b'}, installToken: _installToken);
       }
+      expect(adapter.requests, hasLength(paths.length));
       for (final request in adapter.requests) {
         expect(request.hasHeader('Authorization'), isFalse, reason: '${request.address}');
         expect(request.bodyText, isNot(contains(_installToken)));
@@ -184,6 +234,112 @@ void main() {
       adapter.answerJson(200, {});
       await _clientFor(adapter).postMultipart('recognize', fields: const [], file: _audio([1]));
       expect(adapter.requests.single.hasHeader('Authorization'), isFalse);
+    });
+  });
+
+  group('getJson (design §3.12)', () {
+    test('is a GET with no body, the request id and Accept, and no content type', () async {
+      adapter.answerJson(200, {'stations': <Object?>[]});
+      final answer = await _clientFor(adapter).getJson(ListenerRoute.stations);
+      final request = adapter.requests.single;
+      expect(request.method, 'GET');
+      expect(request.address.toString(), 'https://api.lookup.invalid/api/v1/stations');
+      expect(request.bodyBytes, isEmpty);
+      expect(request.header('X-Request-Id'), matches(_versionFourUuid));
+      expect(request.header('Accept'), 'application/json');
+      expect(request.hasHeader('Content-Type'), isFalse);
+      expect(request.hasHeader('If-None-Match'), isFalse);
+      expect(answer, isA<ApiAnswerReceived>().having((answer) => answer.status, 'status', 200));
+    });
+
+    test('sends the stored entity tag as If-None-Match, and reads a 304 as an answer', () async {
+      adapter.answerText(
+        304,
+        '',
+        headers: {
+          'etag': ['"fake-stations-1"'],
+          'cache-control': ['private, max-age=86400'],
+        },
+      );
+      final answer = await _clientFor(adapter).getJson(
+        ListenerRoute.stations,
+        installToken: _installToken,
+        ifNoneMatch: '"fake-stations-1"',
+      );
+
+      expect(adapter.requests.single.header('If-None-Match'), '"fake-stations-1"');
+      expect(
+        answer,
+        isA<ApiAnswerReceived>()
+            .having((answer) => answer.status, 'status', 304)
+            .having((answer) => answer.entityTag, 'entityTag', '"fake-stations-1"')
+            .having((answer) => answer.body, 'body', isA<NotJsonAnswerBody>()),
+      );
+    });
+
+    test('a weak entity tag is kept and sent back as it came', () async {
+      adapter.answerJson(
+        200,
+        {},
+        headers: {
+          'etag': ['W/"abc123"'],
+        },
+      );
+      final answer = await _clientFor(adapter).getJson(ListenerRoute.stations);
+      expect((answer as ApiAnswerReceived).entityTag, 'W/"abc123"');
+    });
+
+    test('an entity tag that could break a header is neither sent nor kept', () async {
+      final client = _clientFor(adapter);
+      for (final malformed in [
+        'fake-stations-1',
+        '"two words"',
+        '"tag"\r\nX-Forged: yes',
+        '"${'a' * 300}"',
+        '',
+      ]) {
+        adapter.answerJson(
+          200,
+          {},
+          headers: {
+            'etag': [malformed],
+          },
+        );
+        final answer = await client.getJson(ListenerRoute.stations, ifNoneMatch: malformed);
+        expect(adapter.requests.last.hasHeader('If-None-Match'), isFalse, reason: malformed);
+        expect((answer as ApiAnswerReceived).entityTag, isNull, reason: malformed);
+      }
+    });
+
+    test('an entity tag sent twice is not trusted', () async {
+      adapter.answerJson(
+        200,
+        {},
+        headers: {
+          'etag': ['"one"', '"two"'],
+        },
+      );
+      final answer = await _clientFor(adapter).getJson(ListenerRoute.stations);
+      expect((answer as ApiAnswerReceived).entityTag, isNull);
+    });
+
+    test('no answer is an answer too, never an exception', () async {
+      adapter.failWithDioType(DioExceptionType.connectionError);
+      final answer = await _clientFor(adapter).getJson(ListenerRoute.stations);
+      expect(
+        answer,
+        isA<ApiAnswerNotReceived>().having(
+          (answer) => answer.reason,
+          'reason',
+          ApiNoAnswerReason.noConnection,
+        ),
+      );
+    });
+
+    test('a path that is not a plain relative path is never sent', () async {
+      final answer = await _clientFor(adapter).getJson('../stations');
+      expect(adapter.requests, isEmpty);
+      expect(answer, isA<ApiAnswerNotReceived>());
     });
   });
 
@@ -593,6 +749,43 @@ void main() {
   });
 
   group('the development log', () {
+    test('a development build with its developer tools writes only the requests with no answer, '
+        'with why (P6 design fact 21)', () async {
+      final lines = <String>[];
+      final configuration = AppConfiguration(
+        flavour: AppFlavour.development,
+        apiBaseUrl: Uri.parse('http://10.0.2.2:3999/api/v1'),
+        showsDeveloperTools: true,
+      );
+      adapter
+        ..answerJson(200, {'install_token': 'secret'})
+        ..failWith(const HttpException('Connection closed before full header was received'));
+      final client = _clientFor(
+        adapter,
+        configuration: configuration,
+        developmentLog: DevelopmentLog(configuration: configuration, writeLine: lines.add),
+      );
+      await client.postJson('installs', {'install_id': 'body-value'});
+      final unanswered = await client.postMultipart(
+        'recognize',
+        fields: const [MapEntry('idempotency_key', 'body-value')],
+        file: _audio([1, 2, 3]),
+        installToken: _installToken,
+      );
+
+      expect(lines, hasLength(1));
+      final line = jsonDecode(lines.single) as Map<String, Object?>;
+      expect(line['event'], DevelopmentLog.noAnswerEvent);
+      expect(line['method'], 'POST');
+      expect(line['path'], 'recognize');
+      expect(line['noAnswerReason'], 'connectionDropped');
+      expect(line['requestId'], unanswered.sentRequestId);
+      expect(line.containsKey('status'), isFalse);
+      for (final secret in [_installToken, 'body-value', 'secret', 'Connection closed']) {
+        expect(lines.single, isNot(contains(secret)));
+      }
+    });
+
     test('writes nothing outside development, even with the verbose flag forced on', () async {
       final lines = <String>[];
       final configurations = [

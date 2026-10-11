@@ -61,18 +61,70 @@ void main() {
       expect(ContractSchemaChecker.problemsWith(request.jsonBody, registerInstallInput), isEmpty);
     });
 
-    test('carries no install token, even when one is stored', () async {
+    test(
+      'carries no install token unless the repository gives one, even when one is stored',
+      () async {
+        adapter.answerJson(200, {
+          'install_token': _token,
+          'expires_at': '2026-11-07T12:00:00.000Z',
+        });
+        await registrationWith().register(
+          ListenerInstallCredentials(
+            installId: _installId,
+            installToken: 'old.token.value',
+            tokenExpiresAt: DateTime.utc(2026, 10, 9),
+          ),
+        );
+        final request = adapter.requests.single;
+        expect(request.hasHeader('Authorization'), isFalse);
+        expect(request.bodyText, isNot(contains('old.token.value')));
+      },
+    );
+
+    test(
+      'a re-registration carries the install token as a bearer header only (amendment A3)',
+      () async {
+        adapter.answerJson(200, {
+          'install_token': _token,
+          'expires_at': '2026-11-07T12:00:00.000Z',
+        });
+        await registrationWith().register(
+          ListenerInstallCredentials(
+            installId: _installId,
+            installToken: 'old.token.value',
+            tokenExpiresAt: DateTime.utc(2026, 10, 9),
+          ),
+          reRegistrationToken: 'old.token.value',
+        );
+        final request = adapter.requests.single;
+        expect(request.header('Authorization'), 'Bearer old.token.value');
+        expect(request.bodyText, isNot(contains('old.token.value')));
+        expect(request.jsonBody, {
+          'install_id': _installId,
+          'platform': 'ANDROID',
+          'app_version': AppVersion.current,
+        });
+        expect(ContractSchemaChecker.problemsWith(request.jsonBody, registerInstallInput), isEmpty);
+      },
+    );
+
+    test('the new token is registered with the version the request sent', () async {
       adapter.answerJson(200, {'install_token': _token, 'expires_at': '2026-11-07T12:00:00.000Z'});
-      await registrationWith().register(
-        ListenerInstallCredentials(
-          installId: _installId,
-          installToken: 'old.token.value',
-          tokenExpiresAt: DateTime.utc(2026, 10, 9),
+      final registration = ListenerInstallRegistration(
+        apiClient: ApiClient(
+          configuration: ExampleAppConfigurations.production(),
+          randomUuid: RandomUuid(),
+          clock: FakeClock(),
+          httpClientAdapter: adapter,
         ),
+        appVersion: '0.2.0+7',
       );
-      final request = adapter.requests.single;
-      expect(request.hasHeader('Authorization'), isFalse);
-      expect(request.bodyText, isNot(contains('old.token.value')));
+      final result = await registration.register(
+        const ListenerInstallCredentials(installId: _installId),
+      );
+      expect(registration.appVersion, '0.2.0+7');
+      expect((adapter.requests.single.jsonBody as Map<String, Object?>)['app_version'], '0.2.0+7');
+      expect((result as ListenerInstallRegistered).credentials.registeredAppVersion, '0.2.0+7');
     });
 
     test('names the platform the app runs on: ANDROID or IOS', () {

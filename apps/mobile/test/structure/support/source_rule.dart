@@ -120,6 +120,32 @@ final class SourceRule {
         ],
       );
 
+  /// A rule that fails when words the listener sees are written in code instead of the ARB files
+  /// (design §3.17, §4.5; P6-LOCALISATION-01): a string literal with a letter outside its
+  /// interpolations, passed to `Text(` or `TextSpan(text:`, or as a label, a tooltip, a screen
+  /// reader's label or a field's hint. A literal that only interpolates (`'$number'`) carries no
+  /// words of its own and passes; [allowedLiterals] lists, by path, literals that are never shown.
+  factory SourceRule.wordsOutsideLanguageFiles({
+    required RegExp onlyPathsMatching,
+    Map<String, Set<String>> allowedLiterals = const {},
+  }) => SourceRule._(
+    name: 'words written outside the ARB files',
+    reason:
+        'every word on a screen comes from lib/l10n/app_en.arb through AppLocalizations, so a '
+        'language is added with one ARB file (§3.17, P6-LOCALISATION-01)',
+    onlyPathsMatching: onlyPathsMatching,
+    findIn: (file) {
+      final literalsByOffset = {for (final literal in file.stringLiterals) literal.offset: literal};
+      return [
+        for (final match in _shownWordsPosition.allMatches(file.code))
+          if (_literalStartingAt(file.code, match.end, literalsByOffset) case final literal?)
+            if (_hasOwnWords(literal.value) &&
+                !(allowedLiterals[file.path]?.contains(literal.value) ?? false))
+              'line ${literal.lineNumber}: \'${literal.value}\'',
+      ];
+    },
+  );
+
   /// A short name for the rule, used in test names.
   final String name;
 
@@ -148,6 +174,39 @@ final class SourceRule {
     }
     return SourceRuleResult(fileCount, violations);
   }
+
+  /// Where a widget takes words to show: `Text(` and `TextSpan(text:` with the words first, and the
+  /// named arguments that become a label, a tooltip or a hint.
+  static final RegExp _shownWordsPosition = RegExp(
+    r'(?<![\w$.])(?:Text\s*\(|TextSpan\s*\(\s*text\s*:|'
+    r'(?:label|semanticsLabel|semanticLabel|tooltip|message|hintText|labelText|helperText|'
+    r'errorText|counterText)\s*:(?!:))\s*(?:const\s+)?',
+  );
+
+  /// Escapes (`\n`, `\u2026`), `${…}` and `$name` interpolations: none of them is a word.
+  static final RegExp _escapesAndInterpolations = RegExp(
+    r'\\u\{[0-9A-Fa-f]+\}|\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}|\\.|\$\{[^}]*\}|\$[A-Za-z_]\w*',
+  );
+  static final RegExp _letter = RegExp(r'\p{L}', unicode: true);
+
+  /// The literal whose opening quote is at [position] in [code] (an `r` prefix and a triple quote
+  /// included), or null when the argument there is not a string literal.
+  static DartStringLiteral? _literalStartingAt(
+    String code,
+    int position,
+    Map<int, DartStringLiteral> literalsByOffset,
+  ) {
+    var index = position;
+    if (index < code.length && code[index] == 'r') index++;
+    if (index >= code.length || (code[index] != "'" && code[index] != '"')) return null;
+    final quote = code[index];
+    final delimiterLength = code.startsWith(quote * 3, index) ? 3 : 1;
+    return literalsByOffset[index + delimiterLength];
+  }
+
+  /// Whether [value] has a letter of its own, outside its escapes and interpolations.
+  static bool _hasOwnWords(String value) =>
+      _letter.hasMatch(value.replaceAll(_escapesAndInterpolations, ''));
 
   static final RegExp _bannedDomainWordInText = RegExp(
     r'\b(?:tenants?|customers?|spots?|payloads?)\b',

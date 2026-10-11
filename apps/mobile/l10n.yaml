@@ -1,0 +1,12 @@
+# Flutter's gen-l10n (design §3.17, P6-LOCALISATION-01 to -03): every word the listener sees is in
+# lib/l10n/app_en.arb; the generated files sit beside it and are committed, and the gate regenerates
+# them and fails on any difference. A language is added with one more ARB file (app_bem.arb,
+# app_ny.arb) and no code change: lib/l10n/fallback_localizations.dart gives such a language the
+# English Material and Cupertino texts Flutter does not ship for it.
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-dir: lib/l10n
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+nullable-getter: false
+required-resource-attributes: true

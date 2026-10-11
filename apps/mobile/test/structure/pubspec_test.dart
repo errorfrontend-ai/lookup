@@ -25,6 +25,12 @@ void main() {
   test('every dependency is pinned exactly as §3.3 says, and nothing else is listed', () {
     expect(PubspecChecks.problemsWithPins(pubspec), isEmpty);
     expect(PubspecChecks.pinnedDependencies['permission_handler'], '12.0.3');
+    expect(PubspecChecks.pinnedDependencies['intl'], '0.20.2');
+    expect(PubspecChecks.sdkDependencies, {'flutter', 'flutter_localizations'});
+  });
+
+  test('gen-l10n runs on every pub get and build (P6-LOCALISATION-01)', () {
+    expect(PubspecChecks.problemsWithGeneration(pubspec), isEmpty);
   });
 
   test('the lock file resolved each pin to exactly that version', () {
@@ -79,6 +85,24 @@ void main() {
 
     test('a caret instead of an exact pin', () {
       expect(pinProblems('dio: 5.11.1', 'dio: ^5.11.1'), [contains('dio is ^5.11.1')]);
+    });
+
+    test('an intl other than the one the SDK pins', () {
+      expect(pinProblems('intl: 0.20.2', 'intl: ^0.20.2'), [contains('intl is ^0.20.2')]);
+    });
+
+    test('flutter_localizations left out', () {
+      expect(pinProblems('  flutter_localizations:\n    sdk: flutter\n', ''), [
+        contains('flutter_localizations must come from the Flutter SDK'),
+      ]);
+    });
+
+    test('gen-l10n switched off', () {
+      final planted = SimpleYamlReader.read(
+        _planted(pubspecText, '  generate: true\n', '  generate: false\n'),
+      );
+
+      expect(PubspecChecks.problemsWithGeneration(planted), [contains('generate: true')]);
     });
 
     test("the plan's permission_handler 13.0.2", () {
@@ -159,6 +183,20 @@ void main() {
       expect(PubspecChecks.problemsWithSdkConstraints(pubspec, planted), [
         contains('pubspec.lock: the flutter constraint'),
       ]);
+    });
+
+    test('a lock file that takes flutter_localizations from pub.dev', () {
+      final planted = SimpleYamlReader.read(
+        _planted(
+          lockText,
+          '  flutter_localizations:\n    dependency: "direct main"\n    description: flutter\n'
+              '    source: sdk\n',
+          '  flutter_localizations:\n    dependency: "direct main"\n    description: flutter\n'
+              '    source: hosted\n',
+        ),
+      );
+
+      expect(PubspecChecks.problemsWithLock(planted), [contains('flutter_localizations')]);
     });
 
     test('a lock file that resolved another version', () {

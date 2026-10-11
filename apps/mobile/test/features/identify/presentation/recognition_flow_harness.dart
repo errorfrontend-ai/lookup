@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
+import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
@@ -50,6 +51,8 @@ class RecognitionFlowHarness {
       'listener_install_id': flowTestInstallId,
       if (hasStoredToken) 'listener_install_token': flowTestStoredToken,
       if (hasStoredToken) 'listener_install_token_expires_at': storedTokenExpiry.toIso8601String(),
+      // Registered with the running version, as after any launch of this app (contract §1.1).
+      if (hasStoredToken) 'listener_install_registered_app_version': AppVersion.current,
     });
     if (microphoneAccess != null) permission.access = microphoneAccess;
     final randomUuid = RandomUuid();

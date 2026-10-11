@@ -5,13 +5,12 @@ import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/identify_button.dart';
-import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/permission_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/identify/presentation/send_test_error_button.dart';
 
 import '../../../app/listener_app_harness.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 /// A development build with the developer tools on, as config/development-fake.json makes it.
 AppConfiguration _developmentWithTools() => AppConfiguration(
@@ -45,7 +44,10 @@ void main() {
     test('the "8" in the data note comes from the clip settings (S4-LISTENING-03)', () {
       final seconds = RecognitionFlow.clipSettings.clipDurationSeconds;
       expect(seconds, 8);
-      expect(HomeScreen.dataNote, startsWith('About $seconds seconds of listening'));
+      expect(
+        HomeScreen.dataNoteOf(englishWords),
+        startsWith('About $seconds seconds of listening'),
+      );
     });
 
     testWidgets('no station chip, no bottom navigation, no History or Settings (S4-D1)', (
@@ -115,7 +117,7 @@ void main() {
       await tester.tap(find.text('Tap to identify'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/listening');
-      expect(find.text(ListeningScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.listeningHeading), findsOneWidget);
       expect(harness.permission.promptCount, 0);
       harness.flow(tester).backToHome();
       await harness.pumpTransition(tester);
@@ -129,7 +131,7 @@ void main() {
       await tester.tap(find.text('Tap to identify'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/permission');
-      expect(find.text(PermissionScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.permissionHeading), findsOneWidget);
       expect(harness.permission.promptCount, 0);
       expect(harness.recorder.startedIdempotencyKeys, isEmpty);
     });
@@ -138,7 +140,7 @@ void main() {
   group('"Send a test error" (S4-D26)', () {
     testWidgets('is not on Home in a production build', (tester) async {
       await IdentifyScreenHarness().pump(tester, const HomeScreen());
-      expect(find.text(SendTestErrorButton.label), findsNothing);
+      expect(find.text(englishWords.sendTestErrorButton), findsNothing);
     });
 
     testWidgets('is on Home in a development build with the developer tools, and throws', (
@@ -146,9 +148,9 @@ void main() {
     ) async {
       final harness = IdentifyScreenHarness(configuration: _developmentWithTools());
       await harness.pump(tester, const HomeScreen());
-      expect(find.text(SendTestErrorButton.label), findsOneWidget);
+      expect(find.text(englishWords.sendTestErrorButton), findsOneWidget);
 
-      await tester.tap(find.text(SendTestErrorButton.label));
+      await tester.tap(find.text(englishWords.sendTestErrorButton));
       final thrown = tester.takeException();
       expect(thrown, isA<StateError>());
       expect((thrown as StateError).message, SendTestErrorButton.errorDescription);

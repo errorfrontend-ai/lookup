@@ -4,12 +4,11 @@ import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
-import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/permission_screen.dart';
 
 import '../../../app/listener_app_harness.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 const List<MicrophoneAccess> _variants = [
   MicrophoneAccess.notAskedYet,
@@ -46,8 +45,8 @@ void main() {
       expect(find.widgetWithText(TextButton, 'Not now'), findsOneWidget);
       expect(find.text('Said no before?'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Open phone settings'), findsOneWidget);
-      expect(find.text(PermissionScreen.refusedOnceNote), findsNothing);
-      expect(find.text(PermissionScreen.refusedForGoodNote), findsNothing);
+      expect(find.text(englishWords.permissionRefusedOnceNote), findsNothing);
+      expect(find.text(englishWords.permissionRefusedForGoodNote), findsNothing);
     });
 
     for (final access in _variants) {
@@ -105,9 +104,9 @@ void main() {
       await _harnessFor(
         MicrophoneAccess.refusedOnce,
       ).pump(tester, const PermissionScreen(microphoneAccess: MicrophoneAccess.refusedOnce));
-      final note = tester.getSemantics(find.text(PermissionScreen.refusedOnceNote));
+      final note = tester.getSemantics(find.text(englishWords.permissionRefusedOnceNote));
       expect(note.getSemanticsData().flagsCollection.isLiveRegion, isTrue);
-      final heading = tester.getSemantics(find.text(PermissionScreen.heading));
+      final heading = tester.getSemantics(find.text(englishWords.permissionHeading));
       expect(heading.getSemanticsData().flagsCollection.isHeader, isTrue);
       semantics.dispose();
     });
@@ -191,16 +190,16 @@ void main() {
 
       await tester.tap(find.text('Tap to identify'));
       await harness.pumpTransition(tester);
-      expect(find.text(PermissionScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.permissionHeading), findsOneWidget);
       await tester.tap(find.byType(ScreenExitButton));
       await harness.pumpTransition(tester);
-      expect(find.text(HomeScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.homeHeading), findsOneWidget);
 
       await tester.tap(find.text('Tap to identify'));
       await harness.pumpTransition(tester);
       await tester.tap(find.text('Not now'));
       await harness.pumpTransition(tester);
-      expect(find.text(HomeScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.homeHeading), findsOneWidget);
       expect(harness.permission.promptCount, 0);
       expect(harness.recorder.startedIdempotencyKeys, isEmpty);
     });
@@ -213,7 +212,7 @@ void main() {
       await tester.tap(find.text('Allow microphone'));
       await harness.pumpTransition(tester);
       expect(harness.permission.promptCount, 1);
-      expect(find.text(ListeningScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.listeningHeading), findsOneWidget);
       harness.flow(tester).backToHome();
       await harness.pumpTransition(tester);
     });
@@ -229,7 +228,7 @@ void main() {
       await tester.tap(find.text('Allow microphone'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/permission');
-      expect(find.text(PermissionScreen.refusedOnceNote), findsOneWidget);
+      expect(find.text(englishWords.permissionRefusedOnceNote), findsOneWidget);
     });
 
     testWidgets('refused for good → its variant, whose button opens the settings (T5, T6)', (
@@ -244,7 +243,7 @@ void main() {
       await harness.pumpTransition(tester);
       await tester.tap(find.text('Allow microphone'));
       await harness.pumpTransition(tester);
-      expect(find.text(PermissionScreen.refusedForGoodNote), findsOneWidget);
+      expect(find.text(englishWords.permissionRefusedForGoodNote), findsOneWidget);
 
       await scrollToAndTap(tester, find.widgetWithText(FilledButton, 'Open phone settings'));
       expect(harness.permission.settingsOpenCount, 1);

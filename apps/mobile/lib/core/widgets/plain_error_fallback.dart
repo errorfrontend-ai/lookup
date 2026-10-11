@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/fallback_localizations.dart';
 import '../theme/look_up_tokens.dart';
 
 /// What `ErrorWidget.builder` shows in place of a widget that failed to build (design §2.11): a
@@ -8,13 +9,10 @@ import '../theme/look_up_tokens.dart';
 /// `LOOKUP_SHOW_ERROR_DETAILS` shows the error's own text instead (S4-ERRORHANDLING-08). The error
 /// itself is reported by `FlutterError.onError`, not here.
 ///
-/// It can be built anywhere, even above the app's theme or text direction, so it depends on
-/// neither, and it never throws itself.
+/// It can be built anywhere, even above the app's theme, text direction or words, so it depends on
+/// none of them (it reads English when the words are not there), and it never throws itself.
 class PlainErrorFallback extends StatelessWidget {
   const PlainErrorFallback({super.key, required this.errorDetails, this.showsErrorDetails = false});
-
-  /// The words every build shows.
-  static const String message = "This part couldn't be shown.";
 
   /// The failure Flutter caught.
   final FlutterErrorDetails errorDetails;
@@ -37,7 +35,7 @@ class PlainErrorFallback extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.all(tokens.spacing.space3),
         child: Text(
-          _shownText(),
+          _shownText(context.appWordsOrEnglish.plainErrorFallbackMessage),
           textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
           style: tokens.typeStyles.body.copyWith(
             color: colours.muted,
@@ -49,7 +47,7 @@ class PlainErrorFallback extends StatelessWidget {
     );
   }
 
-  String _shownText() {
+  String _shownText(String message) {
     if (!showsErrorDetails) return message;
     try {
       return errorDetails.exceptionAsString();

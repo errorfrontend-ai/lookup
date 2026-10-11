@@ -48,7 +48,7 @@ class RecognitionRepository {
        _responseParser = responseParser;
 
   /// The route, relative to the API's base address; a listener route, so it carries the token.
-  static const String path = 'recognize';
+  static const String path = ListenerRoute.recognize;
 
   final ApiClient _apiClient;
   final ListenerInstallRepository _listenerInstallRepository;

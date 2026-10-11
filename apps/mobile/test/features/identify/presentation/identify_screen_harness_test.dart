@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 import 'identify_screen_harness.dart';
 
@@ -10,6 +11,8 @@ Future<void> _pumpControls(WidgetTester tester, List<Widget> controls) {
   return tester.pumpWidget(
     MaterialApp(
       theme: LookUpTheme.light(),
+      localizationsDelegates: FallbackLocalizations.delegates,
+      supportedLocales: FallbackLocalizations.supportedLocales,
       home: Scaffold(
         body: SafeArea(
           child: Column(

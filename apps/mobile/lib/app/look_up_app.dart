@@ -2,24 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_router.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
-/// The listener app (design §3.1): the light theme from the design tokens and the router that
-/// follows the recognition state. Light only in Step 4; the dark tokens wait for Phase 6
-/// (P6-THEME-01).
+/// The listener app (design §3.1, §3.17, §3.18): the light and dark themes from the design tokens,
+/// following the phone's setting (P6-THEME-01), the words from the ARB files with English Material
+/// texts for a language Flutter has none for (P6-LOCALISATION-01 to -03), and the router that
+/// follows the recognition state.
 class LookUpApp extends ConsumerWidget {
   const LookUpApp({super.key});
 
-  /// The app's name, which the system shows in the list of recent apps.
-  static const String title = 'Look Up';
+  static final ThemeData _lightTheme = LookUpTheme.light();
+  static final ThemeData _darkTheme = LookUpTheme.dark();
 
-  static final ThemeData _theme = LookUpTheme.light();
+  /// The app's name in the listener's language, which the system shows in the list of recent
+  /// apps.
+  static String titleOf(BuildContext context) => AppLocalizations.of(context).appTitle;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
-      title: title,
-      theme: _theme,
-      themeMode: ThemeMode.light,
+      onGenerateTitle: titleOf,
+      theme: _lightTheme,
+      darkTheme: _darkTheme,
+      themeMode: ThemeMode.system,
+      localizationsDelegates: FallbackLocalizations.delegates,
+      supportedLocales: FallbackLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       routerConfig: ref.watch(appRouterProvider),
     );

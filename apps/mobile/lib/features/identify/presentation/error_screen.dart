@@ -15,6 +15,7 @@ import 'package:lookup_listener/features/identify/presentation/reference_code_pa
 import 'package:lookup_listener/features/identify/presentation/state_heading.dart';
 import 'package:lookup_listener/features/identify/presentation/support_chat_button.dart';
 import 'package:lookup_listener/features/identify/presentation/system_back_to_home.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// Error, the `error` state at `/error` (design §2.10, S4-D10, S4-D28; wireframe Error): one layout
 /// for the six failures, each with its own icon, heading, words and buttons, chosen by an
@@ -33,79 +34,72 @@ class ErrorScreen extends ConsumerWidget {
 
   final RecognitionFailure failure;
 
-  static const String somethingWentWrongHeading = 'Something went wrong on our side';
-
-  static const String withCodeExplanation =
-      'Please try again. If it keeps happening, share this code with support so we can find the '
-      'problem.';
-
-  static const String detailsLabel = 'Details (development only)';
-
   /// What [failure] looks like and says.
-  static _ErrorWording _wordingFor(RecognitionFailure failure, LookUpColours colours) {
+  static _ErrorWording _wordingFor(
+    RecognitionFailure failure,
+    LookUpColours colours,
+    AppLocalizations words,
+  ) {
     return switch (failure) {
       ServerFailure() => _ErrorWording(
         icon: Icons.warning_amber_rounded,
         iconColour: colours.danger,
         circleColour: colours.dangerSoft,
-        heading: somethingWentWrongHeading,
+        heading: words.errorSomethingWentWrongHeading,
         headingRole: SemanticsRole.alert,
-        explanation: withCodeExplanation,
+        explanation: words.errorExplanationWithCode,
         footer: _ErrorFooter.tryAgain,
       ),
       PhoneFailure(:final reportDelivery) => _ErrorWording(
         icon: Icons.warning_amber_rounded,
         iconColour: colours.danger,
         circleColour: colours.dangerSoft,
-        heading: somethingWentWrongHeading,
+        heading: words.errorSomethingWentWrongHeading,
         headingRole: SemanticsRole.alert,
         // Until the API has accepted the report there is no code to share.
         explanation: reportDelivery == ReportDelivery.accepted
-            ? withCodeExplanation
-            : 'Please try again.',
+            ? words.errorExplanationWithCode
+            : words.errorExplanationTryAgain,
         footer: _ErrorFooter.tryAgain,
       ),
       RecordingUnusableFailure() => _ErrorWording(
         icon: Icons.mic_off_outlined,
         iconColour: colours.ink,
         circleColour: colours.lineSoft,
-        heading: "We couldn't use that recording",
+        heading: words.errorRecordingUnusableHeading,
         headingRole: SemanticsRole.status,
-        explanation: 'Please try again, with your phone close to the radio.',
+        explanation: words.errorRecordingUnusableExplanation,
         footer: _ErrorFooter.tryAgain,
       ),
       ConnectionFailure() => _ErrorWording(
         icon: Icons.signal_cellular_off_outlined,
         iconColour: colours.ink,
         circleColour: colours.lineSoft,
-        heading: 'No connection',
+        heading: words.errorNoConnectionHeading,
         headingRole: SemanticsRole.status,
-        explanation:
-            "We couldn't reach Look Up. We kept your clip, so you can send it again when you have "
-            'signal.',
+        explanation: words.errorNoConnectionExplanation,
         footer: _ErrorFooter.sendAgain,
       ),
       TooManyTriesFailure(:final isShortWait) => _ErrorWording(
         icon: Icons.schedule,
         iconColour: colours.warning,
         circleColour: colours.warningSoft,
-        heading: 'Too many tries',
+        heading: words.errorTooManyTriesHeading,
         headingRole: SemanticsRole.status,
         explanation: isShortWait
-            ? "You've identified a lot in a short time. Please wait a minute, then try again."
-            : 'Please try again later.',
+            ? words.errorTooManyTriesShortWaitExplanation
+            : words.errorTooManyTriesLaterExplanation,
         footer: _ErrorFooter.backToHomeOnly,
       ),
       NewerAppNeededFailure(:final isSeveralStations) => _ErrorWording(
         icon: Icons.info_outline,
         iconColour: colours.accent,
         circleColour: colours.accentSoft,
-        heading: 'This needs a newer Look Up',
+        heading: words.errorNewerAppHeading,
         headingRole: SemanticsRole.status,
         explanation: isSeveralStations
-            ? "This ad is on more than one station, and this version of the app can't show that "
-                  'yet.'
-            : "We found an answer this version of the app can't show yet.",
+            ? words.errorNewerAppSeveralStationsExplanation
+            : words.errorNewerAppUnknownAnswerExplanation,
         footer: _ErrorFooter.backToHomeOnly,
       ),
     };
@@ -124,13 +118,14 @@ class ErrorScreen extends ConsumerWidget {
     final spacing = tokens.spacing;
     final configuration = ref.watch(appConfigurationProvider);
     final flow = ref.read(recognitionFlowProvider.notifier);
-    final wording = _wordingFor(failure, colours);
+    final words = AppLocalizations.of(context);
+    final wording = _wordingFor(failure, colours, words);
     final referenceCode = referenceCodeFor(failure);
     final supportWhatsAppNumber = configuration.supportWhatsAppNumber;
-    final backToHomeLabel = const Text('Back to home');
+    final backToHomeLabel = Text(words.backToHomeButton);
     return SystemBackToHome(
       child: ScreenFrame(
-        exitButton: ScreenExitButton.close(label: 'Close', onPressed: flow.backToHome),
+        exitButton: ScreenExitButton.close(label: words.closeButton, onPressed: flow.backToHome),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -164,14 +159,14 @@ class ErrorScreen extends ConsumerWidget {
           _ErrorFooter.tryAgain => [
             FilledButton(
               onPressed: () => unawaited(flow.tryAgain()),
-              child: const Text('Try again'),
+              child: Text(words.tryAgainButton),
             ),
             TextButton(onPressed: flow.backToHome, child: backToHomeLabel),
           ],
           _ErrorFooter.sendAgain => [
             FilledButton(
               onPressed: () => unawaited(flow.sendAgain()),
-              child: const Text('Send again'),
+              child: Text(words.sendAgainButton),
             ),
             TextButton(onPressed: flow.backToHome, child: backToHomeLabel),
           ],
@@ -243,7 +238,7 @@ class _DevelopmentDetailsState extends State<_DevelopmentDetails> {
         TextButton.icon(
           onPressed: () => setState(() => _isOpen = !_isOpen),
           icon: Icon(_isOpen ? Icons.expand_less : Icons.expand_more),
-          label: const Text(ErrorScreen.detailsLabel),
+          label: Text(AppLocalizations.of(context).developmentOnlyDetails),
         ),
         if (_isOpen)
           Text(

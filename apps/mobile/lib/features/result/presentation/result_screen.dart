@@ -12,6 +12,7 @@ import 'package:lookup_listener/features/result/presentation/action_button_list.
 import 'package:lookup_listener/features/result/presentation/action_registry.dart';
 import 'package:lookup_listener/features/result/presentation/banner_box.dart';
 import 'package:lookup_listener/features/result/presentation/client_logo.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// The Result screen (design §2.6 and §2.7; wireframes Result and Result320): "Found it", then a
 /// card with the banner (only when there is one), the advertiser and the station that played the
@@ -71,7 +72,10 @@ class _ResultScreenState extends State<ResultScreen> {
         if (!didPop) widget.onBackToHome();
       },
       child: ScreenFrame(
-        exitButton: ScreenExitButton.back(label: 'Back to home', onPressed: widget.onBackToHome),
+        exitButton: ScreenExitButton.back(
+          label: AppLocalizations.of(context).backToHomeButton,
+          onPressed: widget.onBackToHome,
+        ),
         title: const _FoundItHeading(),
         bodyPadding: EdgeInsets.fromLTRB(
           sideSpace,
@@ -113,8 +117,6 @@ class _ResultScreenState extends State<ResultScreen> {
 class _FoundItHeading extends StatelessWidget {
   const _FoundItHeading();
 
-  static const String text = 'Found it';
-
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -125,7 +127,7 @@ class _FoundItHeading extends StatelessWidget {
         header: true,
         liveRegion: true,
         child: Text(
-          text,
+          AppLocalizations.of(context).resultFoundIt,
           style: context.lookUpTokens.typeStyles.body.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
@@ -159,10 +161,11 @@ class _ResultCard extends StatelessWidget {
     final innerGap = isCompact ? spacing.space2 : spacing.space3;
     final noteStyle = typeStyles.body.copyWith(color: colours.muted);
     final headerImage = result.headerImage;
+    final words = AppLocalizations.of(context);
     final notes = [
       if (result.kind == RecognitionResultKind.clientDefault)
-        "This ad isn't on air right now, so these are ${result.clientName}'s usual contact details.",
-      ..._cardNotes(result.card),
+        words.resultClientDefaultNote(result.clientName),
+      ..._cardNotes(result.card, words),
     ];
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -204,9 +207,9 @@ class _ResultCard extends StatelessWidget {
 
   /// Statements, never instructions: there is no update control before a store listing exists
   /// (S4-USABILITY-02, S4-D21).
-  List<String> _cardNotes(ReadActionCard card) {
-    if (card.showsUpdateAppHint) return const ['Some buttons need a newer version of Look Up.'];
-    if (!hasUsableButton) return const ['This ad has no buttons right now.'];
+  List<String> _cardNotes(ReadActionCard card, AppLocalizations words) {
+    if (card.showsUpdateAppHint) return [words.resultUpdateAppHint];
+    if (!hasUsableButton) return [words.resultNoButtons];
     return const [];
   }
 }
@@ -239,7 +242,9 @@ class _ClientRow extends StatelessWidget {
             children: [
               Text(result.clientName, style: typeStyles.body.copyWith(fontWeight: FontWeight.w700)),
               Text(
-                'via ${result.stationName} \u00B7 ${result.stationFrequencyLabel}',
+                AppLocalizations.of(
+                  context,
+                ).resultViaStation(result.stationName, result.stationFrequencyLabel),
                 style: typeStyles.caption.copyWith(color: tokens.colours.muted),
               ),
             ],

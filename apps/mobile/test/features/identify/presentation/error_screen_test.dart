@@ -7,7 +7,6 @@ import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/error_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/reference_code_panel.dart';
 import 'package:lookup_listener/features/identify/presentation/support_chat_button.dart';
 
@@ -15,6 +14,7 @@ import '../../../app/listener_app_harness.dart';
 import '../../../support/example_app_configurations.dart';
 import '../../../support/expect_no_technical_text.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 const String _apiRequestId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
 const String _reportRequestId = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
@@ -420,7 +420,7 @@ void main() {
       final expectedCode =
           '${requestId.substring(0, 4).toUpperCase()}-${requestId.substring(4, 8).toUpperCase()}';
       expect(find.text(expectedCode), findsOneWidget);
-      expect(find.text(ErrorScreen.somethingWentWrongHeading), findsOneWidget);
+      expect(find.text(englishWords.errorSomethingWentWrongHeading), findsOneWidget);
       expectNoTechnicalText(
         tester,
         alsoForbidden: [ListenerAppHarness.envelopeMessage('internal'), 'INTERNAL', '500'],
@@ -452,7 +452,7 @@ void main() {
       await tester.tap(find.text('Tap to identify'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/error');
-      expect(find.text(ErrorScreen.somethingWentWrongHeading), findsOneWidget);
+      expect(find.text(englishWords.errorSomethingWentWrongHeading), findsOneWidget);
       expect(find.text('Please try again.'), findsOneWidget);
       expect(find.text('Reference code'), findsNothing);
       expectNoTechnicalText(tester);
@@ -468,7 +468,7 @@ void main() {
       await scrollToAndTap(tester, find.text('Try again'));
       await harness.pumpTransition(tester);
       expect(harness.location(tester), '/listening');
-      expect(find.text(ListeningScreen.heading), findsOneWidget);
+      expect(find.text(englishWords.listeningHeading), findsOneWidget);
       harness.flow(tester).backToHome();
       await harness.pumpTransition(tester);
     });

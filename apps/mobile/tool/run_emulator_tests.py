@@ -17,11 +17,16 @@ each answer from its scenario queue and records every request. In order, exiting
      bytes, the audio at least 16,000), then the clip the real recorder sent, with the fingerprinter's Python
      (PyAV).
   6. Installs the production APK: the set-up problem screen shows and the fake receives nothing.
-  7. Stops the emulator and the fake, writes the run record (JSON, next to the temporary folder: device,
-     image, each step's outcome, the screen dumps of any failure) and prints its path.
+  7. Proves the emulator commands later journeys depend on (P6 design fact 8): airplane mode, or Wi-Fi and
+     mobile data switched off with svc; a notification read with dumpsys; whether the image has a
+     notification shade. Each result is written in the run record.
+  8. Stops the emulator and the fake, writes the run record (JSON, next to the temporary folder: device,
+     image, each step's outcome, the screen dumps of any failure, and the app's own reason whenever a
+     request got no answer, P6 design fact 21) and prints its path.
 
-    python tool/run_emulator_tests.py               # from apps/mobile, with Docker Desktop closed
-    python tool/run_emulator_tests.py --skip-build  # reuse the APKs kept by the last build
+    python tool/run_emulator_tests.py                            # from apps/mobile, with Docker Desktop closed
+    python tool/run_emulator_tests.py --skip-build               # reuse the APKs kept by the last build
+    python tool/run_emulator_tests.py --prove-emulator-commands  # only step 7: boot, prove, record, stop
 
 The builds use --no-pub: run `flutter pub get --offline` first if the packages changed.
 """
@@ -329,6 +334,128 @@ def problems_with_request_sizes(log: dict[str, Any]) -> list[str]:
     return problems
 
 
+# ---- The app's own reason for a request that got no answer (pure; P6 design fact 21) -------------------
+# A development build with its developer tools writes one JSON line to the device log for each request that got
+# no answer (DevelopmentLog.noAnswerEvent), and a build with verbose logs writes every request with the same fields.
+NO_ANSWER_EVENTS = ('api request without answer', 'api request')
+# ApiNoAnswerReason's values (lib/core/network/api_no_answer_reason.dart).
+NO_ANSWER_REASONS = ('noConnection', 'timedOut', 'connectionDropped', 'cancelled', 'plainHttpRefused',
+                     'unexpectedFailure')
+
+
+@dataclass(frozen=True)
+class NoAnswer:
+    """One request the app sent that got no answer, and why, as the app itself saw it."""
+    method: str
+    path: str
+    reason: str
+    request_id: str
+    duration_milliseconds: int | None = None
+    fault_type_name: str | None = None
+
+    def describe(self) -> str:
+        fault = f' ({self.fault_type_name})' if self.fault_type_name else ''
+        took = f' after {self.duration_milliseconds} ms' if self.duration_milliseconds is not None else ''
+        return f'{self.method} {self.path}: {self.reason}{fault}{took} (request id {self.request_id})'
+
+
+def no_answers_in_device_log(device_log: str) -> list[NoAnswer]:
+    """The app's no-answer lines in a device log, in order. Each is one JSON object after logcat's own prefix
+    ("10-08 21:46:22.761  2153  2174 I flutter : {...}"); a line that is not one, or names a reason the app does
+    not have, is skipped, so nothing else in the log can pass for the app's reason."""
+    found = []
+    for line in device_log.splitlines():
+        start = line.find('{')
+        if start < 0:
+            continue
+        try:
+            entry = json.loads(line[start:])
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or entry.get('event') not in NO_ANSWER_EVENTS:
+            continue
+        reason = entry.get('noAnswerReason')
+        if reason not in NO_ANSWER_REASONS:
+            continue
+        duration = entry.get('durationMilliseconds')
+        fault = entry.get('faultTypeName')
+        found.append(NoAnswer(str(entry.get('method')), str(entry.get('path')), reason, str(entry.get('requestId')),
+                              duration if isinstance(duration, int) else None,
+                              fault if isinstance(fault, str) else None))
+    return found
+
+
+def new_no_answers(before: Sequence[NoAnswer], after: Sequence[NoAnswer]) -> list[NoAnswer]:
+    """The no-answers in [after] that [before] did not hold: those of one journey."""
+    seen = set(before)
+    return [no_answer for no_answer in after if no_answer not in seen]
+
+
+# ---- The emulator commands later journeys depend on (pure parts; P6 design fact 8) ----------------------------
+# The shade's own views in SystemUI, by resource id: any of them on screen means the image has a shade.
+NOTIFICATION_SHADE_IDS = ('notification_stack_scroller', 'notification_panel', 'notification_shade',
+                          'quick_settings_panel', 'qs_frame', 'shade_header', 'notification_container_parent')
+SYSTEM_UI_PACKAGE = 'com.android.systemui'
+PROOF_NOTIFICATION_TITLE = 'Look Up emulator check'
+PROOF_NOTIFICATION_TEXT = 'Proof that dumpsys reads notifications'
+PROOF_NOTIFICATION_TAG = 'lookup-emulator-check'
+SHELL_PACKAGE = 'com.android.shell'
+
+
+@dataclass(frozen=True)
+class DumpedNotification:
+    """One notification as `dumpsys notification --noredact` lists it."""
+    package_name: str
+    title: str | None
+    text: str | None
+
+
+def notifications_in_dumpsys(dumpsys_output: str, package_name: str | None = None) -> list[DumpedNotification]:
+    """The notifications `dumpsys notification --noredact` lists, with their title and text, of [package_name] only
+    when given. Each starts at `NotificationRecord(`; its `extras` hold `android.title=String (…)` and
+    `android.text=String (…)`."""
+    notifications = []
+    for block in dumpsys_output.split('NotificationRecord(')[1:]:
+        package_match = re.search(r'\bpkg=(\S+)', block)
+        if not package_match:
+            continue
+        title = re.search(r'^\s*android\.title=\w+ \((.*)\)\s*$', block, re.MULTILINE)
+        text = re.search(r'^\s*android\.text=\w+ \((.*)\)\s*$', block, re.MULTILINE)
+        notification = DumpedNotification(package_match[1], title[1] if title else None, text[1] if text else None)
+        if package_name is None or notification.package_name == package_name:
+            notifications.append(notification)
+    return notifications
+
+
+def has_notification_shade(screen: Screen) -> bool:
+    """Whether the screen shows SystemUI's notification shade or quick settings."""
+    return any(node.package_name == SYSTEM_UI_PACKAGE and node.resource_id.split('/')[-1] in NOTIFICATION_SHADE_IDS
+               for node in screen.nodes)
+
+
+def airplane_mode_setting(settings_output: str) -> bool | None:
+    """`settings get global airplane_mode_on`: on, off, or unknown."""
+    value = settings_output.strip()
+    return {'1': True, '0': False}.get(value)
+
+
+def active_default_network(dumpsys_connectivity: str) -> str | None:
+    """The `Active default network:` line of `dumpsys connectivity`: a network id, 'none', or None when the image
+    prints no such line."""
+    match = re.search(r'Active default network:\s*(\S+)', dumpsys_connectivity)
+    return match[1] if match else None
+
+
+def ping_reached(ping_output: str) -> bool | None:
+    """Whether one ping got its reply: True, False, or None when the image has no ping to ask."""
+    if 'not found' in ping_output or 'inaccessible' in ping_output:
+        return None
+    match = re.search(r'(\d+) packets transmitted, (\d+) (?:packets )?received', ping_output)
+    if match:
+        return int(match[2]) > 0
+    return False if ('unreachable' in ping_output.lower() or 'exit=1' in ping_output or 'exit=2' in ping_output) else None
+
+
 def docker_process_names(process_names: Sequence[str]) -> list[str]:
     """The running processes that mean Docker Desktop is up."""
     return sorted({name for name in process_names
@@ -355,6 +482,7 @@ class Device(Protocol):
     def launch_app(self, package_name: str) -> None: ...
     def stop_app(self, package_name: str) -> None: ...
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]: ...
+    def read_device_log(self) -> str: ...
 
 
 class FakeApiControl(Protocol):
@@ -681,6 +809,10 @@ class StepOutcome:
     seconds: float
     evidence: list[str] = field(default_factory=list)
     taps: list[str] = field(default_factory=list)
+    # The app's own reason for every request of the step that got no answer (P6 design fact 21, §4.8), and whether
+    # the device log could be read for them at all.
+    no_answers: list[str] = field(default_factory=list)
+    are_no_answers_read: bool = True
 
 
 def slug(text: str) -> str:
@@ -694,33 +826,55 @@ def recover_to_home(context: RunContext) -> None:
     context.driver.wait_for(LABELS['home heading'], 40)
 
 
+def read_no_answers_quietly(device: Device) -> list[NoAnswer] | None:
+    """The app's no-answer lines in the device log so far, or None when the log could not be read: evidence is a
+    help, never a reason to fail a journey."""
+    try:
+        return no_answers_in_device_log(device.read_device_log())
+    except Exception:   # an unreadable log only means the reason is not recorded
+        return None
+
+
 def run_journeys(context: RunContext, journeys: Sequence[tuple[str, Callable[[RunContext], str]]],
                  *, first_number: int = 1, monotonic: Callable[[], float] = time.monotonic) -> list[StepOutcome]:
     """Runs each journey; a failure saves the screen, restarts the app and goes on with the next one. A request
-    the fake refused fails the journey that made it, because the app broke the contract."""
+    the fake refused fails the journey that made it, because the app broke the contract. Every journey's outcome
+    records the app's own reason for each of its requests that got no answer (P6 design fact 21)."""
     outcomes: list[StepOutcome] = []
     for index, (name, journey) in enumerate(journeys):
         started = monotonic()
         context.driver.taps = []
         log_before = context.fake_api.request_log()
         refused_before = len(refused_requests(log_before))
+        no_answers_before = read_no_answers_quietly(context.device)
+
+        def no_answers_of_this_journey() -> list[str] | None:
+            after = read_no_answers_quietly(context.device)
+            if after is None or no_answers_before is None:
+                return None
+            return [no_answer.describe() for no_answer in new_no_answers(no_answers_before, after)]
+
         try:
             detail = journey(context)
             refused = refused_requests(context.fake_api.request_log())[refused_before:]
             if refused:
                 raise StepFailed('the fake API refused what the app sent: ' + '; '.join(refused))
-            outcomes.append(StepOutcome(name, True, detail, monotonic() - started, taps=context.driver.taps))
-            print(f'PASS  {name}: {detail}', flush=True)
+            no_answers = no_answers_of_this_journey()
+            outcomes.append(StepOutcome(name, True, detail, monotonic() - started, taps=context.driver.taps,
+                                        no_answers=no_answers or [], are_no_answers_read=no_answers is not None))
+            print(f'PASS  {name}: {detail}{describe_no_answers(no_answers)}', flush=True)
         except Exception as error:   # any failure of one journey is recorded, then the next one runs
             detail = str(error) if isinstance(error, StepFailed) else f'{type(error).__name__}: {error}'
             try:
                 detail += f'. The fake API saw: {what_the_fake_saw(log_before, context.fake_api.request_log())}'
             except Exception:   # the fake may be the thing that failed; the failure itself is what matters
                 pass
+            no_answers = no_answers_of_this_journey()
             evidence = save_evidence_quietly(context.device, f'{first_number + index:02d}-{slug(name)}',
                                              context.driver.last_screen)
-            outcomes.append(StepOutcome(name, False, detail, monotonic() - started, evidence, context.driver.taps))
-            print(f'FAIL  {name}: {detail}', flush=True)
+            outcomes.append(StepOutcome(name, False, detail, monotonic() - started, evidence, context.driver.taps,
+                                        no_answers or [], no_answers is not None))
+            print(f'FAIL  {name}: {detail}{describe_no_answers(no_answers)}', flush=True)
             try:
                 recover_to_home(context)
             except Exception as recovery_error:
@@ -729,6 +883,14 @@ def run_journeys(context: RunContext, journeys: Sequence[tuple[str, Callable[[Ru
                                                 f'not run: the app could not be brought back to Home ({recovery_error})', 0))
                 break
     return outcomes
+
+
+def describe_no_answers(no_answers: Sequence[str] | None) -> str:
+    """The no-answer reasons for a PASS or FAIL line: nothing when every request was answered, and a note when the
+    device log could not be read for them."""
+    if no_answers is None:
+        return ". (The device log could not be read, so the app's no-answer reasons are not recorded.)"
+    return f'. The app got no answer: {"; ".join(no_answers)}' if no_answers else ''
 
 
 def what_the_fake_saw(log_before: dict[str, Any], log_after: dict[str, Any]) -> str:
@@ -823,6 +985,10 @@ class AdbDevice:
 
     def property(self, name: str) -> str:
         return self.adb('shell', 'getprop', name, check=False).strip()
+
+    def read_device_log(self) -> str:
+        """The app's own lines in the device log so far: Flutter writes them under the `flutter` tag."""
+        return self.adb('logcat', '-d', '-s', 'flutter', check=False, timeout_seconds=60)
 
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]:
         self.evidence_folder.mkdir(parents=True, exist_ok=True)
@@ -1077,7 +1243,8 @@ def check_recognize_request_sizes(fake_api: FakeApiControl) -> str:
 
 # What must never reach the device log outside a development build with verbose logs (S4-PRIVACY-04).
 FAKE_INSTALL_TOKEN = re.compile(r'fake\.[A-Za-z0-9_-]{16,}\.token')
-CARD_PHONE_NUMBER = re.compile(r'\+?2609[0-9]{8}')
+# The cards' numbers: the Zambian sample numbers, and the UK drama-range numbers that replace them (P6-D29).
+CARD_PHONE_NUMBER = re.compile(r'\+?(?:2609[0-9]{8}|447700900[0-9]{3})(?![0-9])')
 REQUEST_BODY_FIELDS = ('idempotency_key', 'clip_duration_milliseconds', 'captured_at', 'install_id')
 
 
@@ -1148,6 +1315,154 @@ def production_build_refuses_cleartext(device: AdbDevice, fake_api: HttpFakeApi,
     return 'the set-up problem screen showed and the fake received nothing (S4-SECURITY-02)'
 
 
+# ---- Proving the emulator commands later journeys depend on (P6 design fact 8) ------------------------------
+
+NETWORK_PROBE_ADDRESS = '10.0.2.2'   # the PC, as the emulator reaches it
+SECONDS_FOR_THE_NETWORK_TO_GO = 30
+SECONDS_FOR_THE_NETWORK_TO_COME_BACK = 60
+AIRPLANE_MODE_OFF_COMMANDS = (('shell', 'cmd', 'connectivity', 'airplane-mode', 'enable'),)
+AIRPLANE_MODE_ON_COMMANDS = (('shell', 'cmd', 'connectivity', 'airplane-mode', 'disable'),)
+RADIOS_OFF_COMMANDS = (('shell', 'svc', 'wifi', 'disable'), ('shell', 'svc', 'data', 'disable'))
+RADIOS_ON_COMMANDS = (('shell', 'svc', 'wifi', 'enable'), ('shell', 'svc', 'data', 'enable'))
+
+
+def network_state(device: AdbDevice) -> dict[str, Any]:
+    """What Android says of its network now: airplane mode, the active default network, and whether the PC
+    answers a ping (None when the image cannot say)."""
+    return {
+        'airplane_mode': airplane_mode_setting(
+            device.adb('shell', 'settings', 'get', 'global', 'airplane_mode_on', check=False)),
+        'active_default_network': active_default_network(
+            device.adb('shell', 'dumpsys', 'connectivity', check=False, timeout_seconds=60)),
+        'reaches_the_pc': ping_reached(
+            device.adb('shell', f'ping -c 1 -W 2 {NETWORK_PROBE_ADDRESS}; echo exit=$?', check=False)),
+    }
+
+
+def is_network_gone(state: dict[str, Any]) -> bool:
+    """Android reports no active network; or, on an image that prints no such line, the PC no longer answers."""
+    network = state['active_default_network']
+    return network == 'none' or (network is None and state['reaches_the_pc'] is False)
+
+
+def is_network_back(state: dict[str, Any]) -> bool:
+    network = state['active_default_network']
+    return network not in (None, 'none') or (network is None and state['reaches_the_pc'] is True)
+
+
+def prove_network_switch(device: AdbDevice, driver: Driver, commands_off: Sequence[Sequence[str]],
+                         commands_on: Sequence[Sequence[str]]) -> dict[str, Any]:
+    """Runs [commands_off], waits for Android to report the network gone, then always runs [commands_on] and waits
+    for it to come back, so a failed proof never leaves the emulator offline for the steps after it."""
+    result: dict[str, Any] = {
+        'commands_off': [' '.join(command[1:]) for command in commands_off],
+        'commands_on': [' '.join(command[1:]) for command in commands_on],
+        'before': network_state(device),
+    }
+    outputs: list[str] = []
+    try:
+        for command in commands_off:
+            outputs.append(device.adb(*command, check=False).strip()[:200])
+        try:
+            result['while_off'] = driver.wait_until(
+                lambda: state if is_network_gone(state := network_state(device)) else None,
+                SECONDS_FOR_THE_NETWORK_TO_GO, 'Android to report the network gone')
+            result['network_went'] = True
+        except StepFailed:
+            result['while_off'] = network_state(device)
+            result['network_went'] = False
+    finally:
+        for command in commands_on:
+            outputs.append(device.adb(*command, check=False).strip()[:200])
+        try:
+            result['after'] = driver.wait_until(
+                lambda: state if is_network_back(state := network_state(device)) else None,
+                SECONDS_FOR_THE_NETWORK_TO_COME_BACK, 'the network to come back')
+            result['network_came_back'] = True
+        except StepFailed:
+            result['after'] = network_state(device)
+            result['network_came_back'] = False
+    result['outputs'] = [output for output in outputs if output]
+    result['works'] = result['network_went'] and result['network_came_back']
+    return result
+
+
+def prove_notification_read(device: AdbDevice) -> dict[str, Any]:
+    """Posts a notification from the shell and reads it back through `dumpsys notification`, as the
+    notification journeys will read the app's own (P6-OFFLINE-20)."""
+    posted = device.adb('shell', f"cmd notification post -t '{PROOF_NOTIFICATION_TITLE}' {PROOF_NOTIFICATION_TAG} "
+                                 f"'{PROOF_NOTIFICATION_TEXT}'", check=False).strip()
+    listed = notifications_in_dumpsys(
+        device.adb('shell', 'dumpsys', 'notification', '--noredact', check=False, timeout_seconds=60))
+    found = [notification for notification in listed if notification.package_name == SHELL_PACKAGE
+             and notification.title == PROOF_NOTIFICATION_TITLE and notification.text == PROOF_NOTIFICATION_TEXT]
+    return {'posted_output': posted[:200], 'notifications_listed': len(listed), 'works': bool(found)}
+
+
+def prove_notification_shade(device: AdbDevice, driver: Driver) -> dict[str, Any]:
+    """Opens the notification shade and looks for SystemUI's shade on screen; closes it again."""
+    try:
+        device.adb('shell', 'cmd', 'statusbar', 'expand-notifications', check=False)
+        driver.pause(2)
+        screen = driver.read_screen()
+        evidence = save_evidence_quietly(device, 'notification-shade', screen)
+        return {
+            'has_shade': has_notification_shade(screen),
+            'system_ui_ids_seen': sorted({node.resource_id.split('/')[-1] for node in screen.nodes
+                                          if node.package_name == SYSTEM_UI_PACKAGE and node.resource_id})[:15],
+            'screen_problem': screen.problem,
+            'evidence': evidence,
+        }
+    finally:
+        device.adb('shell', 'cmd', 'statusbar', 'collapse', check=False)
+
+
+def prove_emulator_commands(device: AdbDevice, driver: Driver) -> dict[str, Any]:
+    """Each command of P6 design fact 8, tried on this image, with what it did. One proof that fails or breaks
+    never stops the others."""
+    proofs: dict[str, Callable[[], dict[str, Any]]] = {
+        'airplane_mode': lambda: prove_network_switch(device, driver, AIRPLANE_MODE_OFF_COMMANDS,
+                                                      AIRPLANE_MODE_ON_COMMANDS),
+        'wifi_and_data_off': lambda: prove_network_switch(device, driver, RADIOS_OFF_COMMANDS, RADIOS_ON_COMMANDS),
+        'dumpsys_notification': lambda: prove_notification_read(device),
+        'notification_shade': lambda: prove_notification_shade(device, driver),
+    }
+    results: dict[str, Any] = {}
+    for name, proof in proofs.items():
+        try:
+            results[name] = proof()
+        except Exception as error:   # recorded, and the next proof runs
+            results[name] = {'works': False, 'error': f'{type(error).__name__}: {error}'}
+    return results
+
+
+def describe_emulator_commands(results: dict[str, Any]) -> str:
+    """One line for the run's output: what each command proved."""
+    def verdict(name: str) -> str:
+        result = results.get(name, {})
+        if 'error' in result:
+            return f"failed ({result['error']})"
+        return 'works' if result.get('works') else 'does not work here'
+
+    shade = results.get('notification_shade', {})
+    shade_words = ('failed (' + shade['error'] + ')' if 'error' in shade
+                   else 'present' if shade.get('has_shade') else 'none found')
+    return (f"airplane mode: {verdict('airplane_mode')}; svc wifi and data: {verdict('wifi_and_data_off')}; "
+            f"dumpsys notification: {verdict('dumpsys_notification')}; notification shade: {shade_words}")
+
+
+def check_emulator_commands(device: AdbDevice, driver: Driver, record: RunRecord) -> str:
+    """Proves the commands and writes the results in the run record. Fails only when no way to take the network
+    away works, or a notification cannot be read: the journeys of later pieces depend on those."""
+    results = prove_emulator_commands(device, driver)
+    record.emulator_commands = results
+    summary = describe_emulator_commands(results)
+    can_go_offline = results['airplane_mode'].get('works') or results['wifi_and_data_off'].get('works')
+    if not can_go_offline or not results['dumpsys_notification'].get('works'):
+        raise StepFailed(summary)
+    return summary
+
+
 def stop_process(started: StartedProcess | None, timeout_seconds: float) -> None:
     if started is None:
         return
@@ -1172,6 +1487,8 @@ class RunRecord:
         self.device: dict[str, Any] = {}
         self.apks: dict[str, str] = {}
         self.steps: list[StepOutcome] = []
+        # What each emulator command of P6 design fact 8 did on this image.
+        self.emulator_commands: dict[str, Any] = {}
 
     @property
     def path(self) -> Path:
@@ -1210,6 +1527,7 @@ class RunRecord:
             'apks': self.apks,
             'temporary_folder': str(self.temporary_folder),
             'steps': [asdict(step) for step in self.steps],
+            'emulator_commands': self.emulator_commands,
         }
         self.path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding='utf-8')
 
@@ -1226,7 +1544,7 @@ class RunResources:
     device: AdbDevice | None = None
 
 
-def run(tools: Tools, record: RunRecord, skip_build: bool) -> None:
+def run(tools: Tools, record: RunRecord, skip_build: bool, *, proves_commands_only: bool = False) -> None:
     temporary_folder = record.temporary_folder
     clip_path = temporary_folder / 'clip.m4a'
     resources = RunResources()
@@ -1249,7 +1567,16 @@ def run(tools: Tools, record: RunRecord, skip_build: bool) -> None:
         record.device = prepare_device(require(resources.device))
         return f"{record.device['model']}, Android {record.device['android_version']}, {record.device['image']}"
 
+    proof_name = ('the emulator commands of P6 fact 8: airplane mode, svc wifi and data, dumpsys notification, '
+                  'the notification shade')
     try:
+        if proves_commands_only:
+            record.step(f'start the {AVD_NAME} virtual device', boot, is_required=True)
+            record.step('prepare the device', prepare, is_required=True)
+            device = require(resources.device)
+            record.step(proof_name, lambda: check_emulator_commands(device, Driver(device, DEVELOPMENT_PACKAGE), record),
+                        is_required=False, device=device)
+            return
         record.step('build the release APKs' + (' (reused)' if skip_build else ''), build, is_required=True)
         record.step('start the fake API', start_fake, is_required=True)
         record.step(f'start the {AVD_NAME} virtual device', boot, is_required=True)
@@ -1270,6 +1597,9 @@ def run(tools: Tools, record: RunRecord, skip_build: bool) -> None:
                     lambda: production_build_refuses_cleartext(device, fake_api, resources.apks['production'],
                                                                production_driver),
                     is_required=False, device=device, driver=production_driver)
+        # Last, so a network left off by a broken image cannot spoil a journey.
+        record.step(proof_name, lambda: check_emulator_commands(device, Driver(device, DEVELOPMENT_PACKAGE), record),
+                    is_required=False, device=device)
     except RunStopped:
         pass
     finally:
@@ -1312,6 +1642,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             stream.reconfigure(errors='backslashreplace')
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--skip-build', action='store_true', help='reuse the APKs kept in build/emulator-tests/')
+    parser.add_argument('--prove-emulator-commands', action='store_true',
+                        help='only boot the emulator and prove the commands of P6 design fact 8 (no build, no fake)')
     arguments = parser.parse_args(argv)
     try:
         tools = find_tools()
@@ -1328,7 +1660,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     record = RunRecord(Path(tempfile.mkdtemp(prefix='lookup-emulator-run-')))
     print(f'Run folder: {record.temporary_folder}', flush=True)
     try:
-        run(tools, record, arguments.skip_build)
+        run(tools, record, arguments.skip_build, proves_commands_only=arguments.prove_emulator_commands)
     finally:
         record.write()
         failed = sum(1 for step in record.steps if not step.is_passed)

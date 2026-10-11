@@ -9,7 +9,6 @@ import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
-import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
@@ -20,6 +19,7 @@ import 'support/fake_clip_recorder.dart';
 import 'support/fake_http_client_adapter.dart';
 import 'support/fake_microphone_permission.dart';
 import 'support/recording_client_error_reporter.dart';
+import 'support/english_words.dart';
 
 /// The start-up test (design §2.11, §3.7, §3.19): `bootstrap()` as `main()` runs it, with its
 /// services replaced by fakes through the provider container only.
@@ -97,7 +97,7 @@ void main() {
     await tester.pump();
 
     expect(find.text("This copy of Look Up isn't set up correctly."), findsOneWidget);
-    expect(find.text(SetUpProblemScreen.detailsHeading), findsNothing);
+    expect(find.text(englishWords.developmentOnlyDetails), findsNothing);
     expect(find.byType(HomeScreen), findsNothing);
     expect(find.byType(FilledButton), findsNothing);
     // No request, no sweep, no handler: nothing started.
@@ -115,7 +115,7 @@ void main() {
       AppConfiguration.check({AppConfiguration.flavourDefine: 'development'}, gradleFlavour: null),
     );
     await tester.pumpWidget(startedApp!);
-    expect(find.text(SetUpProblemScreen.detailsHeading), findsOneWidget);
+    expect(find.text(englishWords.developmentOnlyDetails), findsOneWidget);
     expect(find.text('LOOKUP_API_BASE_URL is missing.'), findsOneWidget);
   });
 
@@ -236,7 +236,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(adapter.requests, hasLength(1));
 
-      await tester.tap(find.text(SendTestErrorButton.label));
+      await tester.tap(find.text(englishWords.sendTestErrorButton));
       await tester.pump();
       expect(reporter.reports, hasLength(1));
       expect(reporter.reports.single.kind, ClientErrorKind.render);

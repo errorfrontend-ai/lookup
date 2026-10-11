@@ -145,18 +145,46 @@ abstract final class SourceRules {
       allowedLiterals: allowedCampaignLikeLiterals,
     ),
     SourceRule.bannedDomainWords(),
+    SourceRule.wordsOutsideLanguageFiles(
+      onlyPathsMatching: _outsideLanguageFiles,
+      allowedLiterals: allowedNeverShownLiterals,
+    ),
+    SourceRule.codePattern(
+      'MediaQuery.of(context).size',
+      pattern: RegExp(r'(?<![\w$])MediaQuery\s*\.\s*of\s*\([^()]*\)\s*\.\s*size\b'),
+      reason:
+          'widths are read with MediaQuery.sizeOf, and layouts ask WindowSizeClass.of, so a '
+          'widget rebuilds only when the size changes (§3.19, P6-RESPONSIVE-02)',
+    ),
+    SourceRule.codePattern(
+      'a theme mode other than the phone\'s',
+      pattern: RegExp(r'(?<![\w$])ThemeMode\s*\.\s*(?:light|dark)\b'),
+      reason:
+          'the app follows the phone\'s light or dark setting: ThemeMode.system (§3.18, '
+          'P6-THEME-01)',
+    ),
     ..._sharedWithTests,
   ];
+
+  /// Every file but the language files themselves (`lib/l10n/`).
+  static final RegExp _outsideLanguageFiles = RegExp(r'^(?!l10n/)');
+
+  /// Literals in a place a word is shown that the app never shows: the support chat's address is
+  /// built as a WhatsApp action, whose label no screen draws.
+  static const Map<String, Set<String>> allowedNeverShownLiterals = {
+    'features/identify/domain/support_chat_address.dart': {'Message support on WhatsApp'},
+  };
 
   /// The files that build widgets, where every animation lives: `app/`, `core/widgets/` and each
   /// feature's `presentation/`.
   static final RegExp _widgetCode = RegExp(r'^(?:app/|core/widgets/|features/\w+/presentation/)');
 
   /// The app's own words that look like a campaign button: the Error screen's support link
-  /// (S4-D32), the only WhatsApp label the app writes itself.
+  /// (S4-D32), the only WhatsApp label the app writes itself, in the language files and as the
+  /// never-shown label of the support chat's address.
   static const Map<String, Set<String>> allowedCampaignLikeLiterals = {
     'features/identify/domain/support_chat_address.dart': {'Message support on WhatsApp'},
-    'features/identify/presentation/support_chat_button.dart': {'Message support on WhatsApp'},
+    'l10n/app_localizations_en.dart': {'Message support on WhatsApp'},
   };
 
   /// A literal that is a campaign's own words (S4-RENDERER-01): a phone number (eight digits or

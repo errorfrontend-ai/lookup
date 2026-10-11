@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// "More options" under the fourth button of a card with five or six (S4-D18): a full-width text
 /// button with a chevron that reveals the rest of the buttons in place. Its list removes it once
@@ -16,7 +17,7 @@ class MoreOptionsButton extends StatelessWidget {
       // The chevron follows the words, as a "show more" control reads; it is decorative.
       iconAlignment: IconAlignment.end,
       icon: Icon(Icons.expand_more, size: context.lookUpTokens.spacing.space5),
-      label: const Text('More options'),
+      label: Text(AppLocalizations.of(context).moreOptionsButton),
     );
   }
 }

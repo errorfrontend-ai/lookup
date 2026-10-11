@@ -11,6 +11,7 @@ import 'package:lookup_listener/features/identify/presentation/progress_track.da
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/identify/presentation/state_heading.dart';
 import 'package:lookup_listener/features/identify/presentation/system_back_to_home.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// Busy, the `busy` state at `/busy` (design §2.9; wireframe Busy): the API had no room, so the app
 /// kept the clip and counts down to sending it again by itself (T29, T30), the wait starting from
@@ -27,20 +28,6 @@ class BusyScreen extends ConsumerWidget {
   /// The countdown, e.g. 12 for "12 s".
   final int secondsUntilRetry;
 
-  static const String heading = 'Lots of people are listening right now';
-
-  static const String explanation =
-      "We kept your clip and will try again automatically. You don't need to record again.";
-
-  static const String countdownLabel = 'Trying again in';
-
-  /// "12 s", as drawn.
-  static String countdownText(int seconds) => '$seconds s';
-
-  /// "12 seconds", for screen readers, which would read "s" as a letter.
-  static String countdownSemanticsLabel(int seconds) =>
-      seconds == 1 ? '1 second' : '$seconds seconds';
-
   /// How much of the wait has passed: 0 when it starts, 1 at the send.
   static double waitedFraction({required int retryDelaySeconds, required int secondsUntilRetry}) {
     if (retryDelaySeconds <= 0) return 1;
@@ -54,9 +41,10 @@ class BusyScreen extends ConsumerWidget {
     final spacing = tokens.spacing;
     final typeStyles = tokens.typeStyles;
     final flow = ref.read(recognitionFlowProvider.notifier);
+    final words = AppLocalizations.of(context);
     return SystemBackToHome(
       child: ScreenFrame(
-        exitButton: ScreenExitButton.close(label: 'Close', onPressed: flow.backToHome),
+        exitButton: ScreenExitButton.close(label: words.closeButton, onPressed: flow.backToHome),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -66,9 +54,9 @@ class BusyScreen extends ConsumerWidget {
               circleColour: colours.warningSoft,
             ),
             SizedBox(height: spacing.space5),
-            const StateHeading(heading, role: SemanticsRole.status),
+            StateHeading(words.busyHeading, role: SemanticsRole.status),
             SizedBox(height: spacing.space2),
-            Text(explanation, style: typeStyles.body.copyWith(color: colours.muted)),
+            Text(words.busyExplanation, style: typeStyles.body.copyWith(color: colours.muted)),
             SizedBox(height: spacing.space5),
             // A polite live region: the countdown is announced as it changes.
             Semantics(
@@ -92,12 +80,14 @@ class BusyScreen extends ConsumerWidget {
                         spacing: spacing.space3,
                         children: [
                           Text(
-                            countdownLabel,
+                            words.busyCountdownLabel,
                             style: typeStyles.body.copyWith(fontWeight: FontWeight.w600),
                           ),
+                          // "12 s" as drawn; "12 seconds" for screen readers, which would read
+                          // "s" as a letter.
                           Text(
-                            countdownText(secondsUntilRetry),
-                            semanticsLabel: countdownSemanticsLabel(secondsUntilRetry),
+                            words.busyCountdown(secondsUntilRetry),
+                            semanticsLabel: words.busyCountdownSpoken(secondsUntilRetry),
                             // Tabular figures, so the number does not shift as it counts down.
                             style: typeStyles.display.copyWith(
                               fontFeatures: const [FontFeature.tabularFigures()],
@@ -121,8 +111,8 @@ class BusyScreen extends ConsumerWidget {
           ],
         ),
         footer: [
-          FilledButton(onPressed: () => unawaited(flow.tryNow()), child: const Text('Try now')),
-          TextButton(onPressed: flow.backToHome, child: const Text('Cancel')),
+          FilledButton(onPressed: () => unawaited(flow.tryNow()), child: Text(words.tryNowButton)),
+          TextButton(onPressed: flow.backToHome, child: Text(words.cancelButton)),
         ],
       ),
     );

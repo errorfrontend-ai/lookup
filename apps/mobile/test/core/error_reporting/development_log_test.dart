@@ -58,6 +58,85 @@ void main() {
     });
   });
 
+  group('in development with the developer tools and verbose logs off (the emulator build)', () {
+    late DevelopmentLog log;
+
+    setUp(
+      () => log = logFor(
+        AppConfiguration(
+          flavour: AppFlavour.development,
+          apiBaseUrl: Uri.parse('http://10.0.2.2:3999/api/v1'),
+          showsDeveloperTools: true,
+        ),
+      ),
+    );
+
+    test('writes one line for a request that got no answer, with why, and nothing else', () {
+      expect(log.isOn, isFalse);
+      expect(log.recordsNoAnswerReasons, isTrue);
+      writeOneOfEach(log);
+      expect(lines, isEmpty);
+
+      log.recordRequest(
+        method: 'POST',
+        path: 'recognize',
+        requestId: '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+        duration: const Duration(milliseconds: 250),
+        noAnswerReason: 'connectionDropped',
+      );
+      log.recordRequest(
+        method: 'POST',
+        path: 'installs',
+        requestId: '7f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+        duration: const Duration(milliseconds: 40),
+        noAnswerReason: 'unexpectedFailure',
+        faultTypeName: 'StateError',
+      );
+
+      expect(lines.map((line) => jsonDecode(line)), [
+        {
+          'time': '2026-10-08T12:00:00.000Z',
+          'event': DevelopmentLog.noAnswerEvent,
+          'method': 'POST',
+          'path': 'recognize',
+          'noAnswerReason': 'connectionDropped',
+          'durationMilliseconds': 250,
+          'requestId': '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+        },
+        {
+          'time': '2026-10-08T12:00:00.000Z',
+          'event': DevelopmentLog.noAnswerEvent,
+          'method': 'POST',
+          'path': 'installs',
+          'noAnswerReason': 'unexpectedFailure',
+          'faultTypeName': 'StateError',
+          'durationMilliseconds': 40,
+          'requestId': '7f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+        },
+      ]);
+    });
+
+    test('never in staging or production, even with the flags forced on', () {
+      for (final flavour in [AppFlavour.staging, AppFlavour.production]) {
+        final forced = logFor(
+          MisbuiltAppConfiguration(
+            flavour: flavour,
+            apiBaseUrl: 'https://api.lookup.invalid/api/v1',
+          ),
+        );
+        expect(forced.recordsNoAnswerReasons, isFalse);
+        forced.recordRequest(
+          method: 'POST',
+          path: 'recognize',
+          requestId: '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+          duration: Duration.zero,
+          noAnswerReason: 'timedOut',
+        );
+      }
+      expect(lines, isEmpty);
+    });
+  });
+
   group('in development with the verbose flag', () {
     late DevelopmentLog log;
 

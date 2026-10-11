@@ -7,8 +7,12 @@ and a scripted fake API with a fake clock. Standard library only:
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Callable
@@ -18,10 +22,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run_emulator_tests as runner  # noqa: E402  (the tool folder is put on the path first)
 from run_emulator_tests import (  # noqa: E402
-    LABELS, RECOGNIZE_PATH, CardExpectation, Driver, RunContext, Screen, StepFailed, docker_process_names,
-    emulator_serials, find_nodes, find_permission_allow_button, node_to_tap, parse_screen_dump, parse_window_size,
-    phone_number_display, private_values_in_device_log, problems_with_request_sizes, problems_with_sends,
-    process_names_from_tasklist,
+    LABELS, RECOGNIZE_PATH, CardExpectation, Driver, DumpedNotification, NoAnswer, RunContext, Screen, StepFailed,
+    active_default_network, airplane_mode_setting, docker_process_names, emulator_serials, find_nodes,
+    find_permission_allow_button, has_notification_shade, new_no_answers, no_answers_in_device_log, node_to_tap,
+    notifications_in_dumpsys, parse_screen_dump, parse_window_size, phone_number_display, ping_reached,
+    private_values_in_device_log, problems_with_request_sizes, problems_with_sends, process_names_from_tasklist,
     reference_code_for_request_id, refused_requests, requests_to, run_journeys)
 
 APP = 'zm.lookup.listener.development'
@@ -160,9 +165,15 @@ class ExpectedValuesTest(unittest.TestCase):
 
     def test_the_card_expectation_comes_from_the_fixture_the_fake_sends(self) -> None:
         card = CardExpectation.from_fixture(runner.MATCH_FIXTURE)
+        # The fixture's own call number, read here apart from the expectation, so the check follows the shared
+        # fixture when its sample numbers change (P6-D29) and still fails if another action's number were taken.
+        actions = json.loads(runner.MATCH_FIXTURE.read_text(encoding='utf-8'))['response']['result']['card']['actions']
+        call_number = next(action['phone_number_e164'] for action in actions if action['type'] == 'CALL')
+        other_numbers = {action.get('phone_number_e164') for action in actions if action['type'] != 'CALL'}
 
         self.assertEqual(card, CardExpectation('Summer service offer', 'Brand A', 'via Station A · 98.1 FM', 'Call us',
-                                               '+260 97 712 3456'))
+                                               phone_number_display(call_number)))
+        self.assertNotIn(call_number, other_numbers)
 
     def test_every_label_is_filled_in(self) -> None:
         for key, label in LABELS.items():
@@ -270,13 +281,20 @@ class DeviceLogPrivacyTest(unittest.TestCase):
             'an install token': 'I flutter : token fake.AbCdEfGhIjKlMnOpQrSt0123.token',
             'an Authorization header': 'I flutter : Authorization: Bearer x',
             'a phone number from a card': 'I flutter : calling +260977123456',
+            'a safe test number from a card': 'I flutter : calling +447700900001',
             'a request body': 'I flutter : {"idempotency_key": "x"}',
             'audio bytes': 'I flutter : ....ftypM4A ....',
         }
         for name, line in cases.items():
             problems = private_values_in_device_log(self.QUIET_LOG + line, self.LOG)
-            self.assertIn(name, problems, line)
+            self.assertIn('a phone number from a card' if 'number' in name else name, problems, line)
             self.assertNotIn(self.INSTALL_ID, ' '.join(problems))
+
+    def test_the_apps_no_answer_line_holds_nothing_private(self) -> None:
+        line = ('10-11 09:00:01.250  2153  2174 I flutter : {"time":"2026-10-11T09:00:01.250Z","event":'
+                '"api request without answer","method":"POST","path":"recognize","noAnswerReason":"connectionDropped",'
+                '"durationMilliseconds":250,"requestId":"0b5c3f0e-2c1d-4e5f-8a9b-0c1d2e3f4a5b"}\n')
+        self.assertEqual(private_values_in_device_log(self.QUIET_LOG + line, self.LOG), [])
 
 
 class RequestSizeTest(unittest.TestCase):
@@ -321,6 +339,316 @@ class RequestSizeTest(unittest.TestCase):
         with self.assertRaises(StepFailed) as failure:
             runner.check_recognize_request_sizes(fake_api)
         self.assertIn('a body of 40000 bytes', str(failure.exception))
+
+
+def no_answer_line(reason: str, request_id: str, *, path: str = 'recognize', event: str = 'api request without answer',
+                   fault: str | None = None, duration: int = 250) -> str:
+    """One line of the app's development log as logcat prints it."""
+    entry = {'time': '2026-10-11T09:00:01.250Z', 'event': event, 'method': 'POST', 'path': path,
+             'noAnswerReason': reason, 'durationMilliseconds': duration, 'requestId': request_id}
+    if fault:
+        entry['faultTypeName'] = fault
+    return f'10-11 09:00:01.250  2153  2174 I flutter : {json.dumps(entry)}\n'
+
+
+class NoAnswerReasonTest(unittest.TestCase):
+    """P6 design fact 21: every step's evidence carries the app's own reason when a request got no answer."""
+
+    def test_the_apps_no_answer_lines_are_read_with_their_reason(self) -> None:
+        log = ('10-11 09:00:00.000  2153  2174 I flutter : Using the Impeller rendering backend (OpenGLES).\n'
+               + no_answer_line('connectionDropped', 'id-1')
+               + no_answer_line('unexpectedFailure', 'id-2', path='installs', fault='StateError', duration=40)
+               + no_answer_line('timedOut', 'id-3', event='api request'))
+
+        self.assertEqual(no_answers_in_device_log(log), [
+            NoAnswer('POST', 'recognize', 'connectionDropped', 'id-1', 250),
+            NoAnswer('POST', 'installs', 'unexpectedFailure', 'id-2', 40, 'StateError'),
+            NoAnswer('POST', 'recognize', 'timedOut', 'id-3', 250),
+        ])
+        self.assertEqual(no_answers_in_device_log(log)[1].describe(),
+                         'POST installs: unexpectedFailure (StateError) after 40 ms (request id id-2)')
+
+    def test_nothing_else_in_the_log_passes_for_a_reason(self) -> None:
+        log = ('I flutter : {"event":"api request","method":"POST","path":"recognize","status":200}\n'
+               + no_answer_line('networkIsSad', 'id-1')
+               + no_answer_line('connectionDropped', 'id-2', event='uncaught error')
+               + 'I flutter : {not json\n'
+               + 'I flutter : {"noAnswerReason": "timedOut"}\n')
+
+        self.assertEqual(no_answers_in_device_log(log), [])
+
+    def test_only_the_journeys_own_no_answers_are_new(self) -> None:
+        earlier = no_answers_in_device_log(no_answer_line('connectionDropped', 'id-1'))
+        later = no_answers_in_device_log(no_answer_line('connectionDropped', 'id-1') + no_answer_line('timedOut', 'id-2'))
+
+        self.assertEqual(new_no_answers(earlier, later), [NoAnswer('POST', 'recognize', 'timedOut', 'id-2', 250)])
+        self.assertEqual(new_no_answers(later, later), [])
+
+    def test_each_journey_records_the_no_answers_it_caused_pass_or_fail(self) -> None:
+        phone = ScriptedPhone({'home': HOME}, {})
+        phone.device_log = no_answer_line('noConnection', 'from-before')
+        context, _ = context_for(phone, ScriptedFakeApi())
+
+        def dropped(_: RunContext) -> str:
+            phone.device_log += no_answer_line('connectionDropped', 'id-2')
+            return 'No connection shown'
+
+        def fails_after_a_timeout(_: RunContext) -> str:
+            phone.device_log += no_answer_line('timedOut', 'id-3', duration=15_000)
+            raise StepFailed('the result never came')
+
+        outcomes = run_journeys(context, [('dropped', dropped), ('timed out', fails_after_a_timeout),
+                                          ('answered', lambda _: 'fine')])
+
+        self.assertEqual([outcome.no_answers for outcome in outcomes], [
+            ['POST recognize: connectionDropped after 250 ms (request id id-2)'],
+            ['POST recognize: timedOut after 15000 ms (request id id-3)'],
+            [],
+        ])
+        self.assertTrue(all(outcome.are_no_answers_read for outcome in outcomes))
+
+    def test_an_unreadable_device_log_is_noted_and_never_fails_the_journey(self) -> None:
+        phone = ScriptedPhone({'home': HOME}, {})
+        phone.is_device_log_readable = False
+        context, _ = context_for(phone, ScriptedFakeApi())
+
+        outcome = run_journeys(context, [('fine', lambda _: 'fine')])[0]
+
+        self.assertTrue(outcome.is_passed)
+        self.assertEqual((outcome.no_answers, outcome.are_no_answers_read), ([], False))
+
+    def test_the_record_carries_the_no_answers_and_the_emulator_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            record = runner.RunRecord(Path(folder) / 'run')
+            record.steps.append(runner.StepOutcome('dropped', True, 'shown', 1.0,
+                                                   no_answers=['POST recognize: connectionDropped']))
+            record.emulator_commands = {'airplane_mode': {'works': True}}
+            record.write()
+            saved = json.loads(record.path.read_text(encoding='utf-8'))
+
+        self.assertEqual(saved['steps'][0]['no_answers'], ['POST recognize: connectionDropped'])
+        self.assertTrue(saved['steps'][0]['are_no_answers_read'])
+        self.assertEqual(saved['emulator_commands'], {'airplane_mode': {'works': True}})
+
+
+# What `dumpsys notification --noredact` prints for one notification (Android 13), trimmed.
+DUMPSYS_NOTIFICATION = '''Current Notification Manager state:
+  Notification List:
+    NotificationRecord(0x0e6b3a5f: pkg=com.android.shell user=UserHandle{0} id=2020 tag=lookup-emulator-check importance=3 key=0|com.android.shell|2020|lookup-emulator-check|2000: Notification(channel=shell_cmd shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x0 color=0x00000000 vis=PRIVATE))
+      uid=2000 userId=0
+      opPkg=com.android.shell
+      extras={
+        android.title=String (Look Up emulator check)
+        android.reduced.images=Boolean (true)
+        android.text=String (Proof that dumpsys reads notifications)
+      }
+    NotificationRecord(0x0a1b2c3d: pkg=zm.lookup.listener.development user=UserHandle{0} id=7 tag=null importance=3 key=0|zm.lookup.listener.development|7|null|10123: Notification(channel=results))
+      extras={
+        android.title=String (Look Up)
+        android.text=String (Your saved clip has been checked. Tap to see the result.)
+      }
+'''
+
+
+def shade_dump(resource_ids: list[str], package: str = runner.SYSTEM_UI_PACKAGE) -> str:
+    nodes = ''.join(f'<node text="" resource-id="{package}:id/{resource_id}" class="android.view.View" '
+                    f'package="{package}" content-desc="" clickable="false" bounds="[0,0][1080,{100 + index}]" />'
+                    for index, resource_id in enumerate(resource_ids))
+    return f'<hierarchy rotation="0">{nodes}</hierarchy>'
+
+
+class EmulatorCommandOutputTest(unittest.TestCase):
+    """P6 design fact 8: reading what the commands later journeys depend on print."""
+
+    def test_notifications_are_read_with_their_title_and_text(self) -> None:
+        self.assertEqual(notifications_in_dumpsys(DUMPSYS_NOTIFICATION), [
+            DumpedNotification('com.android.shell', 'Look Up emulator check', 'Proof that dumpsys reads notifications'),
+            DumpedNotification('zm.lookup.listener.development', 'Look Up',
+                               'Your saved clip has been checked. Tap to see the result.'),
+        ])
+        self.assertEqual([notification.title for notification in
+                          notifications_in_dumpsys(DUMPSYS_NOTIFICATION, 'zm.lookup.listener.development')], ['Look Up'])
+        self.assertEqual(notifications_in_dumpsys('Current Notification Manager state:\n'), [])
+
+    def test_the_shade_is_found_by_systemuis_own_views(self) -> None:
+        self.assertTrue(has_notification_shade(parse_screen_dump(shade_dump(['clock', 'notification_stack_scroller']))))
+        self.assertTrue(has_notification_shade(parse_screen_dump(shade_dump(['quick_settings_panel']))))
+        self.assertFalse(has_notification_shade(parse_screen_dump(shade_dump(['clock', 'battery']))))
+        self.assertFalse(has_notification_shade(parse_screen_dump(shade_dump(['notification_panel'], package=APP))))
+        self.assertFalse(has_notification_shade(parse_screen_dump(RESULT_SCREEN_DUMP)))
+
+    def test_airplane_mode_the_active_network_and_a_ping_are_read(self) -> None:
+        self.assertEqual([airplane_mode_setting(output) for output in ('1\n', '0\n', 'null\n')], [True, False, None])
+        self.assertEqual(active_default_network('NetworkProviders:\nActive default network: 100\n'), '100')
+        self.assertEqual(active_default_network('Active default network: none\n'), 'none')
+        self.assertIsNone(active_default_network('Current Networks:\n'))
+        self.assertTrue(ping_reached('1 packets transmitted, 1 received, 0% packet loss, time 0ms\nexit=0'))
+        self.assertFalse(ping_reached('1 packets transmitted, 0 received, 100% packet loss, time 0ms\nexit=1'))
+        self.assertFalse(ping_reached('connect: Network is unreachable\nexit=2'))
+        self.assertIsNone(ping_reached('/system/bin/sh: ping: not found\nexit=127'))
+
+
+class ScriptedEmulator(runner.AdbDevice):
+    """An emulator whose network follows the commands it is given, as the real one should; [ignores] lists the
+    commands this image does not honour, and [stays_offline] an image whose network never comes back."""
+
+    def __init__(self, *, ignores: tuple[str, ...] = (), stays_offline: bool = False) -> None:
+        super().__init__('adb', 'emulator-5584', Path('evidence'))
+        self.ignores = ignores
+        self.stays_offline = stays_offline
+        self.airplane_mode = False
+        self.wifi = True
+        self.data = True
+        self.commands: list[str] = []
+        self.notifications: list[tuple[str, str]] = []
+        self.has_shade = True
+
+    @property
+    def is_online(self) -> bool:
+        return not self.airplane_mode and (self.wifi or self.data)
+
+    def adb(self, *arguments: str, timeout_seconds: float = 60, check: bool = True) -> str:
+        command = ' '.join(arguments[1:]) if arguments and arguments[0] == 'shell' else ' '.join(arguments)
+        self.commands.append(command)
+        if any(command.startswith(ignored) for ignored in self.ignores):
+            return "Unknown command"
+        switches = {'cmd connectivity airplane-mode enable': ('airplane_mode', True),
+                    'cmd connectivity airplane-mode disable': ('airplane_mode', False),
+                    'svc wifi disable': ('wifi', False), 'svc wifi enable': ('wifi', True),
+                    'svc data disable': ('data', False), 'svc data enable': ('data', True)}
+        if command in switches:
+            name, value = switches[command]
+            brings_the_network_back = (not value) if name == 'airplane_mode' else value
+            if not (self.stays_offline and brings_the_network_back):
+                setattr(self, name, value)
+            return ''
+        if command == 'settings get global airplane_mode_on':
+            return '1\n' if self.airplane_mode else '0\n'
+        if command == 'dumpsys connectivity':
+            return f"Active default network: {'100' if self.is_online else 'none'}\n"
+        if command.startswith('ping'):
+            return ('1 packets transmitted, 1 received\nexit=0' if self.is_online
+                    else 'connect: Network is unreachable\nexit=2')
+        if command.startswith('cmd notification post'):
+            title, tag, text = re.match(r"cmd notification post -t '(.*)' (\S+) '(.*)'", command).groups()
+            self.notifications.append((title, text))
+            return 'Notification posted'
+        if command == 'dumpsys notification --noredact':
+            return ''.join(f'NotificationRecord(0x1: pkg=com.android.shell user=UserHandle{{0}} id=1)\n'
+                           f'  extras={{\n    android.title=String ({title})\n    android.text=String ({text})\n  }}\n'
+                           for title, text in self.notifications)
+        return ''
+
+    def read_screen(self) -> Screen:
+        return parse_screen_dump(shade_dump(['notification_stack_scroller'] if self.has_shade else ['clock']))
+
+    def save_evidence(self, name: str, screen: Screen | None) -> list[str]:
+        return [f'{name}.xml']
+
+
+def proof_driver(device: runner.AdbDevice) -> Driver:
+    clock = FakeClock()
+    return Driver(device, APP, monotonic=clock.monotonic, sleep=clock.sleep)
+
+
+class EmulatorCommandProofTest(unittest.TestCase):
+    def test_airplane_mode_is_proved_and_the_network_is_back_afterwards(self) -> None:
+        emulator = ScriptedEmulator()
+        result = runner.prove_network_switch(emulator, proof_driver(emulator), runner.AIRPLANE_MODE_OFF_COMMANDS,
+                                             runner.AIRPLANE_MODE_ON_COMMANDS)
+
+        self.assertTrue(result['works'])
+        self.assertEqual(result['while_off'], {'airplane_mode': True, 'active_default_network': 'none',
+                                               'reaches_the_pc': False})
+        self.assertEqual(result['after']['active_default_network'], '100')
+        self.assertTrue(emulator.is_online)
+        self.assertEqual(result['commands_off'], ['cmd connectivity airplane-mode enable'])
+
+    def test_a_command_the_image_ignores_is_recorded_as_not_working_and_the_switch_back_still_runs(self) -> None:
+        emulator = ScriptedEmulator(ignores=('cmd connectivity airplane-mode',))
+        result = runner.prove_network_switch(emulator, proof_driver(emulator), runner.AIRPLANE_MODE_OFF_COMMANDS,
+                                             runner.AIRPLANE_MODE_ON_COMMANDS)
+
+        self.assertEqual((result['works'], result['network_went']), (False, False))
+        self.assertIn('cmd connectivity airplane-mode disable', emulator.commands)
+        self.assertEqual(result['outputs'], ['Unknown command', 'Unknown command'])
+
+    def test_svc_wifi_and_data_both_go_off_and_come_back(self) -> None:
+        emulator = ScriptedEmulator()
+        result = runner.prove_network_switch(emulator, proof_driver(emulator), runner.RADIOS_OFF_COMMANDS,
+                                             runner.RADIOS_ON_COMMANDS)
+
+        self.assertTrue(result['works'])
+        self.assertEqual(result['commands_on'], ['svc wifi enable', 'svc data enable'])
+        self.assertTrue(emulator.wifi and emulator.data)
+
+    def test_a_network_that_does_not_come_back_is_recorded(self) -> None:
+        emulator = ScriptedEmulator(stays_offline=True)
+        result = runner.prove_network_switch(emulator, proof_driver(emulator), runner.RADIOS_OFF_COMMANDS,
+                                             runner.RADIOS_ON_COMMANDS)
+
+        self.assertEqual((result['network_went'], result['network_came_back'], result['works']), (True, False, False))
+
+    def test_a_posted_notification_is_read_back_through_dumpsys(self) -> None:
+        emulator = ScriptedEmulator()
+        result = runner.prove_notification_read(emulator)
+
+        self.assertEqual((result['works'], result['notifications_listed']), (True, 1))
+        self.assertEqual(emulator.notifications, [(runner.PROOF_NOTIFICATION_TITLE, runner.PROOF_NOTIFICATION_TEXT)])
+
+    def test_the_shade_is_looked_for_and_closed_again(self) -> None:
+        for has_shade in (True, False):
+            with self.subTest(has_shade):
+                emulator = ScriptedEmulator()
+                emulator.has_shade = has_shade
+                result = runner.prove_notification_shade(emulator, proof_driver(emulator))
+                self.assertEqual(result['has_shade'], has_shade)
+                self.assertEqual(emulator.commands[0], 'cmd statusbar expand-notifications')
+                self.assertEqual(emulator.commands[-1], 'cmd statusbar collapse')
+
+    def test_the_step_writes_every_result_and_fails_only_without_a_way_offline_or_a_notification_read(self) -> None:
+        record = runner.RunRecord(Path('run'))
+        emulator = ScriptedEmulator(ignores=('cmd connectivity airplane-mode',))
+        summary = runner.check_emulator_commands(emulator, proof_driver(emulator), record)
+
+        self.assertIn('airplane mode: does not work here', summary)
+        self.assertIn('svc wifi and data: works', summary)
+        self.assertIn('notification shade: present', summary)
+        self.assertEqual(set(record.emulator_commands), {'airplane_mode', 'wifi_and_data_off', 'dumpsys_notification',
+                                                         'notification_shade'})
+
+        emulator = ScriptedEmulator(ignores=('cmd connectivity airplane-mode', 'svc'))
+        with self.assertRaises(StepFailed) as failure:
+            runner.check_emulator_commands(emulator, proof_driver(emulator), runner.RunRecord(Path('run')))
+        self.assertIn('svc wifi and data: does not work here', str(failure.exception))
+
+    def test_a_proof_that_breaks_is_recorded_and_the_others_still_run(self) -> None:
+        class BrokenShade(ScriptedEmulator):
+            def read_screen(self) -> Screen:
+                raise OSError('uiautomator is gone')
+
+        emulator = BrokenShade()
+        results = runner.prove_emulator_commands(emulator, proof_driver(emulator))
+
+        self.assertEqual(results['notification_shade'], {'works': False, 'error': 'OSError: uiautomator is gone'})
+        self.assertTrue(results['airplane_mode']['works'])
+        self.assertIn('notification shade: failed (OSError: uiautomator is gone)',
+                      runner.describe_emulator_commands(results))
+
+    def test_the_command_line_can_ask_for_the_proofs_alone(self) -> None:
+        calls: list[dict[str, Any]] = []
+        originals = (runner.find_tools, runner.reasons_not_to_start, runner.run, runner.RunRecord.write)
+        try:
+            runner.find_tools = lambda: runner.Tools('adb', 'emulator', 'flutter')
+            runner.reasons_not_to_start = lambda tools: []
+            runner.run = lambda tools, record, skip_build, **keywords: calls.append(keywords)
+            runner.RunRecord.write = lambda record: None
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner.main(['--prove-emulator-commands'])
+                runner.main([])
+        finally:
+            runner.find_tools, runner.reasons_not_to_start, runner.run, runner.RunRecord.write = originals
+        self.assertEqual(calls, [{'proves_commands_only': True}, {'proves_commands_only': False}])
 
 
 # ---- A scripted phone, a scripted fake API and a fake clock ----------------------------------------------
@@ -371,6 +699,8 @@ class ScriptedPhone:
         self.launches: list[str] = []
         self.stops: list[str] = []
         self.evidence: list[str] = []
+        self.device_log = ''
+        self.is_device_log_readable = True
 
     def move(self, screen_name: str) -> None:
         self.current = screen_name
@@ -408,6 +738,11 @@ class ScriptedPhone:
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]:
         self.evidence.append(name)
         return [f'{name}.xml']
+
+    def read_device_log(self) -> str:
+        if not self.is_device_log_readable:
+            raise StepFailed('adb logcat failed')
+        return self.device_log
 
 
 class ScriptedFakeApi:
@@ -492,7 +827,7 @@ class JourneyTest(unittest.TestCase):
         self.assertEqual(phone.tapped, [LABELS['identify control'], LABELS['allow microphone'], 'While using the app',
                                         CARD.call_label, LABELS['copy sheet close'], LABELS['result back']])
         self.assertEqual(phone.current, 'home')
-        self.assertIn('+260 97 712 3456', detail)
+        self.assertIn(CARD.call_number_display, detail)
         self.assertIn('Listening seen', detail)
 
     def test_the_match_journey_fails_when_the_call_button_opens_a_dialler(self) -> None:

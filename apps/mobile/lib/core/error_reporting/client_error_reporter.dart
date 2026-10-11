@@ -42,7 +42,7 @@ class ClientErrorReporter {
        _developmentLog = developmentLog;
 
   /// The route, relative to the API's base address. It carries no install token.
-  static const String path = 'client-errors';
+  static const String path = ListenerRoute.clientErrors;
 
   /// The contract's `source` for this app.
   static const String source = 'listener-app';

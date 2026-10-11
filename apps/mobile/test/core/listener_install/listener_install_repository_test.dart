@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
@@ -31,8 +32,9 @@ class _FaultyRegistration extends ListenerInstallRegistration {
 
   @override
   Future<ListenerInstallRegistrationResult> register(
-    ListenerInstallCredentials credentials,
-  ) async => throw StateError('secret detail');
+    ListenerInstallCredentials credentials, {
+    String? reRegistrationToken,
+  }) async => throw StateError('secret detail');
 }
 
 /// A registration answer, 30 days from the fake clock's start (noon UTC, 8 October 2026).
@@ -51,8 +53,11 @@ void main() {
     clock = FakeClock();
   });
 
-  /// One launch of the app: a new repository over the same stored values.
-  ListenerInstallRepository launch({ListenerInstallStore? store}) {
+  /// One launch of the app: a new repository over the same stored values, running [appVersion].
+  ListenerInstallRepository launch({
+    ListenerInstallStore? store,
+    String appVersion = AppVersion.current,
+  }) {
     final randomUuid = RandomUuid();
     return ListenerInstallRepository(
       store: store ?? ListenerInstallStore(randomUuid: randomUuid),
@@ -63,19 +68,25 @@ void main() {
           clock: clock,
           httpClientAdapter: adapter,
         ),
+        appVersion: appVersion,
       ),
       randomUuid: randomUuid,
       clock: clock,
     );
   }
 
-  /// Stored values as a previous launch would have left them.
-  void storedFromEarlierLaunch({String? token, DateTime? expiresAt}) =>
-      SharedPreferences.setMockInitialValues({
-        'listener_install_id': _storedInstallId,
-        'listener_install_token': ?token,
-        'listener_install_token_expires_at': ?expiresAt?.toUtc().toIso8601String(),
-      });
+  /// Stored values as a previous launch would have left them: by default registered with the
+  /// version running now; [registeredAppVersion] null stands for a Step 4 install, which stored none.
+  void storedFromEarlierLaunch({
+    String? token,
+    DateTime? expiresAt,
+    String? registeredAppVersion = AppVersion.current,
+  }) => SharedPreferences.setMockInitialValues({
+    'listener_install_id': _storedInstallId,
+    'listener_install_token': ?token,
+    'listener_install_token_expires_at': ?expiresAt?.toUtc().toIso8601String(),
+    'listener_install_registered_app_version': ?registeredAppVersion,
+  });
 
   /// Holds the next registration answer until [release] is completed, so tests can make callers
   /// overlap.
@@ -117,6 +128,9 @@ void main() {
         preferences.getString('listener_install_token_expires_at'),
         '2026-11-07T12:00:00.000Z',
       );
+      expect(preferences.getString('listener_install_registered_app_version'), AppVersion.current);
+      // A first registration carries no token (amendment A3).
+      expect(adapter.requests.single.hasHeader('Authorization'), isFalse);
     });
 
     test('a fast first tap during the background registration shares it', () async {
@@ -158,6 +172,8 @@ void main() {
         (adapter.requests.single.jsonBody as Map<String, Object?>)['install_id'],
         _storedInstallId,
       );
+      // A renewal is a re-registration: it carries the token still in date (amendment A3).
+      expect(adapter.requests.single.header('Authorization'), 'Bearer $_firstToken');
       expect(
         (await SharedPreferences.getInstance()).getString('listener_install_token'),
         _secondToken,
@@ -173,13 +189,14 @@ void main() {
       expect(adapter.requests, isEmpty);
     });
 
-    test('register again after the expiry', () async {
+    test('register again after the expiry, carrying no expired token', () async {
       storedFromEarlierLaunch(
         token: _firstToken,
         expiresAt: clock.now().subtract(const Duration(days: 1)),
       );
       adapter.answerJson(200, _registrationAnswer(_secondToken));
       expect(tokenOf(await launch().ensureRegistered()), _secondToken);
+      expect(adapter.requests.single.hasHeader('Authorization'), isFalse);
     });
 
     test('keep using a token still in date when its renewal fails', () async {
@@ -279,6 +296,8 @@ void main() {
         (adapter.requests.single.jsonBody as Map<String, Object?>)['install_id'],
         _storedInstallId,
       );
+      // The refused token is forgotten first, so this registration carries none (amendment A3).
+      expect(adapter.requests.single.hasHeader('Authorization'), isFalse);
       expect(tokenOf(await repository.ensureRegistered()), _secondToken);
       expect(adapter.requests, hasLength(1));
     });
@@ -326,6 +345,138 @@ void main() {
       expect(tokenOf(result), _secondToken);
       expect(adapter.requests, hasLength(1));
     });
+  });
+
+  group('after an app update (contract §1.1, amendment A3)', () {
+    const newerVersion = '0.2.0+2';
+
+    test('registers again with the same install id, carrying the stored unexpired token', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      final result = await launch(appVersion: newerVersion).ensureRegistered();
+
+      expect(tokenOf(result), _secondToken);
+      final request = adapter.requests.single;
+      expect(request.header('Authorization'), 'Bearer $_firstToken');
+      expect(request.jsonBody, {
+        'install_id': _storedInstallId,
+        'platform': 'ANDROID',
+        'app_version': newerVersion,
+      });
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getString('listener_install_token'), _secondToken);
+      expect(preferences.getString('listener_install_registered_app_version'), newerVersion);
+    });
+
+    test(
+      'an install a Step 4 app registered, with no version stored, registers once more',
+      () async {
+        storedFromEarlierLaunch(
+          token: _firstToken,
+          expiresAt: clock.now().add(const Duration(days: 20)),
+          registeredAppVersion: null,
+        );
+        adapter.answerJson(200, _registrationAnswer(_secondToken));
+        final repository = launch();
+        expect(tokenOf(await repository.ensureRegistered()), _secondToken);
+        expect(adapter.requests.single.header('Authorization'), 'Bearer $_firstToken');
+
+        // Registered now with this version: the next launch sends nothing.
+        expect(tokenOf(await launch().ensureRegistered()), _secondToken);
+        expect(adapter.requests, hasLength(1));
+      },
+    );
+
+    test('nothing is sent with the old token in between: no answer gives no token', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      adapter
+        ..failWithDioType(DioExceptionType.connectionError)
+        ..answerJson(200, _registrationAnswer(_secondToken));
+      final repository = launch(appVersion: newerVersion);
+
+      final result = await repository.ensureRegistered();
+      expect(
+        result,
+        isA<ListenerInstallNotRegistered>().having(
+          (result) => result.answer,
+          'answer',
+          isA<ApiAnswerNotReceived>(),
+        ),
+      );
+      // The next request tries the registration again, still carrying the install's own token.
+      expect(tokenOf(await repository.ensureRegistered()), _secondToken);
+      expect(adapter.requests, hasLength(2));
+      expect(adapter.requests.last.header('Authorization'), 'Bearer $_firstToken');
+    });
+
+    test('a refused registration after an update gives the failure, never the old token', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      adapter.answerJson(429, {
+        'error': {'code': 'RATE_LIMITED', 'message': 'm', 'request_id': _storedInstallId},
+      });
+      final result = await launch(appVersion: newerVersion).ensureRegistered();
+      expect(result, isA<ListenerInstallNotRegistered>());
+    });
+
+    test('an expired stored token is not carried: the request is a first registration', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().subtract(const Duration(minutes: 1)),
+      );
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      expect(tokenOf(await launch(appVersion: newerVersion).ensureRegistered()), _secondToken);
+      expect(adapter.requests.single.hasHeader('Authorization'), isFalse);
+    });
+
+    test('the same version as registered sends nothing', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+        registeredAppVersion: newerVersion,
+      );
+      expect(tokenOf(await launch(appVersion: newerVersion).ensureRegistered()), _firstToken);
+      expect(adapter.requests, isEmpty);
+    });
+  });
+
+  test('two engines: a token one stored is the one the other uses next (P6-D45)', () async {
+    storedFromEarlierLaunch(
+      token: _firstToken,
+      expiresAt: clock.now().add(const Duration(days: 20)),
+    );
+    // The foreground engine's cached preferences, opened before the background engine's.
+    final foregroundPreferences = await SharedPreferences.getInstance();
+    SharedPreferences.resetStatic();
+    final backgroundPreferences = await SharedPreferences.getInstance();
+    adapter.answerJson(200, _registrationAnswer(_secondToken));
+    final background = launch(
+      store: ListenerInstallStore(
+        randomUuid: RandomUuid(),
+        openPreferences: () async => backgroundPreferences,
+      ),
+    );
+    expect(
+      tokenOf(await background.registerAgainAfterRefusal(refusedToken: _firstToken)),
+      _secondToken,
+    );
+
+    final foreground = launch(
+      store: ListenerInstallStore(
+        randomUuid: RandomUuid(),
+        openPreferences: () async => foregroundPreferences,
+      ),
+    );
+    expect(tokenOf(await foreground.ensureRegistered()), _secondToken);
+    expect(adapter.requests, hasLength(1));
   });
 
   test('a token from this run is used until refused, however wrong the phone clock is', () async {

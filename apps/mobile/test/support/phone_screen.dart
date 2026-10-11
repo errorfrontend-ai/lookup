@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 /// A phone screen size and text scale for widget tests (design §4.3): the wireframes' 360 × 800 dp
 /// and the small 320 × 640 dp, each at text scale 1.0 and 2.0. A layout that overflows makes
@@ -37,10 +38,18 @@ class PhoneScreen {
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   }
 
-  /// Shows [screen] on this phone inside the app's theme, as the app would.
-  Future<void> pump(WidgetTester tester, Widget screen) async {
+  /// Shows [screen] on this phone inside the app's theme and words, as the app would; [theme] is
+  /// the light theme unless a test asks for the dark one.
+  Future<void> pump(WidgetTester tester, Widget screen, {ThemeData? theme}) async {
     applyTo(tester);
-    await tester.pumpWidget(MaterialApp(theme: LookUpTheme.light(), home: screen));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme ?? LookUpTheme.light(),
+        localizationsDelegates: FallbackLocalizations.delegates,
+        supportedLocales: FallbackLocalizations.supportedLocales,
+        home: screen,
+      ),
+    );
   }
 
   @override

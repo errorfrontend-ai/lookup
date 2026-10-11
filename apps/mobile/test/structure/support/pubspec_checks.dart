@@ -3,12 +3,15 @@ import 'dart:io';
 
 import 'version_constraint.dart';
 
-/// The dependency rules of design §3.3 (S4-D3, S4-D33; S4-STACK-01 to -09; S4-COMPATIBILITY-01),
-/// each a function from the files' contents to a list of problems, so a test can run it on the
-/// real files and on a planted copy.
+/// The dependency rules of design §3.3 (S4-D3, S4-D33; S4-STACK-01 to -09; S4-COMPATIBILITY-01;
+/// P6 design §3.3: the SDK's localisations and the `intl` it pins), each a function from the files'
+/// contents to a list of problems, so a test can run it on the real files and on a planted copy.
 abstract final class PubspecChecks {
-  /// The runtime dependencies and their exact pins (§3.3). Nothing else may be listed.
+  /// The runtime dependencies and their exact pins (§3.3). Nothing else may be listed. `intl` is
+  /// the version `flutter_localizations` pins in Flutter 3.41.9, already in the pub cache (P6 design
+  /// fact 11), so pub resolves it with no download and no override.
   static const Map<String, String> pinnedDependencies = {
+    'intl': '0.20.2',
     'flutter_riverpod': '3.3.2',
     'go_router': '17.5.0',
     'dio': '5.11.1',
@@ -25,8 +28,8 @@ abstract final class PubspecChecks {
     'fake_async': '1.3.3',
   };
 
-  /// The SDK packages each section may also list.
-  static const Set<String> sdkDependencies = {'flutter'};
+  /// The SDK packages each section must list: Flutter, and its localisations (P6 design §3.17).
+  static const Set<String> sdkDependencies = {'flutter', 'flutter_localizations'};
   static const Set<String> sdkDevelopmentDependencies = {'flutter_test'};
 
   /// The Flutter and Dart installed on the build machine, never upgraded for this app (S4-STACK-01).
@@ -59,11 +62,29 @@ abstract final class PubspecChecks {
       'pubspec.yaml has dependency_overrides; pub get must succeed without one (S4-STACK-09)',
   ];
 
-  /// The lock file resolved every pin to exactly its version, as a direct dependency.
+  /// Flutter's gen-l10n runs on every `pub get` and build: `flutter: generate: true` (P6 design
+  /// §3.17), so the committed localisation classes are the ones the ARB files make.
+  static List<String> problemsWithGeneration(Map<String, Object?> pubspec) {
+    final flutter = pubspec['flutter'];
+    // SimpleYamlReader reads every scalar as text.
+    if (flutter is! Map<String, Object?> || flutter['generate'] != 'true') {
+      return ['pubspec.yaml does not set flutter: generate: true, so gen-l10n would not run'];
+    }
+    return const [];
+  }
+
+  /// The lock file resolved every pin to exactly its version, as a direct dependency, and the SDK
+  /// packages from the SDK.
   static List<String> problemsWithLock(Map<String, Object?> lock) {
     final packages = lock['packages'];
     if (packages is! Map<String, Object?>) return ['pubspec.lock has no packages section'];
     final problems = <String>[];
+    final localizations = packages['flutter_localizations'];
+    if (localizations is! Map<String, Object?> ||
+        localizations['source'] != 'sdk' ||
+        localizations['dependency'] != 'direct main') {
+      problems.add('pubspec.lock does not take flutter_localizations from the SDK');
+    }
     final expected = {
       for (final entry in pinnedDependencies.entries) entry.key: (entry.value, 'direct main'),
       for (final entry in pinnedDevelopmentDependencies.entries)

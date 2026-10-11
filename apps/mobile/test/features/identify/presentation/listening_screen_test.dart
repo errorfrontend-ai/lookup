@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
-import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/level_bars.dart';
 import 'package:lookup_listener/features/identify/presentation/level_ring.dart';
 import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
@@ -12,6 +11,7 @@ import 'package:lookup_listener/features/identify/presentation/progress_track.da
 
 import '../../../app/listener_app_harness.dart';
 import 'identify_screen_harness.dart';
+import '../../../support/english_words.dart';
 
 const RecognitionState _recording = RecordingState(levelFraction: 0.5, secondsLeft: 3);
 
@@ -51,10 +51,10 @@ void main() {
     });
 
     test('the countdown counts seconds, with "1 second left" in the singular', () {
-      expect(ListeningScreen.countdownText(8), '8 seconds left');
-      expect(ListeningScreen.countdownText(3), '3 seconds left');
-      expect(ListeningScreen.countdownText(1), '1 second left');
-      expect(ListeningScreen.countdownText(0), '0 seconds left');
+      expect(englishWords.listeningSecondsLeft(8), '8 seconds left');
+      expect(englishWords.listeningSecondsLeft(3), '3 seconds left');
+      expect(englishWords.listeningSecondsLeft(1), '1 second left');
+      expect(englishWords.listeningSecondsLeft(0), '0 seconds left');
     });
 
     testWidgets('"Listening…" is a heading announced as a status', (tester) async {
@@ -212,7 +212,7 @@ void main() {
         await tap(tester);
         await harness.pumpTransition(tester);
         expect(harness.location(tester), '/');
-        expect(find.text(HomeScreen.heading), findsOneWidget);
+        expect(find.text(englishWords.homeHeading), findsOneWidget);
         expect(harness.recorder.isRecording, isFalse);
         expect(harness.recorder.cancelCount, 1);
         expect(harness.recorder.clipFileNames, isEmpty);

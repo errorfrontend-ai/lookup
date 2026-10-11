@@ -7,8 +7,10 @@ import '../time/clock.dart';
 import 'personal_data_scrubber.dart';
 
 /// The app's only device log (design §3.19). It writes nothing unless the build is the development
-/// flavour with `LOOKUP_VERBOSE_LOGS` on, so staging and production builds write no audio, token,
-/// install id, phone number or request body to the device log (S4-PRIVACY-04). Even when on, it
+/// flavour with `LOOKUP_VERBOSE_LOGS` on, or, for a request that got no answer only, the development
+/// flavour with `LOOKUP_SHOW_DEVELOPER_TOOLS` on (the emulator's build, P6 design fact 21). So
+/// staging and production builds write no audio, token, install id, phone number or request body to
+/// the device log (S4-PRIVACY-04). Even when on, it
 /// writes one JSON object per line (searchable, and a newline in a value cannot forge a line),
 /// request lines carry only method, path, outcome, duration and request id, and every free text is
 /// scrubbed first.
@@ -22,19 +24,41 @@ class DevelopmentLog {
     void Function(String line)? writeLine,
     Clock? clock,
   }) : isOn = configuration.flavour == AppFlavour.development && configuration.writesVerboseLogs,
+       recordsNoAnswerReasons =
+           configuration.flavour == AppFlavour.development &&
+           (configuration.writesVerboseLogs || configuration.showsDeveloperTools),
        _writeLine = writeLine ?? _writeToDeviceLog,
        _clock = clock;
 
   /// A log that never writes, for code built before the configuration is known and for tests.
-  const DevelopmentLog.off() : isOn = false, _writeLine = _writeNothing, _clock = null;
+  const DevelopmentLog.off()
+    : isOn = false,
+      recordsNoAnswerReasons = false,
+      _writeLine = _writeNothing,
+      _clock = null;
 
-  /// Whether anything is written at all.
+  /// The event of the one line a development build with its developer tools writes even with
+  /// verbose logs off: a request that got no answer, and why.
+  static const String noAnswerEvent = 'api request without answer';
+
+  /// Whether everything is written: a development build with verbose logs.
   final bool isOn;
+
+  /// Whether a request that got no answer is written with its reason: a development build with
+  /// verbose logs or with its developer tools (the emulator's build). Never in staging or
+  /// production, which the configuration check refuses developer tools and verbose logs in.
+  final bool recordsNoAnswerReasons;
 
   final void Function(String line) _writeLine;
   final Clock? _clock;
 
-  /// One line for one HTTP attempt: never headers, bodies, tokens or audio.
+  /// One line for one HTTP attempt: never headers, bodies, tokens or audio. [noAnswerReason] is
+  /// why no answer came (`ApiNoAnswerReason`'s name), and [faultTypeName] the type of a fault on the
+  /// phone, never its text.
+  ///
+  /// A request that got no answer is also written when the build shows its developer tools
+  /// ([recordsNoAnswerReasons]), with verbose logs off: the emulator run reads that one line to
+  /// record why the app saw no answer (P6 design fact 21, §4.8).
   void recordRequest({
     required String method,
     required String path,
@@ -42,13 +66,15 @@ class DevelopmentLog {
     required Duration duration,
     int? status,
     String? noAnswerReason,
+    String? faultTypeName,
   }) {
-    if (!isOn) return;
-    _write('api request', {
+    if (!isOn && !(recordsNoAnswerReasons && noAnswerReason != null)) return;
+    _write(isOn ? 'api request' : noAnswerEvent, {
       'method': method,
       'path': path,
       'status': ?status,
       'noAnswerReason': ?noAnswerReason,
+      'faultTypeName': ?faultTypeName,
       'durationMilliseconds': duration.inMilliseconds,
       'requestId': requestId,
     });

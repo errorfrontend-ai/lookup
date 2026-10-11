@@ -5,6 +5,7 @@ import 'package:lookup_listener/core/widgets/screen_frame.dart';
 
 import '../../support/expect_no_technical_text.dart';
 import '../../support/phone_screen.dart';
+import '../../support/english_words.dart';
 
 /// An exception full of the things a listener must never see.
 final StateError _hostileError = StateError(
@@ -60,7 +61,7 @@ void main() {
   ) async {
     await _pumpFailingScreen(tester, showsErrorDetails: false);
 
-    expect(find.text(PlainErrorFallback.message), findsOneWidget);
+    expect(find.text(englishWords.plainErrorFallbackMessage), findsOneWidget);
     expect(find.text("This part couldn't be shown."), findsOneWidget);
     expect(
       find.text('Heard an ad on the radio?'),
@@ -77,7 +78,7 @@ void main() {
     await _pumpFailingScreen(tester, showsErrorDetails: true);
 
     expect(find.textContaining('SocketException: Connection refused'), findsOneWidget);
-    expect(find.text(PlainErrorFallback.message), findsNothing);
+    expect(find.text(englishWords.plainErrorFallbackMessage), findsNothing);
   });
 
   testWidgets('an exception that cannot describe itself still gets the plain words', (
@@ -93,7 +94,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text(PlainErrorFallback.message), findsOneWidget);
+    expect(find.text(englishWords.plainErrorFallbackMessage), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -102,7 +103,7 @@ void main() {
       PlainErrorFallback(errorDetails: FlutterErrorDetails(exception: _hostileError)),
     );
     expect(tester.takeException(), isNull);
-    expect(find.text(PlainErrorFallback.message), findsOneWidget);
+    expect(find.text(englishWords.plainErrorFallbackMessage), findsOneWidget);
   });
 
   testWidgets('fits a tiny space without an overflow error of its own', (tester) async {
@@ -124,7 +125,7 @@ void main() {
   for (final screen in PhoneScreen.layoutChecks) {
     testWidgets('fits on $screen', (tester) async {
       await _pumpFailingScreen(tester, showsErrorDetails: false, screen: screen);
-      expect(find.text(PlainErrorFallback.message), findsOneWidget);
+      expect(find.text(englishWords.plainErrorFallbackMessage), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

@@ -28,6 +28,7 @@ final class ApiAnswerReceived extends ApiAnswer {
     required this.body,
     this.echoedRequestId,
     this.retryAfter,
+    this.entityTag,
   });
 
   /// The HTTP status, e.g. 200, 401 or 503.
@@ -41,6 +42,11 @@ final class ApiAnswerReceived extends ApiAnswer {
   /// The answer's `Retry-After` header exactly as it came; null when missing or sent more than
   /// once. `RetryAfter.parse` reads it; the identify domain clamps it.
   final String? retryAfter;
+
+  /// The answer's `ETag` header, e.g. `"fake-stations-1"`, kept to send back as `If-None-Match`;
+  /// null when missing, sent more than once, or not a well-formed entity tag (design §3.12). A 304
+  /// is an ordinary answer: its status says the copy the app holds is still current.
+  final String? entityTag;
 
   /// The body, decoded as JSON or marked as not JSON.
   final ApiAnswerBody body;
