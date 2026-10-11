@@ -2832,3 +2832,11 @@ Two critics checked both designs against the checklists and the code. These amen
   - `app.engagement_events` has **no foreign key** to `app.recognition_events`. `record_engagement` checks the recognition itself, as `recognition_reports` already does.
   - Both tables are partitioned by arrival time, and taps arrive up to 30 days after their recognition. A foreign key between them would stop old months of `recognition_events` from being detached.
   - A database-scaling test detaches a month that later taps point to.
+
+---
+
+## The user's answers (11 October 2026)
+
+- **Every recommended answer is accepted**, as presented to the user in one list of 29 (the server design's Q1–Q14 and the app design's Q1–Q20, with the four shared questions asked once). Each is decided as this design recommends it; a checklist item that one of them rewords is changed in the checklist, with this date as its source, before it is ticked.
+- **Download approved:** `workmanager` 0.10.10 with its Android libraries (3,174,229 bytes, at most 3,262,830), for sending saved clips with the app closed. It is downloaded when the P6 design's piece 3 starts, not before.
+- **The ngrok token pasted in chat on 10 October 2026 is not rotated yet.** The tunnel stays off, and no phone walkthrough (set-up B) starts, until the user confirms it is rotated and has added the new token in their own terminal.
