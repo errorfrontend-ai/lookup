@@ -147,6 +147,7 @@ abstract final class SourceRules {
     SourceRule.bannedDomainWords(),
     SourceRule.wordsOutsideLanguageFiles(
       onlyPathsMatching: _outsideLanguageFiles,
+      widgetCode: _widgetCode,
       allowedLiterals: allowedNeverShownLiterals,
     ),
     SourceRule.codePattern(
@@ -169,10 +170,39 @@ abstract final class SourceRules {
   /// Every file but the language files themselves (`lib/l10n/`).
   static final RegExp _outsideLanguageFiles = RegExp(r'^(?!l10n/)');
 
-  /// Literals in a place a word is shown that the app never shows: the support chat's address is
-  /// built as a WhatsApp action, whose label no screen draws.
+  /// Literals the words rule would take for words on a screen that no screen shows, by path: the
+  /// support chat's address is built as a WhatsApp action, whose label no screen draws; the routes'
+  /// paths; what a crash report says went wrong, which goes to the developers; the phone's own
+  /// monospace font names; and the test error's own words, which only its crash report carries.
   static const Map<String, Set<String>> allowedNeverShownLiterals = {
     'features/identify/domain/support_chat_address.dart': {'Message support on WhatsApp'},
+    'app/app_route.dart': _routePaths,
+    'features/identify/presentation/recognition_flow.dart': {
+      ..._routePaths,
+      'Asking for the microphone failed',
+      'Opening the phone settings failed',
+      'Reading the microphone permission failed',
+      'The recorder could not start',
+      'The recorder failed while recording',
+      'The recorder could not finish the clip',
+      'Sending the clip failed on the phone',
+      'Reading the microphone permission on return failed',
+    },
+    'features/identify/presentation/reference_code_panel.dart': {'monospace', 'Menlo', 'Courier'},
+    'features/identify/presentation/send_test_error_button.dart': {
+      'A test error, thrown on purpose from the developer tools',
+    },
+  };
+
+  /// The routes' paths (design §3.6), in the router and in the flow that names each state's route.
+  static const Set<String> _routePaths = {
+    '/permission',
+    '/listening',
+    '/identifying',
+    '/result',
+    '/no-match',
+    '/busy',
+    '/error',
   };
 
   /// The files that build widgets, where every animation lives: `app/`, `core/widgets/` and each

@@ -20,11 +20,24 @@ import uuid
 from http.client import RemoteDisconnected
 from typing import Any
 
-from fake_listener_api import DEFAULT_SCENARIOS, ROUTES, SCENARIOS, make_server, read_fixture
+from fake_listener_api import (DEFAULT_SCENARIOS, PHONE_CHECK_ANSWERS, PHONE_CHECK_LIFETIME_SECONDS,
+                               RECENT_REGISTRATIONS_KEPT, ROUTES, SCENARIOS, make_server, read_fixture)
 
 CLIP = b'\x00\x00\x00\x20ftypM4A ' + bytes(4_000)
 JSON = {'Content-Type': 'application/json'}
 NO_ANSWER = (RemoteDisconnected, ConnectionError, urllib.error.URLError, http.client.HTTPException)
+# The header ngrok adds, with an address from the documentation range: a request that came through the tunnel.
+THROUGH_THE_TUNNEL = {'X-Forwarded-For': '203.0.113.7'}
+
+
+class FakeClock:
+    """Seconds that move only when a test moves them, for how long the phone check's number is kept."""
+
+    def __init__(self) -> None:
+        self.seconds = 1_000.0
+
+    def __call__(self) -> float:
+        return self.seconds
 
 
 def live_fields(**changes: str | None) -> dict[str, str]:
@@ -61,7 +74,8 @@ def phone_numbers_in(value: Any) -> list[str]:
 
 class FakeListenerApiTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = make_server('127.0.0.1', 0, None)
+        self.clock = FakeClock()
+        self.server = make_server('127.0.0.1', 0, None, self.clock)
         self.port = self.server.server_port
         self.base = f'http://127.0.0.1:{self.port}'
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -107,24 +121,34 @@ class FakeListenerApiTest(unittest.TestCase):
         finally:
             connection.close()
 
-    def register(self, install_id: str | None = None, token: str | None = None, app_version: str = '0.1.0+1') -> tuple[int, Any]:
-        headers = {'Content-Type': 'application/json', 'X-Request-Id': str(uuid.uuid4())}
+    def register(self, install_id: str | None = None, token: str | None = None, app_version: str = '0.1.0+1',
+                 through_tunnel: bool = False) -> tuple[int, Any]:
+        headers = {'Content-Type': 'application/json', 'X-Request-Id': str(uuid.uuid4()),
+                   **(THROUGH_THE_TUNNEL if through_tunnel else {})}
         if token:
             headers['Authorization'] = f'Bearer {token}'
         status, _, body = self.send('/api/v1/installs', json.dumps({'install_id': install_id or str(uuid.uuid4()), 'platform': 'ANDROID', 'app_version': app_version}).encode(), headers)
         return status, body
 
-    def registered_token(self, install_id: str | None = None) -> str:
-        status, body = self.register(install_id)
+    def registered_token(self, install_id: str | None = None, through_tunnel: bool = False) -> str:
+        status, body = self.register(install_id, through_tunnel=through_tunnel)
         self.assertEqual(status, 200)
         return body['install_token']
 
-    def recognize(self, token: str | None, fields: dict[str, str] | None = None, request_id: str | None = None, **multipart_options: Any) -> tuple[int, dict[str, str], Any]:
+    def recognize(self, token: str | None, fields: dict[str, str] | None = None, request_id: str | None = None,
+                  authorization: str | None = None, **multipart_options: Any) -> tuple[int, dict[str, str], Any]:
+        """An identify; [authorization] replaces the `Bearer <token>` header with exactly that value."""
         body, content_type = multipart(fields or live_fields(), **multipart_options)
         headers = {'Content-Type': content_type, 'X-Request-Id': request_id or str(uuid.uuid4())}
-        if token:
+        if authorization is not None:
+            headers['Authorization'] = authorization
+        elif token:
             headers['Authorization'] = f'Bearer {token}'
         return self.send('/api/v1/recognize', body, headers)
+
+    def start_phone_check(self, phone_number: Any, install_id: Any) -> tuple[int, dict[str, str], Any]:
+        """What the control page sends for "Use this number" with an install chosen."""
+        return self.control('/__fake/phone-number', {'phone_number': phone_number, 'install_id': install_id})
 
     def queue(self, *names: str) -> None:
         self.assertEqual(self.control('/__fake/scenarios', list(names))[0], 200)
@@ -164,7 +188,10 @@ class FakeListenerApiTest(unittest.TestCase):
         token = self.registered_token()
         mistakes = {
             'no token': dict(token=None),
-            'a token it never issued': dict(token='made.up.token'),
+            'an Authorization that is not a bearer token': dict(authorization='Basic dXNlcjpwYXNz'),
+            'an empty bearer token': dict(authorization='Bearer '),
+            'a bearer token with a space in it': dict(authorization='Bearer two words'),
+            'a lower-case bearer': dict(authorization=f'bearer {token}'),
             'no request id': dict(request_id='not-a-uuid'),
             'a missing field': dict(fields=live_fields(codec=None)),
             'an extra field': dict(fields={**live_fields(), 'fingerprint_hashes': '1,2'}),
@@ -238,8 +265,30 @@ class FakeListenerApiTest(unittest.TestCase):
         token = self.registered_token()
         self.queue('token-invalid-once')
         self.assertEqual(self.recognize(token)[0], 401)
-        self.assertEqual(self.recognize(token)[0], 400)  # the old token is no longer known
+        status, _, body = self.recognize(token)   # the old token is no longer known: refused again, as by the real guard
+        self.assertEqual((status, body['error']['code']), (401, 'INSTALL_TOKEN_INVALID'))
         self.assertEqual(self.recognize(self.registered_token())[0], 200)
+
+    def test_a_token_the_stand_in_did_not_issue_gets_the_install_token_invalid_answer_so_the_app_registers_again(self) -> None:
+        install_id = str(uuid.uuid4())
+        token = self.registered_token(install_id)
+        self.assertEqual(self.control('/__fake/reset', {})[0], 200)   # "Reset everything", as after a restart
+        request_id = str(uuid.uuid4())
+        status, headers, body = self.recognize(token, request_id=request_id)
+        envelope = read_fixture('errors/envelopes/install-token-invalid.json')
+        self.assertEqual((status, headers['X-Request-Id']), (envelope['http_status'], request_id))
+        self.assertEqual(body, {'error': {**envelope['body']['error'], 'request_id': request_id}})
+        self.assertEqual(self.recognize('made.up.token')[2]['error']['code'], 'INSTALL_TOKEN_INVALID')   # never issued
+        state = self.state()
+        self.assertEqual(state['refused'], 0, 'a correct request the real API answers 401 is not a refusal')
+        self.assertEqual(state['recent_requests'][-1]['outcome'], 'token not issued here: answered 401')
+        self.assertEqual(state['recognitions'], [], 'no answer was taken from the queue')
+
+        status, registration = self.register(install_id, token=token)   # the app registers again (amendment A3)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request_log()['requests'][-1]['carried_token'], 'a token the fake never issued')
+        status, _, body = self.recognize(registration['install_token'])
+        self.assertEqual((status, body['status']), (200, 'MATCH'))
 
     def test_drop_closes_the_connection_with_no_answer_and_unreadable_answers_with_html(self) -> None:
         token = self.registered_token()
@@ -338,10 +387,14 @@ class FakeListenerApiTest(unittest.TestCase):
     def test_a_control_request_that_is_not_json_is_refused(self) -> None:
         for content_type in ('text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data; boundary=x', None):
             with self.subTest(content_type):
-                headers = {} if content_type is None else {'Content-Type': content_type}
-                status, _, _ = self.send('/__fake/offline', b'{"is_offline": true}', headers)
+                # Exactly these headers: with None, no Content-Type at all (urllib would add a form one to a POST), as a
+                # cross-site fetch of a Blob sends with no preflight.
+                headers = {'Host': f'127.0.0.1:{self.port}'}
+                if content_type is not None:
+                    headers['Content-Type'] = content_type
+                status, _, _ = self.raw_request('POST', '/__fake/offline', headers, b'{"is_offline": true}')
                 self.assertEqual(status, 415)
-        self.assertFalse(self.state()['is_offline'])
+                self.assertFalse(self.state()['is_offline'])
         self.assertEqual(self.control('/__fake/offline', {'is_offline': True}, {'Content-Type': 'application/json; charset=utf-8'})[0], 200)
         self.assertTrue(self.state()['is_offline'])
 
@@ -405,12 +458,16 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertEqual(self.state()['registrations'], 0)
 
     def test_reset_clears_the_switches_too(self) -> None:
+        install_id = str(uuid.uuid4())
+        self.registered_token(install_id)
         self.control('/__fake/offline', {'is_offline': True})
-        self.control('/__fake/phone-number', {'phone_number': '+447700900777'})
+        self.assertEqual(self.start_phone_check('+447700900777', install_id)[0], 200)
         self.queue('busy')
         self.assertEqual(self.control('/__fake/reset', {})[0], 200)
         state = self.state()
-        self.assertEqual((state['is_offline'], state['replaces_phone_numbers'], state['queued']['recognize']), (False, False, []))
+        self.assertEqual((state['is_offline'], state['replaces_phone_numbers'], state['phone_check'], state['queued']['recognize']),
+                         (False, False, None, []))
+        self.assertEqual(state['recent_registrations'], [])
 
     def test_the_offline_switch_takes_only_true_or_false(self) -> None:
         for bad in ({'is_offline': 'yes'}, {'offline': True}, [True], {'is_offline': True, 'extra': 1}):
@@ -455,11 +512,18 @@ class FakeListenerApiTest(unittest.TestCase):
 
     # ---- the phone number for a phone check (P6-D50, correction 12) -------------------------------
 
-    def test_the_number_from_the_control_page_replaces_every_number_in_answers(self) -> None:
+    def match_campaign_numbers(self) -> list[str]:
+        """The numbers of the default answer as the shared fixture holds them."""
+        numbers = phone_numbers_in(read_fixture('recognition/recognize-response/valid/match-campaign.json')['response'])
+        self.assertTrue(numbers)
+        return numbers
+
+    def test_the_number_from_the_control_page_replaces_every_number_in_answers_to_the_chosen_install(self) -> None:
         number = '+447700900777'
-        status, _, body = self.control('/__fake/phone-number', {'phone_number': number})
+        install_id = str(uuid.uuid4())
+        token = self.registered_token(install_id, through_tunnel=True)
+        status, _, body = self.start_phone_check(number, install_id)
         self.assertEqual((status, body), (200, {'replaces_phone_numbers': True}))
-        token = self.registered_token()
         self.queue('match', 'match-more-options', 'fallback')
         for _ in range(3):
             answer = self.recognize(token)[2]
@@ -467,15 +531,101 @@ class FakeListenerApiTest(unittest.TestCase):
             self.assertTrue(numbers)
             self.assertEqual(set(numbers), {number})
         self.assertEqual(self.control('/__fake/phone-number', {'phone_number': None})[2], {'replaces_phone_numbers': False})
-        fixture_numbers = phone_numbers_in(read_fixture('recognition/recognize-response/valid/match-campaign.json')['response'])
-        self.assertEqual(phone_numbers_in(self.recognize(token)[2]), fixture_numbers)
+        self.assertEqual(phone_numbers_in(self.recognize(token)[2]), self.match_campaign_numbers())
+
+    def test_answers_to_any_other_install_keep_the_fixtures_numbers(self) -> None:
+        number = '+447700900777'
+        phone_install = str(uuid.uuid4())
+        phone_token = self.registered_token(phone_install, through_tunnel=True)
+        stranger_token = self.registered_token(through_tunnel=True)   # anyone else who reaches the tunnel's address
+        self.assertEqual(self.start_phone_check(number, phone_install)[0], 200)
+        self.assertEqual(phone_numbers_in(self.recognize(stranger_token)[2]), self.match_campaign_numbers())
+        self.assertEqual(set(phone_numbers_in(self.recognize(phone_token)[2])), {number})
+        # A registration again with the install's own token (amendment A3) is still the chosen install.
+        status, registration = self.register(phone_install, token=phone_token, through_tunnel=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(set(phone_numbers_in(self.recognize(registration['install_token'])[2])), {number})
+        self.assertEqual(phone_numbers_in(self.recognize(stranger_token)[2]), self.match_campaign_numbers())
+
+    def test_the_number_is_forgotten_after_the_answers_that_carry_it(self) -> None:
+        number = '+447700900777'
+        install_id = str(uuid.uuid4())
+        token = self.registered_token(install_id)
+        self.assertEqual(self.start_phone_check(number, install_id)[0], 200)
+        self.queue('no-match')
+        self.assertEqual(self.recognize(token)[2]['status'], 'NO_MATCH')   # an answer with no number does not count
+        for answer in range(1, PHONE_CHECK_ANSWERS + 1):
+            with self.subTest(answer):
+                self.assertEqual(self.state()['phone_check']['answers_left'], PHONE_CHECK_ANSWERS - answer + 1)
+                self.assertEqual(set(phone_numbers_in(self.recognize(token)[2])), {number})
+        state = self.state()
+        self.assertEqual((state['replaces_phone_numbers'], state['phone_check']), (False, None))
+        self.assertEqual(phone_numbers_in(self.recognize(token)[2]), self.match_campaign_numbers())
+
+    def test_the_number_is_forgotten_minutes_after_it_was_set(self) -> None:
+        number = '+447700900777'
+        install_id = str(uuid.uuid4())
+        token = self.registered_token(install_id)
+        self.assertEqual(self.start_phone_check(number, install_id)[0], 200)
+        self.assertEqual(self.state()['phone_check'],
+                         {'install_label': install_id[:8], 'answers_left': PHONE_CHECK_ANSWERS,
+                          'seconds_left': PHONE_CHECK_LIFETIME_SECONDS})
+        self.clock.seconds += PHONE_CHECK_LIFETIME_SECONDS - 1
+        self.assertEqual(set(phone_numbers_in(self.recognize(token)[2])), {number})
+        self.assertEqual(self.state()['phone_check']['seconds_left'], 1)
+        self.clock.seconds += 1
+        self.assertFalse(self.state()['replaces_phone_numbers'])
+        self.assertEqual(phone_numbers_in(self.recognize(token)[2]), self.match_campaign_numbers())
+
+    def test_a_number_is_refused_unless_it_names_an_install_that_registered_lately(self) -> None:
+        number = '+447700900777'
+        for body in ({'phone_number': number}, {'phone_number': number, 'install_id': str(uuid.uuid4())},
+                     {'phone_number': number, 'install_id': None}, {'phone_number': number, 'install_id': 7},
+                     {'phone_number': None, 'install_id': str(uuid.uuid4())}):
+            with self.subTest(body):
+                status, _, answer = self.control('/__fake/phone-number', body)
+                self.assertEqual(status, 400)
+                self.assertNotIn(number[1:], json.dumps(answer))
+        oldest_install = str(uuid.uuid4())
+        self.registered_token(oldest_install)
+        for _ in range(RECENT_REGISTRATIONS_KEPT):
+            self.registered_token()
+        self.assertEqual(len(self.state()['recent_registrations']), RECENT_REGISTRATIONS_KEPT)
+        self.assertEqual(self.start_phone_check(number, oldest_install)[0], 400, 'no longer listed on the page')
+        self.assertFalse(self.state()['replaces_phone_numbers'])
+
+    def test_the_state_lists_recent_installs_by_a_short_label_time_and_route_never_the_address(self) -> None:
+        emulator_install = str(uuid.uuid4())
+        phone_install = str(uuid.uuid4())
+        emulator_token = self.registered_token(emulator_install)
+        self.registered_token(phone_install, through_tunnel=True)
+        self.register(emulator_install, token=emulator_token)   # registering again moves it up, listed once
+        registrations = self.state()['recent_registrations']
+        self.assertEqual([(entry['install_id'], entry['install_label'], entry['is_through_tunnel']) for entry in registrations],
+                         [(emulator_install, emulator_install[:8], False), (phone_install, phone_install[:8], True)])
+        for entry in registrations:
+            self.assertRegex(entry['registered_at'], r'^\d{2}:\d{2}:\d{2}$')
+            self.assertEqual(entry['app_version'], '0.1.0+1')
+        self.assertNotIn(THROUGH_THE_TUNNEL['X-Forwarded-For'], json.dumps(self.state()))
+
+    def test_the_control_page_says_which_answers_carry_the_number_and_when_it_is_forgotten(self) -> None:
+        words = ' '.join(self.get('/__fake/panel')[2].decode('utf-8').split())
+        for expected in ("Choose your phone's install",
+                         'only answers to that install carry it on their buttons',
+                         "go to whatever sends that install's requests, through the tunnel too",
+                         f'forgotten after {PHONE_CHECK_ANSWERS} answers that carry it or '
+                         f'{PHONE_CHECK_LIFETIME_SECONDS // 60} minutes, whichever comes first',
+                         'Install that gets the number, newest registration first',
+                         'it is never saved, logged or shown again'):
+            self.assertIn(expected, words)
 
     def test_the_number_is_never_echoed_logged_shown_or_written(self) -> None:
         number = '+447700900777'
+        install_id = str(uuid.uuid4())
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
-            self.control('/__fake/phone-number', {'phone_number': number})
-            token = self.registered_token()
+            token = self.registered_token(install_id)
+            self.start_phone_check(number, install_id)
             self.recognize(token)
             places = {
                 'the state': json.dumps(self.state()),
@@ -490,14 +640,16 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertTrue(self.state()['replaces_phone_numbers'])
 
     def test_a_number_that_is_not_e164_is_refused_without_repeating_it(self) -> None:
-        for bad in ('0977123456', '+0123456789', '+44 7700 900777', 'call me', 12345678, ''):
+        install_id = str(uuid.uuid4())
+        self.registered_token(install_id)
+        for bad in ('07700900777', '+0123456789', '+44 7700 900777', 'call me', 12345678, ''):
             with self.subTest(bad):
-                status, _, body = self.control('/__fake/phone-number', {'phone_number': bad})
+                status, _, body = self.start_phone_check(bad, install_id)
                 self.assertEqual(status, 400)
                 if bad:
                     self.assertNotIn(str(bad), json.dumps(body))
         self.assertFalse(self.state()['replaces_phone_numbers'])
-        self.assertEqual(self.control('/__fake/phone-number', {'number': '+447700900777'})[0], 400)
+        self.assertEqual(self.control('/__fake/phone-number', {'number': '+447700900777', 'install_id': install_id})[0], 400)
 
     def test_the_state_holds_counts_and_ids_never_an_answer(self) -> None:
         token = self.registered_token()

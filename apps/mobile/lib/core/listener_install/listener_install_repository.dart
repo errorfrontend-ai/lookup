@@ -28,7 +28,12 @@ export 'listener_install_registration_result.dart';
 /// - The phone's clock can be wrong. A token received from the API during this run is used until
 ///   the API refuses it, so a phone whose clock is far ahead does not register before every
 ///   identify; the 401 is the real signal.
-/// - Storage failures never stop an identify: the values are kept in memory for this run.
+/// - Two engines share the stored values: the app's, and a background job's (P6 design §3.10).
+///   Every decision starts by reading the store again, which reloads, so a token the other engine
+///   stored is the one used next, with no registration of its own (P6-D45). A refused token is
+///   forgotten only while it is still the stored one, so another engine's newer token stays.
+/// - Storage failures never stop an identify: when the store cannot be read, this run's own copy
+///   of the values is used instead.
 ///
 /// Nothing here reads a hardware, Android, advertising or IMEI id.
 class ListenerInstallRepository {
@@ -51,11 +56,13 @@ class ListenerInstallRepository {
   final Clock _clock;
   final DevelopmentLog _developmentLog;
 
-  /// The install as known in this run, once read.
+  /// The install as this run last read or registered it: the copy used when the store cannot be
+  /// read.
   ListenerInstallCredentials? _credentials;
 
-  /// Whether [_credentials]' token came from the API during this run.
-  bool _isTokenFromThisRun = false;
+  /// The token the API gave this run, if any. Used until refused, whatever the phone's clock says,
+  /// but only while it is the token in use: a token another engine stored is judged by the clock.
+  String? _tokenFromThisRun;
 
   /// The check or registration in progress, which every caller shares.
   Future<ListenerInstallRegistrationResult>? _inProgress;
@@ -72,8 +79,8 @@ class ListenerInstallRepository {
       _shareOne(() => _registerIfNeeded(refusedToken: null));
 
   /// A new token after the API refused [refusedToken] (401 `INSTALL_TOKEN_INVALID`), registering
-  /// again with the same install id. When another caller has already replaced that token, its
-  /// replacement is given without a second registration. Never throws.
+  /// again with the same install id. When another caller, or another engine, has already replaced
+  /// that token, its replacement is given without a second registration. Never throws.
   Future<ListenerInstallRegistrationResult> registerAgainAfterRefusal({
     required String refusedToken,
   }) async {
@@ -82,15 +89,14 @@ class ListenerInstallRepository {
     return _shareOne(() => _registerIfNeeded(refusedToken: refusedToken));
   }
 
-  /// The install id and token known now, for scrubbing them out of crash reports; null when
-  /// nothing could be read. Never registers, never makes an install id, never throws.
+  /// The install id and token known now, for scrubbing them out of crash reports: as stored, or
+  /// this run's own copy when the store cannot be read; null when there is neither. Never
+  /// registers, never makes an install id, never throws.
   Future<ListenerInstallCredentials?> readKnownCredentials() async {
-    final known = _credentials;
-    if (known != null) return known;
     try {
-      return await _store.read();
+      return await _store.read() ?? _credentials;
     } on Object {
-      return null;
+      return _credentials;
     }
   }
 
@@ -135,26 +141,25 @@ class ListenerInstallRepository {
   Future<ListenerInstallRegistrationResult> _registerIfNeeded({
     required String? refusedToken,
   }) async {
-    final credentials = await _loadCredentials();
+    var credentials = await _loadCredentials();
     final now = _clock.now();
-    final installToken = credentials.installToken;
-    final isTokenRefused = refusedToken != null && installToken == refusedToken;
-    final isRegisteredWithThisVersion = credentials.isRegisteredWith(_registration.appVersion);
-    if (installToken != null &&
-        !isTokenRefused &&
-        isRegisteredWithThisVersion &&
-        (_isTokenFromThisRun || !credentials.needsRegistrationAt(now))) {
+    if (_canSendAsItIs(credentials, refusedToken: refusedToken, now: now)) {
       return ListenerInstallRegistered(credentials);
     }
 
-    if (isTokenRefused) {
+    if (refusedToken != null && credentials.installToken == refusedToken) {
       // Forget it first, so it is never sent again even if the app stops before registering.
-      _credentials = credentials.withoutToken();
-      _isTokenFromThisRun = false;
-      await _storeQuietly('forget the refused token', _store.forgetToken);
+      credentials = _credentials = credentials.withoutToken();
+      if (await _forgetQuietly(refusedToken) == _Forgetting.keptAnotherEnginesToken) {
+        // Another engine stored a new token after this one was read: use it, without registering.
+        credentials = await _loadCredentials();
+        if (_canSendAsItIs(credentials, refusedToken: refusedToken, now: now)) {
+          return ListenerInstallRegistered(credentials);
+        }
+      }
     }
 
-    final beforeRegistering = _credentials!;
+    final beforeRegistering = credentials;
     // The install's own token, while inside its lifetime by the phone's clock (amendment A3). A
     // refused token was forgotten above, so a registration after a 401 carries none.
     final reRegistrationToken = beforeRegistering.hasUnexpiredTokenAt(now)
@@ -167,7 +172,7 @@ class ListenerInstallRepository {
     switch (result) {
       case ListenerInstallRegistered(credentials: final registered):
         _credentials = registered;
-        _isTokenFromThisRun = true;
+        _tokenFromThisRun = registered.installToken;
         await _storeQuietly(
           'store the new token',
           () => _store.saveRegistration(
@@ -178,10 +183,11 @@ class ListenerInstallRepository {
         );
         return result;
       case ListenerInstallNotRegistered():
-        // A renewal that failed may keep a token still in date; a version change may not, because
-        // nothing is sent with the old token in between (contract §1.1).
-        if (!isTokenRefused &&
-            isRegisteredWithThisVersion &&
+        // A renewal that failed may keep a token still in date; a refused token may not, and
+        // neither may a version change, because nothing is sent with the old token in between
+        // (contract §1.1).
+        if (beforeRegistering.installToken != refusedToken &&
+            beforeRegistering.isRegisteredWith(_registration.appVersion) &&
             beforeRegistering.hasUnexpiredTokenAt(now)) {
           return ListenerInstallRegistered(beforeRegistering);
         }
@@ -189,23 +195,52 @@ class ListenerInstallRepository {
     }
   }
 
-  /// The install as stored, made on first launch. When storage cannot be read, an install id for
-  /// this run only, so the listener can still identify; the API then sees a new install at each
-  /// such launch, which its per-address limit allows for.
+  /// Whether [credentials]' token can be sent without registering first: there is one, the API
+  /// has not just refused it, it was registered with the version running, and either the API gave
+  /// it to this run or the phone's clock says it is not yet due for renewal.
+  bool _canSendAsItIs(
+    ListenerInstallCredentials credentials, {
+    required String? refusedToken,
+    required DateTime now,
+  }) {
+    final installToken = credentials.installToken;
+    return installToken != null &&
+        installToken != refusedToken &&
+        credentials.isRegisteredWith(_registration.appVersion) &&
+        (installToken == _tokenFromThisRun || !credentials.needsRegistrationAt(now));
+  }
+
+  /// The install as stored now, made on first launch. It is read again before every decision (the
+  /// store reloads), so what another engine stored since is what counts (P6-D45). When storage
+  /// cannot be read, this run's own copy, or before there is one an install id for this run only,
+  /// so the listener can still identify; the API then sees a new install at each such launch,
+  /// which its per-address limit allows for.
   Future<ListenerInstallCredentials> _loadCredentials() async {
-    final known = _credentials;
-    if (known != null) return known;
-    ListenerInstallCredentials loaded;
     try {
-      loaded = await _store.readOrCreate();
+      return _credentials = await _store.readOrCreate();
     } on Object catch (error) {
       _developmentLog.recordEvent(
         'listener install could not be read',
         detail: error.runtimeType.toString(),
       );
-      loaded = ListenerInstallCredentials(installId: _randomUuid.generate());
+      return _credentials ??= ListenerInstallCredentials(installId: _randomUuid.generate());
     }
-    return _credentials = loaded;
+  }
+
+  /// Forgets [refusedToken] in the store while it is still the stored token. When storage fails,
+  /// the token is forgotten in memory only, and the registration goes ahead.
+  Future<_Forgetting> _forgetQuietly(String refusedToken) async {
+    try {
+      return await _store.forgetToken(refusedToken)
+          ? _Forgetting.forgotten
+          : _Forgetting.keptAnotherEnginesToken;
+    } on Object catch (error) {
+      _developmentLog.recordEvent(
+        'listener install could not forget the refused token',
+        detail: error.runtimeType.toString(),
+      );
+      return _Forgetting.failed;
+    }
   }
 
   Future<void> _storeQuietly(String what, Future<void> Function() write) async {
@@ -219,4 +254,16 @@ class ListenerInstallRepository {
       );
     }
   }
+}
+
+/// What became of a refused token in the store.
+enum _Forgetting {
+  /// It was the stored token, and is gone.
+  forgotten,
+
+  /// Another engine had stored a new token since; that one stays.
+  keptAnotherEnginesToken,
+
+  /// The store could not be read or written.
+  failed,
 }

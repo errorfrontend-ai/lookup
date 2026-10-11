@@ -1,3 +1,5 @@
+import 'dart:math' show max;
+
 import 'dart_source_file.dart';
 import 'dart_source_tree.dart';
 import 'naming_rules.dart';
@@ -121,12 +123,20 @@ final class SourceRule {
       );
 
   /// A rule that fails when words the listener sees are written in code instead of the ARB files
-  /// (design §3.17, §4.5; P6-LOCALISATION-01): a string literal with a letter outside its
-  /// interpolations, passed to `Text(` or `TextSpan(text:`, or as a label, a tooltip, a screen
-  /// reader's label or a field's hint. A literal that only interpolates (`'$number'`) carries no
-  /// words of its own and passes; [allowedLiterals] lists, by path, literals that are never shown.
+  /// (design §3.17, §4.5; P6-LOCALISATION-01). A literal that only interpolates (`'$number'`)
+  /// carries no words of its own and passes; [allowedLiterals] lists, by path, literals that are
+  /// never shown (route paths, crash-report descriptions, font names).
+  ///
+  /// - In widget code ([widgetCode]: `app/`, `core/widgets/`, each feature's `presentation/`), every
+  ///   string literal with a letter outside its escapes and interpolations fails, wherever it
+  ///   stands: a screen's own word parameters (`heading:`, `explanation:`, `text:`), an arm of a
+  ///   conditional or a `switch`, a constant or a list passed to a widget later, a local variable.
+  ///   Only `import`, `export` and `part` addresses are left out.
+  /// - Everywhere else, such a literal fails where a widget takes words: passed to `Text(` or
+  ///   `TextSpan(text:`, or as a label, a tooltip, a screen reader's label or a field's hint.
   factory SourceRule.wordsOutsideLanguageFiles({
     required RegExp onlyPathsMatching,
+    required RegExp widgetCode,
     Map<String, Set<String>> allowedLiterals = const {},
   }) => SourceRule._(
     name: 'words written outside the ARB files',
@@ -135,13 +145,21 @@ final class SourceRule {
         'language is added with one ARB file (§3.17, P6-LOCALISATION-01)',
     onlyPathsMatching: onlyPathsMatching,
     findIn: (file) {
+      bool isFound(DartStringLiteral literal) =>
+          _hasOwnWords(literal.value) &&
+          !(allowedLiterals[file.path]?.contains(literal.value) ?? false);
+      if (widgetCode.hasMatch(file.path)) {
+        return [
+          for (final literal in file.stringLiterals)
+            if (!_isDirectiveAddress(file.code, literal) && isFound(literal))
+              'line ${literal.lineNumber}: \'${literal.value}\'',
+        ];
+      }
       final literalsByOffset = {for (final literal in file.stringLiterals) literal.offset: literal};
       return [
         for (final match in _shownWordsPosition.allMatches(file.code))
           if (_literalStartingAt(file.code, match.end, literalsByOffset) case final literal?)
-            if (_hasOwnWords(literal.value) &&
-                !(allowedLiterals[file.path]?.contains(literal.value) ?? false))
-              'line ${literal.lineNumber}: \'${literal.value}\'',
+            if (isFound(literal)) 'line ${literal.lineNumber}: \'${literal.value}\'',
       ];
     },
   );
@@ -207,6 +225,16 @@ final class SourceRule {
   /// Whether [value] has a letter of its own, outside its escapes and interpolations.
   static bool _hasOwnWords(String value) =>
       _letter.hasMatch(value.replaceAll(_escapesAndInterpolations, ''));
+
+  /// Whether [literal] is the address of an `import`, `export` or `part` directive: the statement
+  /// it stands in, read back in [code] to the end of the one before it, starts with that keyword.
+  static bool _isDirectiveAddress(String code, DartStringLiteral literal) {
+    final before = code.substring(0, literal.offset);
+    final statementStart = [';', '{', '}'].map(before.lastIndexOf).fold(-1, max) + 1;
+    return _directiveKeyword.hasMatch(before.substring(statementStart));
+  }
+
+  static final RegExp _directiveKeyword = RegExp(r'^\s*(?:import|export|part)\b');
 
   static final RegExp _bannedDomainWordInText = RegExp(
     r'\b(?:tenants?|customers?|spots?|payloads?)\b',

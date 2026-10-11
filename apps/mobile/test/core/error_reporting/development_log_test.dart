@@ -117,21 +117,31 @@ void main() {
     });
 
     test('never in staging or production, even with the flags forced on', () {
+      final forcedFlags = [
+        (showsDeveloperTools: true, writesVerboseLogs: false),
+        (showsDeveloperTools: true, writesVerboseLogs: true),
+      ];
       for (final flavour in [AppFlavour.staging, AppFlavour.production]) {
-        final forced = logFor(
-          MisbuiltAppConfiguration(
-            flavour: flavour,
-            apiBaseUrl: 'https://api.lookup.invalid/api/v1',
-          ),
-        );
-        expect(forced.recordsNoAnswerReasons, isFalse);
-        forced.recordRequest(
-          method: 'POST',
-          path: 'recognize',
-          requestId: '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
-          duration: Duration.zero,
-          noAnswerReason: 'timedOut',
-        );
+        for (final flags in forcedFlags) {
+          final forced = logFor(
+            MisbuiltAppConfiguration(
+              flavour: flavour,
+              apiBaseUrl: 'https://api.lookup.invalid/api/v1',
+              showsDeveloperTools: flags.showsDeveloperTools,
+              writesVerboseLogs: flags.writesVerboseLogs,
+            ),
+          );
+          expect(forced.isOn, isFalse, reason: '$flavour $flags');
+          expect(forced.recordsNoAnswerReasons, isFalse, reason: '$flavour $flags');
+          forced.recordRequest(
+            method: 'POST',
+            path: 'recognize',
+            requestId: '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+            duration: Duration.zero,
+            noAnswerReason: 'timedOut',
+          );
+          writeOneOfEach(forced);
+        }
       }
       expect(lines, isEmpty);
     });

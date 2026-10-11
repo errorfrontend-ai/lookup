@@ -448,35 +448,157 @@ void main() {
     });
   });
 
-  test('two engines: a token one stored is the one the other uses next (P6-D45)', () async {
-    storedFromEarlierLaunch(
-      token: _firstToken,
-      expiresAt: clock.now().add(const Duration(days: 20)),
-    );
-    // The foreground engine's cached preferences, opened before the background engine's.
-    final foregroundPreferences = await SharedPreferences.getInstance();
-    SharedPreferences.resetStatic();
-    final backgroundPreferences = await SharedPreferences.getInstance();
-    adapter.answerJson(200, _registrationAnswer(_secondToken));
-    final background = launch(
+  group('two engines running at once (P6-D45)', () {
+    // The app's engine and a background job's engine: each its own repository, with its own cached
+    // preferences over the same stored values. The foreground engine is already running, so it has
+    // read the stored token before the background engine replaces it.
+    late SharedPreferences foregroundPreferences;
+    late SharedPreferences backgroundPreferences;
+
+    Future<void> openBothEngines() async {
+      foregroundPreferences = await SharedPreferences.getInstance();
+      SharedPreferences.resetStatic();
+      backgroundPreferences = await SharedPreferences.getInstance();
+    }
+
+    ListenerInstallRepository engineOver(
+      SharedPreferences Function() preferences, {
+      Future<void> Function()? beforeEachOpen,
+    }) => launch(
       store: ListenerInstallStore(
         randomUuid: RandomUuid(),
-        openPreferences: () async => backgroundPreferences,
+        openPreferences: () async {
+          await beforeEachOpen?.call();
+          return preferences();
+        },
       ),
-    );
-    expect(
-      tokenOf(await background.registerAgainAfterRefusal(refusedToken: _firstToken)),
-      _secondToken,
     );
 
-    final foreground = launch(
-      store: ListenerInstallStore(
-        randomUuid: RandomUuid(),
-        openPreferences: () async => foregroundPreferences,
-      ),
+    test(
+      'a token the background engine stored is the one the running foreground engine uses next',
+      () async {
+        storedFromEarlierLaunch(
+          token: _firstToken,
+          expiresAt: clock.now().add(const Duration(days: 20)),
+        );
+        await openBothEngines();
+        final foreground = engineOver(() => foregroundPreferences);
+        expect(tokenOf(await foreground.ensureRegistered()), _firstToken);
+
+        adapter.answerJson(200, _registrationAnswer(_secondToken));
+        final background = engineOver(() => backgroundPreferences);
+        expect(
+          tokenOf(await background.registerAgainAfterRefusal(refusedToken: _firstToken)),
+          _secondToken,
+        );
+        expect(adapter.requests, hasLength(1));
+
+        expect(tokenOf(await foreground.ensureRegistered()), _secondToken);
+        expect(adapter.requests, hasLength(1), reason: 'the foreground registers nothing itself');
+      },
     );
-    expect(tokenOf(await foreground.ensureRegistered()), _secondToken);
-    expect(adapter.requests, hasLength(1));
+
+    test('a renewal by the background engine saves the foreground engine its own', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(hours: 36)),
+      );
+      await openBothEngines();
+      final foreground = engineOver(() => foregroundPreferences);
+      expect(tokenOf(await foreground.ensureRegistered()), _firstToken);
+
+      clock.advance(const Duration(hours: 14)); // 22 hours left: due for renewal
+      adapter.answerJson(200, _registrationAnswer(_secondToken));
+      expect(
+        tokenOf(await engineOver(() => backgroundPreferences).ensureRegistered()),
+        _secondToken,
+      );
+      expect(adapter.requests.single.header('Authorization'), 'Bearer $_firstToken');
+
+      expect(tokenOf(await foreground.ensureRegistered()), _secondToken);
+      expect(adapter.requests, hasLength(1));
+    });
+
+    test(
+      'a 401 for the old token leaves the token the background engine stored, and uses it',
+      () async {
+        storedFromEarlierLaunch(
+          token: _firstToken,
+          expiresAt: clock.now().add(const Duration(days: 20)),
+        );
+        await openBothEngines();
+        final foreground = engineOver(() => foregroundPreferences);
+        expect(tokenOf(await foreground.ensureRegistered()), _firstToken);
+        adapter.answerJson(200, _registrationAnswer(_secondToken));
+        await engineOver(
+          () => backgroundPreferences,
+        ).registerAgainAfterRefusal(refusedToken: _firstToken);
+
+        // The foreground's own request with the old token was refused too.
+        final result = await foreground.registerAgainAfterRefusal(refusedToken: _firstToken);
+        expect(tokenOf(result), _secondToken);
+        expect(adapter.requests, hasLength(1));
+        await foregroundPreferences.reload();
+        expect(foregroundPreferences.getString('listener_install_token'), _secondToken);
+      },
+    );
+
+    test(
+      'a token stored between the foreground reading its refused token and forgetting it is kept',
+      () async {
+        storedFromEarlierLaunch(
+          token: _firstToken,
+          expiresAt: clock.now().add(const Duration(days: 20)),
+        );
+        await openBothEngines();
+        final background = ListenerInstallStore(
+          randomUuid: RandomUuid(),
+          openPreferences: () async => backgroundPreferences,
+        );
+        var opens = 0;
+        final foreground = engineOver(
+          () => foregroundPreferences,
+          beforeEachOpen: () async {
+            opens += 1;
+            // The second open is the one that forgets the refused token: the background engine has
+            // just registered and stored its own.
+            if (opens == 2) {
+              await background.saveRegistration(
+                installToken: _secondToken,
+                expiresAt: clock.now().add(const Duration(days: 30)),
+                appVersion: AppVersion.current,
+              );
+            }
+          },
+        );
+
+        final result = await foreground.registerAgainAfterRefusal(refusedToken: _firstToken);
+        expect(tokenOf(result), _secondToken);
+        expect(adapter.requests, isEmpty, reason: 'the stored replacement is used, not registered');
+        await backgroundPreferences.reload();
+        expect(backgroundPreferences.getString('listener_install_token'), _secondToken);
+      },
+    );
+
+    test('the install id and token for scrubbing are the stored ones, read again', () async {
+      storedFromEarlierLaunch(
+        token: _firstToken,
+        expiresAt: clock.now().add(const Duration(days: 20)),
+      );
+      await openBothEngines();
+      final foreground = engineOver(() => foregroundPreferences);
+      expect(tokenOf(await foreground.ensureRegistered()), _firstToken);
+      expect((await foreground.readKnownCredentials())?.installToken, _firstToken);
+      await ListenerInstallStore(
+        randomUuid: RandomUuid(),
+        openPreferences: () async => backgroundPreferences,
+      ).saveRegistration(
+        installToken: _secondToken,
+        expiresAt: clock.now().add(const Duration(days: 30)),
+        appVersion: AppVersion.current,
+      );
+      expect((await foreground.readKnownCredentials())?.installToken, _secondToken);
+    });
   });
 
   test('a token from this run is used until refused, however wrong the phone clock is', () async {

@@ -210,6 +210,16 @@
     {
       "item_kind": "DEFERRED_CLIP",
       "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
@@ -244,6 +254,19 @@
       "wait": {
         "kind": "SECONDS",
         "seconds": 3600
+      }
+    },
+    {
+      "item_kind": "DEFERRED_CLIP",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
       }
     },
     {
@@ -588,6 +611,16 @@
     {
       "item_kind": "STATION_CHOICE",
       "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
@@ -604,6 +637,19 @@
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "STATION_CHOICE",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": null,
       "retry_after_seconds": null,
       "action": "PAUSE_GROUP",
       "wait": {
@@ -905,6 +951,16 @@
     {
       "item_kind": "ENGAGEMENT",
       "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
@@ -921,6 +977,19 @@
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "ENGAGEMENT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": null,
       "retry_after_seconds": null,
       "action": "PAUSE_GROUP",
       "wait": {
@@ -1212,6 +1281,16 @@
     {
       "item_kind": "RECOGNITION_REPORT",
       "answer": "HTTP",
+      "http_status": 426,
+      "http_status_class": null,
+      "error_code": null,
+      "retry_after_seconds": null,
+      "action": "PAUSE_ALL_UNTIL_APP_VERSION_CHANGES",
+      "wait": null
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
@@ -1228,6 +1307,19 @@
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "RECOGNITION_REPORT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": null,
       "retry_after_seconds": null,
       "action": "PAUSE_GROUP",
       "wait": {
@@ -1474,6 +1566,19 @@
       "http_status": 429,
       "http_status_class": null,
       "error_code": "RATE_LIMITED",
+      "retry_after_seconds": null,
+      "action": "PAUSE_GROUP",
+      "wait": {
+        "kind": "SECONDS",
+        "seconds": 60
+      }
+    },
+    {
+      "item_kind": "CLIENT_ERROR_REPORT",
+      "answer": "HTTP",
+      "http_status": 429,
+      "http_status_class": null,
+      "error_code": null,
       "retry_after_seconds": null,
       "action": "PAUSE_GROUP",
       "wait": {

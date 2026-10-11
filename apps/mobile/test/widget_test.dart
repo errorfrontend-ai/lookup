@@ -9,6 +9,9 @@ import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:lookup_listener/core/theme/look_up_theme.dart';
+import 'package:lookup_listener/core/theme/look_up_tokens.dart';
+import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
@@ -108,6 +111,37 @@ void main() {
     expect(FlutterError.onError, same(flutterErrorHandler));
     expect(PlatformDispatcher.instance.onError, same(platformErrorHandler));
     expect(ErrorWidget.builder, same(errorWidgetBuilder));
+  });
+
+  testWidgets('on a phone set to dark, a refused configuration shows the set-up screen in the dark '
+      'theme, as the app builds it (P6-THEME-01)', (tester) async {
+    final semantics = tester.ensureSemantics();
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    final started = start(
+      AppConfiguration.check({
+        AppConfiguration.flavourDefine: 'production',
+        AppConfiguration.apiBaseUrlDefine: 'http://api.lookup.invalid/api/v1',
+      }, gradleFlavour: 'production'),
+    );
+    expect(started, isFalse);
+    await tester.pumpWidget(startedApp!);
+    await tester.pump();
+
+    final darkTheme = LookUpTheme.dark();
+    final theme = Theme.of(tester.element(find.byType(SetUpProblemScreen)));
+    // Theme.of gives the app's theme with the text geometry of the language's script applied.
+    expect(
+      theme,
+      ThemeData.localize(
+        darkTheme,
+        darkTheme.typography.geometryThemeFor(ScriptCategory.englishLike),
+      ),
+    );
+    expect(theme.brightness, Brightness.dark);
+    expect(theme.extension<LookUpTokens>(), LookUpTokens.dark);
+    await expectLater(tester, meetsGuideline(textContrastGuideline));
+    semantics.dispose();
   });
 
   testWidgets('a refused development build lists its problems for the developer', (tester) async {

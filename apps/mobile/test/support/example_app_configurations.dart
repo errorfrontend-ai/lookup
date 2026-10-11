@@ -34,12 +34,19 @@ abstract final class ExampleAppConfigurations {
   static const String supportWhatsAppNumber = '+260971234567';
 }
 
-/// A configuration the start-up check would refuse (production or staging over plain http), which
-/// [AppConfiguration]'s own constructor cannot make: it stands for a mis-built app, to prove the API
-/// client refuses plain http on its own (S4-D25).
+/// A configuration the start-up check would refuse (production or staging over plain http, or with
+/// development flags on), which [AppConfiguration]'s own constructor cannot make: it stands for a
+/// mis-built app, to prove the API client refuses plain http on its own (S4-D25) and the device log
+/// stays silent outside development whatever flags are forced on (S4-PRIVACY-04).
 class MisbuiltAppConfiguration implements AppConfiguration {
-  MisbuiltAppConfiguration({required this.flavour, required String apiBaseUrl})
-    : apiBaseUrl = Uri.parse(apiBaseUrl);
+  /// [showsDeveloperTools] and [writesVerboseLogs] are the development flags forced on; verbose logs
+  /// are on unless a test says otherwise.
+  MisbuiltAppConfiguration({
+    required this.flavour,
+    required String apiBaseUrl,
+    this.showsDeveloperTools = false,
+    this.writesVerboseLogs = true,
+  }) : apiBaseUrl = Uri.parse(apiBaseUrl);
 
   @override
   final AppFlavour flavour;
@@ -54,11 +61,10 @@ class MisbuiltAppConfiguration implements AppConfiguration {
   bool get showsErrorDetails => false;
 
   @override
-  bool get showsDeveloperTools => false;
+  final bool showsDeveloperTools;
 
-  /// On, to prove the log still stays silent outside development.
   @override
-  bool get writesVerboseLogs => true;
+  final bool writesVerboseLogs;
 
   @override
   String? get supportWhatsAppNumber => null;

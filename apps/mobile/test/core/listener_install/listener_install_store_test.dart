@@ -107,13 +107,13 @@ void main() {
     expect(read?.registeredAppVersion, '0.1.0+1');
   });
 
-  test('forgetting the token keeps the install id', () async {
+  test('forgetting the refused token keeps the install id', () async {
     SharedPreferences.setMockInitialValues({
       'listener_install_id': _storedInstallId,
       'listener_install_token': 'aaa.bbb.ccc',
       'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
     });
-    await _newStore().forgetToken();
+    expect(await _newStore().forgetToken('aaa.bbb.ccc'), isTrue);
     final read = await _newStore().read();
     expect(read?.installId, _storedInstallId);
     expect(read?.installToken, isNull);
@@ -125,8 +125,38 @@ void main() {
       'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
       'listener_install_registered_app_version': '0.1.0+1',
     });
-    await _newStore().forgetToken();
+    expect(await _newStore().forgetToken('aaa.bbb.ccc'), isTrue);
     expect((await _newStore().read())?.registeredAppVersion, '0.1.0+1');
+  });
+
+  test('two engines: a token the other engine stored after the refusal is kept (P6-D45)', () async {
+    SharedPreferences.setMockInitialValues({
+      'listener_install_id': _storedInstallId,
+      'listener_install_token': 'refused.token.value',
+      'listener_install_token_expires_at': '2026-11-07T12:00:00.000Z',
+    });
+    final foregroundPreferences = await SharedPreferences.getInstance();
+    SharedPreferences.resetStatic();
+    final backgroundPreferences = await SharedPreferences.getInstance();
+    final foreground = ListenerInstallStore(
+      randomUuid: RandomUuid(),
+      openPreferences: () async => foregroundPreferences,
+    );
+    final background = ListenerInstallStore(
+      randomUuid: RandomUuid(),
+      openPreferences: () async => backgroundPreferences,
+    );
+    expect((await foreground.read())?.installToken, 'refused.token.value');
+    await background.saveRegistration(
+      installToken: 'from.the.background',
+      expiresAt: DateTime.utc(2026, 11, 8, 12),
+      appVersion: '0.1.0+1',
+    );
+
+    expect(await foreground.forgetToken('refused.token.value'), isFalse);
+    final read = await foreground.read();
+    expect(read?.installToken, 'from.the.background');
+    expect(read?.tokenExpiresAt, DateTime.utc(2026, 11, 8, 12));
   });
 
   test('a token without a readable expiry is treated as no token', () async {

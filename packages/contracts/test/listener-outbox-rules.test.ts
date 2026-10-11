@@ -8,6 +8,7 @@ import {
   LISTENER_OUTBOX_GROUP_OF_KIND,
   LISTENER_OUTBOX_ITEM_KINDS,
   LISTENER_OUTBOX_TIMING_RULES,
+  type ListenerOutboxAcknowledgementAction,
   type ListenerOutboxItemKind,
 } from '../src/recognition/listener-outbox-rules.js';
 import { readFixtureFile, readFixtureFolder } from './fixtures.js';
@@ -56,6 +57,35 @@ function decidingRow(kind: ListenerOutboxItemKind, httpStatus: number, errorCode
 
 const rowFor = (kind: ListenerOutboxItemKind, httpStatus: number, errorCode: string | null, retryAfterSeconds: number | null) =>
   rows.find((row) => row.item_kind === kind && row.answer === 'HTTP' && row.http_status === httpStatus && row.error_code === errorCode && row.retry_after_seconds === retryAfterSeconds);
+
+/** A code no catalogue holds, as a proxy in front of the API or a later API version might send. */
+const CODE_THE_CATALOGUE_LACKS = 'A_CODE_THE_CATALOGUE_LACKS';
+
+/**
+ * What the design does with an answer that carries no code, or a code the catalogue lacks, and no
+ * Retry-After ("An unknown code is handled by its HTTP status", contract §1.0). The statuses come from
+ * contract §3's acknowledgement table: the success status deletes; another 400, 403, 404, 405, 413 or 415
+ * deletes and reports; 401 registers again (a crash report is deleted); 409 waits (correction 4: every
+ * kind); 426 pauses everything until the app version changes (a crash report is kept and backs off);
+ * 429 pauses the item's group; 500 backs off; 502, 503 and 504 back off, except that a deferred clip
+ * pauses the clips group (P6-D38). Every other status takes its class default (P6 correction 11): another
+ * 2xx deletes (and reports, for a clip), another 3xx or 4xx deletes and reports (never a report about a
+ * crash report), another 5xx backs off.
+ */
+function designedActionWithoutCode(kind: ListenerOutboxItemKind, httpStatus: number): ListenerOutboxAcknowledgementAction {
+  const isClip = kind === 'DEFERRED_CLIP';
+  const isCrashReport = kind === 'CLIENT_ERROR_REPORT';
+  const successStatus = isClip ? 200 : isCrashReport ? 202 : 204;
+  if (httpStatus === successStatus) return 'DELETE';
+  if (httpStatus === 401) return isCrashReport ? 'DELETE' : 'REGISTER_AGAIN_AND_RESEND';
+  if (httpStatus === 409) return 'ITEM_WAITS';
+  if (httpStatus === 426) return isCrashReport ? 'ITEM_BACKS_OFF' : 'PAUSE_ALL_UNTIL_APP_VERSION_CHANGES';
+  if (httpStatus === 429) return 'PAUSE_GROUP';
+  if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) return isClip ? 'PAUSE_GROUP' : 'ITEM_BACKS_OFF';
+  if (httpStatus < 300) return isClip ? 'DELETE_AND_REPORT' : 'DELETE';
+  if (httpStatus < 500) return isCrashReport ? 'DELETE' : 'DELETE_AND_REPORT';
+  return 'ITEM_BACKS_OFF';
+}
 
 describe('the outbox timing rules', () => {
   it('timing-rules.json holds exactly the numbers of listener-outbox-rules.ts', () => {
@@ -114,13 +144,45 @@ describe('the outbox acknowledgement rules', () => {
     }
   });
 
-  it('gives every kind an action for every status from 200 to 599, through the default rows (P6-D39)', () => {
+  it('gives every kind the designed action for every status from 200 to 599, through the default rows (P6-D39)', () => {
+    expect(ERROR_CATALOG[CODE_THE_CATALOGUE_LACKS]).toBeUndefined();
     for (const kind of LISTENER_OUTBOX_ITEM_KINDS) {
       for (const statusClass of ['2xx', '3xx', '4xx', '5xx']) {
         expect(rows.some((row) => row.item_kind === kind && row.http_status_class === statusClass), `${kind} ${statusClass}`).toBe(true);
       }
-      for (let httpStatus = 200; httpStatus <= 599; httpStatus += 1) expect(decidingRow(kind, httpStatus, null), `${kind} ${httpStatus}`).toBeDefined();
+      for (let httpStatus = 200; httpStatus <= 599; httpStatus += 1) {
+        for (const errorCode of [null, CODE_THE_CATALOGUE_LACKS]) {
+          expect(decidingRow(kind, httpStatus, errorCode)?.action, `${kind} ${httpStatus} ${errorCode}`).toBe(designedActionWithoutCode(kind, httpStatus));
+        }
+      }
       for (const answer of ['NO_ANSWER', 'PHONE_FAULT'] as const) expect(rows.some((row) => row.item_kind === kind && row.answer === answer), `${kind} ${answer}`).toBe(true);
+    }
+  });
+
+  it('a 429 with no code, or a code the catalogue lacks, pauses the item\'s group for 60 s, for every kind (contract §1.0 and §3)', () => {
+    for (const kind of LISTENER_OUTBOX_ITEM_KINDS) {
+      for (const errorCode of [null, CODE_THE_CATALOGUE_LACKS]) {
+        expect(decidingRow(kind, 429, errorCode), `${kind} ${errorCode}`).toMatchObject({
+          http_status: 429,
+          error_code: null,
+          retry_after_seconds: null,
+          action: 'PAUSE_GROUP',
+          wait: { kind: 'SECONDS', seconds: 60 },
+        });
+      }
+    }
+  });
+
+  it('a 426 with no code, or a code the catalogue lacks, pauses everything until the app version changes, for every install-token route (contract §1.0 and §3)', () => {
+    for (const kind of ['DEFERRED_CLIP', ...FOLLOW_UP_KINDS] as const) {
+      for (const errorCode of [null, CODE_THE_CATALOGUE_LACKS]) {
+        expect(decidingRow(kind, 426, errorCode), `${kind} ${errorCode}`).toMatchObject({
+          http_status: 426,
+          error_code: null,
+          action: 'PAUSE_ALL_UNTIL_APP_VERSION_CHANGES',
+          wait: null,
+        });
+      }
     }
   });
 

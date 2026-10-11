@@ -159,6 +159,10 @@ void plantedConfirm(ScaffoldMessengerState messenger, LookUpTokens tokens, bool 
       () {
         copy
           ..writeFile('features/identify/presentation/planted_allowed_words.dart', r'''
+import 'package:flutter/material.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart' show AppLocalizations;
+export 'planted_part.dart';
+
 Widget plantedHeading(AppLocalizations words, int number, Object failure) => Column(
   children: [
     Text(words.homeHeading),
@@ -424,6 +428,78 @@ final List<_PlantedViolation> _plantedViolations = [
     'words written outside the ARB files',
     'app/planted_tooltip.dart',
     "Widget plantedBack() => IconButton(onPressed: null, tooltip: r'Back', icon: icon);\n",
+  ),
+  // The shapes the screens use to pass words on (P6-LOCALISATION-01): a screen's own word
+  // parameters, conditional and switch arms, constants, lists and local variables.
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/presentation/planted_word_parameter.dart',
+    'Widget plantedNoConnection(AppLocalizations words) => PlantedErrorLayout(\n'
+        "  heading: 'No connection',\n"
+        '  explanation: words.errorNoConnectionExplanation,\n'
+        ');\n',
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/presentation/planted_listening_text.dart',
+    'Widget plantedListening(AppLocalizations words) =>\n'
+        "    ListeningLayout(heading: words.listeningHeading, text: 'Hold your phone near the radio.');\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/presentation/planted_conditional_arm.dart',
+    'Widget plantedWait(AppLocalizations words, bool isShortWait) => Text(\n'
+        "  isShortWait ? 'Please wait a minute, then try again.' : words.errorBusyExplanation,\n"
+        ');\n',
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'core/widgets/planted_switch_arm.dart',
+    'Widget plantedProblem(int problem, AppLocalizations words) => Text(\n'
+        '  switch (problem) {\n'
+        "    0 => 'The address is missing',\n"
+        '    _ => words.setUpProblemHeading,\n'
+        '  },\n'
+        ');\n',
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/result/presentation/planted_constant.dart',
+    'abstract final class PlantedTitles {\n'
+        "  static const String plantedTitle = 'Heard an ad on the radio?';\n"
+        '}\n'
+        '\n'
+        'Widget plantedTitle() => const Text(PlantedTitles.plantedTitle);\n',
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'app/planted_tips.dart',
+    "const List<String> plantedTips = ['Hold your phone near the radio', 'Turn it up'];\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/presentation/planted_own_heading.dart',
+    "Widget plantedBusy() => const StateHeading('Busy right now');\n",
+  ),
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/result/presentation/planted_local_variable.dart',
+    'Widget plantedVia(String station) {\n'
+        "  final heading = 'Heard on';\n"
+        "  return Text('\$heading \$station');\n"
+        '}\n',
+  ),
+  // A never-shown literal is allowed only in the file the allow-list names it for.
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'core/widgets/planted_route_path.dart',
+    "const String plantedPath = '/result';\n",
+  ),
+  // Outside widget code, where a widget takes words.
+  const _PlantedViolation(
+    'words written outside the ARB files',
+    'features/identify/domain/planted_domain_text.dart',
+    "Widget plantedNote() => const Text('Heard an ad on the radio?');\n",
   ),
   const _PlantedViolation(
     'MediaQuery.of(context).size',

@@ -17,12 +17,18 @@ Control routes (fake only; refused when forwarded, as through ngrok, and from an
     GET  /__fake/requests         what the app sent: method, path, header names, ids, field names, sizes
     POST /__fake/scenarios        a JSON list of scenario names, each queued for its own route (default: match)
     POST /__fake/offline          {"is_offline": true|false}: "No signal" closes every /api/v1 connection unanswered
-    POST /__fake/phone-number     {"phone_number": "+E.164" or null}: numbers in answers become this one, in memory
+    POST /__fake/phone-number     {"phone_number": "+E.164", "install_id": "<an install that registered lately>"}:
+                                  numbers in answers to that install alone become this one, in memory, for its next
+                                  3 answers that hold a number or 5 minutes; {"phone_number": null} forgets it
     POST /__fake/reset            empties the queues, the logs, the issued tokens and the switches
 
 Every control POST must be JSON, carry no Origin or this page's own, and name this machine as its Host
 (P6-D50). The phone number is never written, logged, echoed or shown: the state and the page say only
-whether one is set.
+whether one is set, for which install and for how long.
+
+A bearer token the fake did not issue (one from before a reset or a restart, or from the real API) gets 401
+INSTALL_TOKEN_INVALID, as from the real guard, so the app registers again; a missing or malformed
+Authorization header is refused with 400, because the app never sends one.
 """
 
 from __future__ import annotations
@@ -32,8 +38,12 @@ import base64
 import html
 import json
 import re
+import math
 import secrets
 import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.parser import BytesParser
 from email.policy import HTTP
@@ -109,6 +119,16 @@ ROUTES = tuple(DEFAULT_SCENARIOS)
 # The headers a tunnel or proxy adds: a control request that carries one came from outside this machine (P6-D30).
 FORWARDING_HEADERS = ('X-Forwarded-For', 'X-Forwarded-Host', 'Forwarded')
 
+# The number for a phone check goes only into answers to the install chosen on the control page, and is forgotten
+# after this many answers that hold a number, or this long after it was set, whichever comes first. Through the tunnel
+# the listener routes are public, so the number must not stay in answers longer than the check needs.
+PHONE_CHECK_ANSWERS = 3
+PHONE_CHECK_LIFETIME_SECONDS = 300
+# How many of the installs that registered lately the control page offers to choose from, newest first.
+RECENT_REGISTRATIONS_KEPT = 6
+# The first characters of an install id, enough for a person to tell installs apart on the control page.
+INSTALL_LABEL_LENGTH = 8
+
 
 class RequestRefused(Exception):
     """A request the real API would refuse: the fake answers 400 and logs why, so the test fails."""
@@ -123,10 +143,28 @@ class ControlRefused(Exception):
         self.status = status
 
 
+@dataclass
+class PhoneCheck:
+    """The number for a phone check, kept in memory only and never written, logged, echoed or shown (P6-D50,
+    correction 12). It goes only into answers to [install_id], the install chosen on the control page, and is
+    forgotten after [answers_left] more answers that hold a number or at [forget_at] by the state's clock."""
+    phone_number: str
+    install_id: str
+    forget_at: float
+    answers_left: int
+
+
+def install_label(install_id: str) -> str:
+    """A short label a person can tell installs apart by on the control page."""
+    return install_id[:INSTALL_LABEL_LENGTH]
+
+
 class FakeState:
-    def __init__(self, save_audio_to: Path | None) -> None:
+    def __init__(self, save_audio_to: Path | None, clock: Callable[[], float] = time.monotonic) -> None:
         self.lock = threading.Lock()
         self.save_audio_to = save_audio_to
+        # Seconds, for how long the phone check's number is kept; a test passes its own clock.
+        self.clock = clock
         self.reset()
 
     def reset(self) -> None:
@@ -137,8 +175,9 @@ class FakeState:
             self.issued_tokens: dict[str, str] = {}
             self.client_error_reports: list[dict[str, Any]] = []
             self.is_offline = False
-            # Kept in memory only; never written, logged, echoed or shown (P6-D50, correction 12).
-            self.replacement_phone_number: str | None = None
+            # The installs that registered lately, oldest first, for choosing the phone's install on the control page.
+            self.recent_registrations: list[dict[str, Any]] = []
+            self.phone_check: PhoneCheck | None = None
 
     def queue(self, names: list[str]) -> None:
         with self.lock:
@@ -150,13 +189,63 @@ class FakeState:
             queue = self.scenarios[route]
             return queue.pop(0) if queue else DEFAULT_SCENARIOS[route]
 
+    def note_registration(self, install_id: str, app_version: str, is_through_tunnel: bool) -> None:
+        """Lists [install_id] as the newest registration, with its time and whether it came through a tunnel (never
+        the address it came from)."""
+        with self.lock:
+            kept = [entry for entry in self.recent_registrations if entry['install_id'] != install_id]
+            kept.append({'install_id': install_id, 'install_label': install_label(install_id),
+                         'registered_at': datetime.now().astimezone().strftime('%H:%M:%S'),
+                         'app_version': app_version, 'is_through_tunnel': is_through_tunnel})
+            self.recent_registrations = kept[-RECENT_REGISTRATIONS_KEPT:]
+
+    def start_phone_check(self, phone_number: str, install_id: str) -> bool:
+        """Puts [phone_number] into the next answers to [install_id]; false when that install did not register lately,
+        so the page can only choose an install it lists."""
+        with self.lock:
+            if not any(entry['install_id'] == install_id for entry in self.recent_registrations):
+                return False
+            self.phone_check = PhoneCheck(phone_number=phone_number, install_id=install_id,
+                                          forget_at=self.clock() + PHONE_CHECK_LIFETIME_SECONDS,
+                                          answers_left=PHONE_CHECK_ANSWERS)
+            return True
+
+    def stop_phone_check(self) -> None:
+        with self.lock:
+            self.phone_check = None
+
+    def take_phone_number_for(self, install_id: str | None) -> str | None:
+        """The number for one answer that holds a number, when the answer goes to the chosen install; that answer
+        counts towards PHONE_CHECK_ANSWERS. None for every other install, and once the check is over."""
+        with self.lock:
+            check = self.current_phone_check()
+            if check is None or install_id != check.install_id:
+                return None
+            check.answers_left -= 1
+            if check.answers_left <= 0:
+                self.phone_check = None
+            return check.phone_number
+
+    def current_phone_check(self) -> PhoneCheck | None:
+        """The phone check still under way, forgetting one whose time is up. The caller holds the lock."""
+        if self.phone_check is not None and self.clock() >= self.phone_check.forget_at:
+            self.phone_check = None
+        return self.phone_check
+
     def snapshot(self) -> dict[str, Any]:
         """What the fake holds, as counts and ids only: never an answer, a body or the phone number."""
         with self.lock:
             requests = list(self.requests)
+            check = self.current_phone_check()
             return {
                 'is_offline': self.is_offline,
-                'replaces_phone_numbers': self.replacement_phone_number is not None,
+                'replaces_phone_numbers': check is not None,
+                'phone_check': None if check is None else {
+                    'install_label': install_label(check.install_id),
+                    'answers_left': check.answers_left,
+                    'seconds_left': max(0, math.ceil(check.forget_at - self.clock())),
+                },
+                'recent_registrations': [dict(entry) for entry in reversed(self.recent_registrations)],
                 'queued': {route: list(names) for route, names in self.scenarios.items()},
                 'request_counts': {
                     path: sum(1 for request in requests if request.get('path') == path)
@@ -186,6 +275,8 @@ def outcome_of(request: dict[str, Any]) -> str:
         return f"refused: {request['refused']}"
     if 'dropped' in request:
         return f"dropped: {request['dropped']}"
+    if 'token_not_issued' in request:
+        return 'token not issued here: answered 401'
     for key in ('scenario', 'registration', 'client_error_kind'):
         if key in request:
             return str(request[key])
@@ -202,6 +293,16 @@ def add_actions(card: dict[str, Any], extra_actions: list[dict[str, Any]]) -> No
     held_ids = {action['id'] for action in card['actions']}
     new_actions = [action for action in extra_actions if action['id'] not in held_ids]
     card['actions'] = (card['actions'] + new_actions)[:MAXIMUM_ACTIONS_PER_CARD]
+
+
+def holds_phone_numbers(value: Any) -> bool:
+    """Whether [value] holds a `phone_number_e164` at any depth."""
+    if isinstance(value, dict):
+        return any((key == 'phone_number_e164' and isinstance(item, str)) or holds_phone_numbers(item)
+                   for key, item in value.items())
+    if isinstance(value, list):
+        return any(holds_phone_numbers(item) for item in value)
+    return False
 
 
 def replace_phone_numbers(value: Any, phone_number: str) -> Any:
@@ -417,15 +518,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                     self.state.is_offline = body['is_offline']
                 self.answer_json(200, {'is_offline': body['is_offline']})
             elif self.path == '/__fake/phone-number':
-                if not isinstance(body, dict) or set(body) != {'phone_number'}:
-                    raise ControlRefused(400, 'the body must be {"phone_number": "+E.164" or null}')
-                phone_number = body['phone_number']
-                if phone_number is not None and (not isinstance(phone_number, str) or not E164.match(phone_number)):
-                    # The refusal never repeats the value it refused.
-                    raise ControlRefused(400, 'the phone number is not an E.164 number such as +447700900123')
-                with self.state.lock:
-                    self.state.replacement_phone_number = phone_number
-                self.answer_json(200, {'replaces_phone_numbers': phone_number is not None})
+                self.handle_phone_number(body)
             elif self.path == '/__fake/reset':
                 self.state.reset()
                 self.answer_json(200, {'reset': True})
@@ -435,6 +528,24 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             self.answer_control_refusal(refusal)
         except RequestRefused as refused:   # a control body over its size limit
             self.answer_json(413, {'refused': str(refused)})
+
+    def handle_phone_number(self, body: Any) -> None:
+        """Starts a phone check for one install chosen on the control page, or stops it. A refusal never repeats the
+        value it refused."""
+        if isinstance(body, dict) and set(body) == {'phone_number'} and body['phone_number'] is None:
+            self.state.stop_phone_check()
+            self.answer_json(200, {'replaces_phone_numbers': False})
+            return
+        if not isinstance(body, dict) or set(body) != {'phone_number', 'install_id'}:
+            raise ControlRefused(400, 'the body must be {"phone_number": "+E.164", "install_id": "<install>"}'
+                                      ' or {"phone_number": null}')
+        phone_number = body['phone_number']
+        if not isinstance(phone_number, str) or not E164.match(phone_number):
+            raise ControlRefused(400, 'the phone number is not an E.164 number such as +447700900123')
+        install_id = body['install_id']
+        if not isinstance(install_id, str) or not self.state.start_phone_check(phone_number, install_id):
+            raise ControlRefused(400, 'choose one of the installs that registered lately')
+        self.answer_json(200, {'replaces_phone_numbers': True})
 
     # ---- routes ------------------------------------------------------------------------------------
 
@@ -510,19 +621,21 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         token = 'fake.' + base64.urlsafe_b64encode(secrets.token_bytes(24)).decode('ascii').rstrip('=') + '.token'
         with self.state.lock:
             self.state.issued_tokens[token] = body['install_id']
+        is_through_tunnel = any(self.headers.get(name) is not None for name in FORWARDING_HEADERS)
+        self.state.note_registration(body['install_id'], body['app_version'], is_through_tunnel)
         self.record({'request_id': request_id, 'install_id': body['install_id'], 'app_version': body['app_version'],
                      'registration': registration, 'carried_token': carried})
         expires_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(timespec='seconds').replace('+00:00', 'Z')
         self.answer_json(200, {'install_token': token, 'expires_at': expires_at}, request_id)
 
     def handle_recognize(self, request_id: str) -> None:
-        authorization = self.headers.get('Authorization') or ''
-        token = authorization.removeprefix('Bearer ')
+        token = self.bearer_token()
         with self.state.lock:
-            is_known_token = authorization.startswith('Bearer ') and token in self.state.issued_tokens
-        if not is_known_token:
-            raise RequestRefused('recognize needs a bearer token this fake issued')
+            is_issued_token = token in self.state.issued_tokens
         body = self.read_body()
+        if not is_issued_token:
+            self.answer_token_not_issued(request_id)
+            return
         fields, audio = read_multipart(self.headers.get('Content-Type') or '', body)
         check_recognize_fields(fields)
         if audio is None:
@@ -538,6 +651,26 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         self.record({'request_id': request_id, 'idempotency_key': fields['idempotency_key'], 'field_names': sorted(fields),
                      'audio_bytes': len(clip), 'body_bytes': len(body), 'scenario': scenario})
         self.answer_with_scenario(scenario, request_id, token)
+
+    def bearer_token(self) -> str:
+        """The install token of `Authorization: Bearer <token>`. A missing or malformed header is refused (400), so the
+        run fails: the app always sends one on a listener route."""
+        authorization = self.headers.get('Authorization')
+        token = (authorization or '').removeprefix('Bearer ')
+        if authorization is None or not authorization.startswith('Bearer ') or not BEARER_TOKEN.match(token) \
+                or len(token) > 1024:
+            raise RequestRefused('a listener route needs Authorization: Bearer <install token>')
+        return token
+
+    def answer_token_not_issued(self, request_id: str) -> None:
+        """A well-formed token the fake did not issue: one from before a reset or a restart, a withdrawn one, or one
+        from the real API. The real guard answers 401 INSTALL_TOKEN_INVALID (contract §1.0), and the app registers
+        again and resends; it is a correct request, so it is not logged as refused."""
+        self.record({'request_id': request_id, 'token_not_issued': True})
+        envelope = read_fixture('errors/envelopes/install-token-invalid.json')
+        body = envelope['body']
+        body['error']['request_id'] = request_id
+        self.answer_json(envelope['http_status'], body, request_id)
 
     def answer_with_scenario(self, scenario: str, request_id: str, token: str) -> None:
         plan = SCENARIOS[scenario]
@@ -558,10 +691,12 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             response['request_id'] = request_id
             if 'extra_actions_from' in plan:
                 add_actions(response['result']['card'], read_fixture(plan['extra_actions_from'])['card']['actions'])
-            with self.state.lock:
-                replacement = self.state.replacement_phone_number
-            if replacement is not None:
-                response = replace_phone_numbers(response, replacement)
+            if holds_phone_numbers(response):
+                with self.state.lock:
+                    install_id = self.state.issued_tokens.get(token)
+                replacement = self.state.take_phone_number_for(install_id)
+                if replacement is not None:
+                    response = replace_phone_numbers(response, replacement)
             self.answer_json(200, response, request_id)
             return
         envelope = read_fixture(plan['envelope'])
@@ -641,6 +776,9 @@ def render_panel(nonce: str, port: int) -> str:
   button:focus-visible, input:focus-visible {{ outline: 3px solid var(--accent); outline-offset: 2px; }}
   input {{ min-height: 44px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line);
            background: var(--ground); color: var(--ink); font: inherit; width: min(100%, 260px); }}
+  fieldset {{ border: 1px solid var(--line); border-radius: 10px; margin: 0 0 12px; padding: 8px 12px; }}
+  .install {{ display: flex; align-items: center; gap: 8px; min-height: 44px; }}
+  .install input {{ width: auto; min-height: 0; }}
   #status {{ font-weight: 600; }}
   .signal-off {{ color: var(--warning); }}
   table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
@@ -677,8 +815,15 @@ def render_panel(nonce: str, port: int) -> str:
 
   <section aria-labelledby="number-heading">
     <h2 id="number-heading">Phone number for a phone check</h2>
-    <p>Answers then carry this number on their buttons, so a call reaches your own phone. It stays in this
-       stand-in's memory only: it is never saved, logged or shown again. Reset or "Stop replacing" forgets it.</p>
+    <p>Choose your phone's install, then give your number: only answers to that install carry it on their buttons,
+       so a call reaches your own phone. Those answers go to whatever sends that install's requests, through the
+       tunnel too. The number is forgotten after {PHONE_CHECK_ANSWERS} answers that carry it or
+       {PHONE_CHECK_LIFETIME_SECONDS // 60} minutes, whichever comes first; "Stop replacing" or reset forgets it
+       sooner. It stays in this stand-in's memory only: it is never saved, logged or shown again.</p>
+    <fieldset>
+      <legend>Install that gets the number, newest registration first</legend>
+      <div id="installs"></div>
+    </fieldset>
     <label for="phone-number">Number in international form, for example +447700900123</label><br>
     <input id="phone-number" type="tel" inputmode="tel" autocomplete="off" spellcheck="false"
            placeholder="+447700900123">
@@ -718,6 +863,40 @@ def render_panel(nonce: str, port: int) -> str:
     await refresh();
   }}
   function cell(row, text) {{ const td = document.createElement('td'); td.textContent = text ?? ''; row.appendChild(td); }}
+  let chosenInstallId = null;
+  let shownRegistrations = '';
+  function showInstalls(registrations) {{
+    const key = JSON.stringify(registrations);
+    if (key === shownRegistrations) return;
+    shownRegistrations = key;
+    if (!registrations.some((registration) => registration.install_id === chosenInstallId)) chosenInstallId = null;
+    const focused = document.activeElement;
+    const focusedInstallId = focused && focused.name === 'install' ? focused.value : null;
+    const list = document.getElementById('installs');
+    list.replaceChildren();
+    if (!registrations.length) {{
+      const none = document.createElement('p');
+      none.textContent = 'No install has registered yet: open the app on your phone first.';
+      list.appendChild(none);
+      return;
+    }}
+    for (const registration of registrations) {{
+      const choice = document.createElement('label');
+      choice.className = 'install';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'install';
+      radio.value = registration.install_id;
+      radio.checked = registration.install_id === chosenInstallId;
+      radio.addEventListener('change', () => {{ chosenInstallId = radio.value; }});
+      choice.appendChild(radio);
+      choice.appendChild(document.createTextNode('Install ' + registration.install_label + ', registered at '
+        + registration.registered_at + (registration.is_through_tunnel ? ', through the tunnel' : ', from this PC or the emulator')
+        + ', app ' + registration.app_version));
+      list.appendChild(choice);
+      if (registration.install_id === focusedInstallId) radio.focus();
+    }}
+  }}
   async function refresh() {{
     try {{
       const state = await (await fetch('/__fake/state')).json();
@@ -727,8 +906,12 @@ def render_panel(nonce: str, port: int) -> str:
       const signal = document.getElementById('signal');
       signal.textContent = state.is_offline ? 'No signal: requests are cut off.' : 'Signal: requests are answered.';
       signal.className = state.is_offline ? 'signal-off' : '';
-      document.getElementById('number-status').textContent = state.replaces_phone_numbers
-        ? 'Numbers in answers are being replaced.' : 'Numbers in answers are the fixtures\\' own.';
+      showInstalls(state.recent_registrations);
+      const check = state.phone_check;
+      document.getElementById('number-status').textContent = check
+        ? 'Answers to install ' + check.install_label + ' carry your number: at most ' + check.answers_left
+          + ' more, within ' + Math.ceil(check.seconds_left / 60) + ' minutes.'
+        : 'Numbers in answers are the fixtures\\' own.';
       document.getElementById('counts').textContent = 'Registrations: ' + state.registrations
         + ' · re-registrations: ' + state.re_registrations + ' · identifies: ' + state.recognitions.length
         + ' · crash reports: ' + state.client_error_report_ids.length + ' · cut off: ' + state.dropped_while_offline
@@ -753,10 +936,15 @@ def render_panel(nonce: str, port: int) -> str:
   document.getElementById('signal-on').addEventListener('click',
     () => control('/__fake/offline', {{ is_offline: false }}, 'Signal back: requests are answered again.'));
   document.getElementById('use-number').addEventListener('click', () => {{
+    if (chosenInstallId === null) {{
+      statusLine.textContent = 'Choose your phone\\'s install first.';
+      return;
+    }}
     const field = document.getElementById('phone-number');
     const number = field.value.replace(/[\\s-]/g, '');
     field.value = '';
-    control('/__fake/phone-number', {{ phone_number: number }}, 'Numbers in answers now reach that number.');
+    control('/__fake/phone-number', {{ phone_number: number, install_id: chosenInstallId }},
+      'Answers to that install now carry that number.');
   }});
   document.getElementById('stop-number').addEventListener('click',
     () => control('/__fake/phone-number', {{ phone_number: null }}, 'Numbers in answers are the fixtures\\' own again.'));
@@ -770,8 +958,9 @@ def render_panel(nonce: str, port: int) -> str:
 '''
 
 
-def make_server(host: str, port: int, save_audio_to: Path | None) -> ThreadingHTTPServer:
-    handler = type('BoundFakeListenerApi', (FakeListenerApi,), {'state': FakeState(save_audio_to)})
+def make_server(host: str, port: int, save_audio_to: Path | None,
+                clock: Callable[[], float] = time.monotonic) -> ThreadingHTTPServer:
+    handler = type('BoundFakeListenerApi', (FakeListenerApi,), {'state': FakeState(save_audio_to, clock)})
     return ThreadingHTTPServer((host, port), handler)
 
 

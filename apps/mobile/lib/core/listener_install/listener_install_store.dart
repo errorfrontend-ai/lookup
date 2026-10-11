@@ -9,7 +9,8 @@ import 'listener_install_credentials.dart';
 ///
 /// Two Dart engines can share these values (the app's, and a background job's), and each keeps its
 /// own cached copy of `SharedPreferences`. So every read and every write starts with `reload()`:
-/// a token one engine stored is the token the other reads next (P6-D45).
+/// a token one engine stored is the token the other reads next (P6-D45), and a refused token is
+/// removed only while it is still the stored one.
 ///
 /// It uses the package's `SharedPreferences` class rather than the `SharedPreferencesAsync` the
 /// design names, because only `SharedPreferences` can be replaced in tests through the package's
@@ -80,8 +81,16 @@ class ListenerInstallStore {
     _checkWritten(await preferences.setString(registeredAppVersionKey, appVersion));
   }
 
-  /// Forgets the token (the API refused it); the install id and its registered version stay.
-  Future<void> forgetToken() async => _removeToken(await _openFresh());
+  /// Forgets [refusedToken], which the API refused, while it is still the stored token, and gives
+  /// true; the install id and its registered version stay. When another engine has stored a new
+  /// token since the refused one was read, that token stays and the answer is false (P6-D45).
+  Future<bool> forgetToken(String refusedToken) async {
+    final preferences = await _openFresh();
+    final storedToken = preferences.getString(installTokenKey);
+    if (storedToken != null && storedToken.isNotEmpty && storedToken != refusedToken) return false;
+    await _removeToken(preferences);
+    return true;
+  }
 
   /// The preferences with what any engine wrote since this one last read them.
   Future<SharedPreferences> _openFresh() async {
