@@ -112,7 +112,7 @@ void main() {
 
   test('the shared fixtures are found', () {
     expect(responseFixtures, isNotEmpty);
-    expect(envelopeFixtures, hasLength(14));
+    expect(envelopeFixtures, hasLength(19));
   });
 
   group('one send', () {

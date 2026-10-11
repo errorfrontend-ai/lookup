@@ -19,9 +19,17 @@ const String _reportRequestId = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 /// What each recognize-response fixture leads to (§4.4). Every fixture in the folders must be named
 /// here, so a new fixture fails the test until someone decides what the app does with it.
 const Map<String, String> _expectedValidStates = {
+  // The chooser arrives in the P6 design's piece 1; until then every CHOOSE_STATION answer asks for
+  // a newer app.
   'choose-station': 'newer app needed, several stations',
+  'choose-station-deferred': 'newer app needed, several stations',
+  'choose-station-four-candidates': 'newer app needed, several stations',
+  'choose-station-out-of-window': 'newer app needed, several stations',
+  'choose-station-three-candidates': 'newer app needed, several stations',
   'match-campaign': 'matched',
+  'match-campaign-station-b': 'matched',
   'match-client-default': 'fallback',
+  'match-station-without-city': 'matched',
   'match-with-images': 'matched',
   'no-match': 'no match',
   'no-match-deferred-with-offset': 'no match',
@@ -47,6 +55,15 @@ const Map<String, String> _expectedInvalidStates = {
   'recognition-id-version-4': 'no match',
   // A match the screen cannot show.
   'match-without-result': 'server failure, reported',
+  // Choosers the contract refuses: the app reads the status and asks for a newer app, so nothing
+  // from the broken candidates is ever shown.
+  'candidate-with-campaign-id': 'newer app needed, several stations',
+  'choose-station-five-candidates': 'newer app needed, several stations',
+  'choose-station-one-candidate': 'newer app needed, several stations',
+  'choose-station-same-station-twice': 'newer app needed, several stations',
+  'choose-station-with-result': 'newer app needed, several stations',
+  // The station's city is not shown yet, so a missing one changes nothing on the screen.
+  'station-without-city-field': 'matched, read as match-campaign',
 };
 
 /// Where each error envelope leads on a clip's first send (§3.11).
@@ -65,6 +82,13 @@ const Map<String, String> _expectedEnvelopeOutcomes = {
   'service-unavailable': 'busy 10 s, clip kept',
   'unsupported-media-type': 'server failure, reported',
   'validation-failed': 'server failure, reported',
+  // Answers of the routes the next pieces add; on a clip's send they are an app this old's cue to
+  // update (426), or the API refusing what was sent.
+  'action-not-on-card': 'server failure, reported',
+  'app-update-required': 'newer app needed',
+  'not-found': 'server failure, reported',
+  'station-already-chosen': 'server failure, reported',
+  'station-not-a-candidate': 'server failure, reported',
 };
 
 RecognitionAnswer _readResponseFixture(NamedFixture fixture) =>
@@ -143,11 +167,11 @@ void main() {
   );
 
   test(
-    'the loader finds 6 valid and 13 invalid responses and 14 envelopes, each with an expectation',
+    'the loader finds 12 valid and 19 invalid responses and 19 envelopes, each with an expectation',
     () {
-      expect(validResponses, hasLength(6));
-      expect(invalidResponses, hasLength(13));
-      expect(envelopes, hasLength(14));
+      expect(validResponses, hasLength(12));
+      expect(invalidResponses, hasLength(19));
+      expect(envelopes, hasLength(19));
       expect(
         validResponses.map((fixture) => fixture.name).toSet(),
         _expectedValidStates.keys.toSet(),

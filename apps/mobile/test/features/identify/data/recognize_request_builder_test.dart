@@ -43,18 +43,32 @@ void main() {
   final invalidFixtures = ContractFixtures.readFolder('recognition/recognize-request/invalid');
   Map<String, Object?> fieldsOf(NamedFixture fixture) =>
       (fixture.content as Map<String, Object?>)['fields'] as Map<String, Object?>;
+  final liveIdentify = validFixtures.firstWhere((fixture) => fixture.name == 'live-identify');
 
-  test('the loader finds the one valid and two invalid request fixtures', () {
-    expect(validFixtures.map((fixture) => fixture.name), ['live-identify']);
+  test('the loader finds the three valid and four invalid request fixtures', () {
+    expect(validFixtures.map((fixture) => fixture.name), [
+      'deferred-send-from-the-outbox',
+      // Sorted by file name, where "-" comes before ".".
+      'live-identify-with-station-hint',
+      'live-identify',
+    ]);
     expect(invalidFixtures.map((fixture) => fixture.name), [
+      'is-deferred-as-yes',
       'listener-install-id',
+      'station-hint-not-a-uuid',
       'times-without-a-time-zone',
     ]);
   });
 
   group('the schema checker', () {
-    test('passes the valid fixture and refuses each invalid one, so it can fail', () {
-      expect(ContractSchemaChecker.problemsWith(fieldsOf(validFixtures.single), schema), isEmpty);
+    test('passes every valid fixture and refuses each invalid one, so it can fail', () {
+      for (final fixture in validFixtures) {
+        expect(
+          ContractSchemaChecker.problemsWith(fieldsOf(fixture), schema),
+          isEmpty,
+          reason: fixture.name,
+        );
+      }
       for (final fixture in invalidFixtures) {
         expect(
           ContractSchemaChecker.problemsWith(fieldsOf(fixture), schema),
@@ -65,7 +79,7 @@ void main() {
     });
 
     test('refuses a missing field, a wrong codec and a non-text value', () {
-      final fields = {...fieldsOf(validFixtures.single)};
+      final fields = {...fieldsOf(liveIdentify)};
       expect(
         ContractSchemaChecker.problemsWith({...fields}..remove('sent_at'), schema),
         contains('sent_at is required'),
@@ -82,7 +96,7 @@ void main() {
     final parts = builder.build(_clip(), sentAt: DateTime.utc(2026, 10, 8, 9, 15, 10, 456));
 
     test('gives exactly the fields of live-identify.json, in its order, with its values', () {
-      final expectedFields = fieldsOf(validFixtures.single);
+      final expectedFields = fieldsOf(liveIdentify);
       expect(parts.textFields.map((field) => field.key), expectedFields.keys);
       expect(_fieldMap(parts), expectedFields);
     });
