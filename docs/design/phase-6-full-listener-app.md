@@ -2840,3 +2840,49 @@ Two critics checked both designs against the checklists and the code. These amen
 - **Every recommended answer is accepted**, as presented to the user in one list of 29 (the server design's Q1–Q14 and the app design's Q1–Q20, with the four shared questions asked once). Each is decided as this design recommends it; a checklist item that one of them rewords is changed in the checklist, with this date as its source, before it is ticked.
 - **Download approved:** `workmanager` 0.10.10 with its Android libraries (3,174,229 bytes, at most 3,262,830), for sending saved clips with the app closed. It is downloaded when the P6 design's piece 3 starts, not before.
 - **The ngrok token pasted in chat on 10 October 2026 is not rotated yet.** The tunnel stays off, and no phone walkthrough (set-up B) starts, until the user confirms it is rotated and has added the new token in their own terminal.
+
+---
+
+## Step 1 record (11 October 2026): P4 piece 1 and P6 piece 0
+
+**Built:**
+- The shared contract and safe sample data (`ff683c1`, the P4 design's piece 1).
+- The app's groundwork (`232d188`, this design's piece 0).
+- The two halves joined (`72c2bce`): the app's tests read the new fixtures.
+
+**Suites at the join:**
+
+| Suite | Result |
+|---|---|
+| Contracts | 641 |
+| API | 553, in 38 files |
+| Portal | 657 |
+| Python | 189 |
+| Flutter | 1,678 (analyze and format clean) |
+| Tool tests | 97 |
+
+The evidence checker was green.
+
+**Review.** Five lenses, each finding checked by a sceptic, found 21 problems (5 medium) and refuted 8. All but three are fixed in `bca440d`:
+- The outbox rules gain status-level 429 and 426 rows, so an answer with no code never deletes a saved item.
+- The install repository re-reads the store before each decision (P6-D45). Its test now fails on the old code.
+- The scan for words outside the language file catches every pattern the screens use.
+- Every fixture folder of step 1 is scanned for realistic numbers.
+- The stand-in's control page gets checklist items P6-TESTS-14 to -21.
+- Smaller fixes to the stand-in and to the tests that could not fail.
+
+Left for the lead:
+- **The seed test's number outside the drama range.** It is fixed after step 2, which changes the seed.
+- **The emulator command proofs of fact 8.** They are run with Docker closed, at the next emulator session.
+- **A recorded deviation.** The design asked for step 1 as one commit, but it landed as three. Both halves were built in parallel, so the Flutter suite is red at `ff683c1` and `232d188`, and green from `72c2bce`. The commits are kept as they are (no history rewrite); anyone bisecting should skip those two.
+
+**The stand-in's replacement phone number (amends §4.7).**
+- The number is put only into answers to the one install the user picks on the control page. The page lists the last six registrations with a short label, the time and whether they came through the tunnel, and never shows the address.
+- It is forgotten after three answers that carry it, or after five minutes.
+- Through the tunnel nobody else's identify gets it.
+
+**Still realistic, for the approved sweep:**
+- `action-card/valid/six-actions.json`, which the stand-in's "Match with six buttons" scenario serves;
+- `+260971234567` in `test/support/example_app_configurations.dart`;
+- the 45 fixture files and 49 other files counted in Correction 2 of the P4 design.
+
