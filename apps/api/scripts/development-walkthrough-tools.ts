@@ -26,20 +26,37 @@ export class WalkthroughToolProblem extends Error {
 const HOSTS_ON_THIS_MACHINE = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 /**
- * Refuses unless NODE_ENV is not production and the setup database address points at this machine. The address
- * holds a password, so it is never repeated, not even in a refusal.
+ * Refuses unless NODE_ENV is not production and the setup database address points at this machine, and returns
+ * the checked parts the tools connect with. The address holds a password, so it is never repeated, not even in a
+ * refusal. A database driver lets a query setting such as "?host=" replace the address's host, so any query
+ * setting is refused and the connection is built from the checked parts only.
  */
-export function assertDevelopmentDatabase(setupUrl: string | undefined, nodeEnvironment: string | undefined): void {
+export function assertDevelopmentDatabase(setupUrl: string | undefined, nodeEnvironment: string | undefined): pg.ClientConfig {
   if (nodeEnvironment === 'production') throw new WalkthroughToolProblem('Refused: these tools are for development only, and NODE_ENV is "production".');
-  let hostname: string;
+  let address: URL;
   try {
-    hostname = new URL(setupUrl ?? '').hostname.toLowerCase();
+    address = new URL(setupUrl ?? '');
   } catch {
     throw new WalkthroughToolProblem('Refused: the setup database address (DATABASE_SETUP_URL) is missing or cannot be read.');
   }
+  if (address.protocol !== 'postgres:' && address.protocol !== 'postgresql:') {
+    throw new WalkthroughToolProblem('Refused: the setup database address (DATABASE_SETUP_URL) is not a PostgreSQL address.');
+  }
+  if (address.search !== '') {
+    throw new WalkthroughToolProblem('Refused: the setup database address (DATABASE_SETUP_URL) carries settings after "?", which could point the tools at another database.');
+  }
+  const hostname = address.hostname.toLowerCase();
   if (!HOSTS_ON_THIS_MACHINE.has(hostname)) {
     throw new WalkthroughToolProblem('Refused: these tools only work on a database on this machine, and DATABASE_SETUP_URL points somewhere else.');
   }
+  return {
+    host: hostname.replace(/^\[|\]$/g, ''),
+    port: address.port === '' ? 5432 : Number(address.port),
+    user: decodeURIComponent(address.username),
+    password: decodeURIComponent(address.password),
+    database: decodeURIComponent(address.pathname.replace(/^\//, '')),
+    application_name: 'lookup-development-walkthrough-tools',
+  };
 }
 
 type Database = Pick<pg.Client, 'query'>;
@@ -289,11 +306,12 @@ const TOOLS: Record<string, { valueCount: number; run: (database: Database, valu
  * arguments are checked before any connection is made.
  */
 export async function runWalkthroughTool(toolArguments: readonly string[], environment: { setupUrl: string | undefined; nodeEnvironment: string | undefined }): Promise<string> {
-  assertDevelopmentDatabase(environment.setupUrl, environment.nodeEnvironment);
+  const connection = assertDevelopmentDatabase(environment.setupUrl, environment.nodeEnvironment);
   const [toolName, ...values] = toolArguments;
   const tool = toolName === undefined ? undefined : TOOLS[toolName];
   if (!tool || values.length !== tool.valueCount) throw new WalkthroughToolProblem(USAGE);
-  const database = new pg.Client({ connectionString: environment.setupUrl, application_name: 'lookup-development-walkthrough-tools' });
+  // Built from the checked parts only, never from the address itself (see assertDevelopmentDatabase).
+  const database = new pg.Client(connection);
   await database.connect();
   try {
     return await tool.run(database, values);

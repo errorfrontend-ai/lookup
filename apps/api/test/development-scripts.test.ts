@@ -49,6 +49,11 @@ describe('the development walkthrough tools', () => {
         () => assertDevelopmentDatabase('postgres://lookup_setup:secret-password-1234@10.0.0.5:5432/lookup', 'development'),
         () => assertDevelopmentDatabase(undefined, 'development'),
         () => assertDevelopmentDatabase('not an address', 'development'),
+        // The driver lets these query settings replace the host, so a local-looking address could reach another database.
+        () => assertDevelopmentDatabase('postgres://lookup_setup:secret-password-1234@localhost:5432/lookup?host=db.example.com', 'development'),
+        () => assertDevelopmentDatabase('postgres://lookup_setup:secret-password-1234@127.0.0.1:5432/lookup?hostaddr=10.0.0.5', 'development'),
+        () => assertDevelopmentDatabase('postgres://lookup_setup:secret-password-1234@localhost/lookup?sslmode=disable', 'development'),
+        () => assertDevelopmentDatabase('mysql://lookup_setup:secret-password-1234@localhost/lookup', 'development'),
       ];
       for (const refusal of refusals) {
         expect(refusal).toThrow(WalkthroughToolProblem);
@@ -62,6 +67,15 @@ describe('the development walkthrough tools', () => {
       for (const local of ['postgres://user:password@127.0.0.1:55432/lookup', 'postgresql://user:password@localhost/lookup', 'postgres://user:password@[::1]:5432/lookup']) {
         expect(() => assertDevelopmentDatabase(local, 'development'), local).not.toThrow();
       }
+      // The tools connect with exactly the checked parts, so nothing in the address can redirect them.
+      expect(assertDevelopmentDatabase('postgres://lookup%20setup:p%40ss@[::1]:55432/look%20up', 'development')).toEqual({
+        host: '::1',
+        port: 55432,
+        user: 'lookup setup',
+        password: 'p@ss',
+        database: 'look up',
+        application_name: 'lookup-development-walkthrough-tools',
+      });
     });
 
     it('a refused tool never reaches the database: production and a remote address are refused before any connection', async () => {
