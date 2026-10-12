@@ -45,7 +45,7 @@ TARGETS = {
     "p95_total_milliseconds": 1000.0,         # decode + fingerprint + lookup + align, 1 vCPU
     "p95_upload_bytes_8_second_clips": 32 * 1024,
 }
-MINIMUM_ALIGNED_LANDMARKS_GRID = list(range(3, 61))   # T values tried by calibrate()
+MINIMUM_ALIGNED_LANDMARKS_GRID = list(range(3, 151))  # T values tried by calibrate(); denser fingerprints need T above 60
 MINIMUM_MARGIN_GRID = [1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0]   # R values tried by calibrate()
 
 

@@ -96,3 +96,22 @@ def test_each_end_to_end_clip_matches_its_own_ad_and_the_unrelated_clip_matches_
         outcomes[file_name] = (result.status, result.best.audio_asset_number if matched else None,
                                round(parameters.frames_to_seconds(result.best.offset_frames)) if matched else None)
     assert outcomes == {"clip.m4a": ("MATCH", 1, 6), "second-clip.m4a": ("MATCH", 2, 2), "unrelated.m4a": ("NO_MATCH", None, None)}
+
+
+def test_calibration_can_choose_a_threshold_above_60_for_denser_fingerprints():
+    from pathlib import Path
+
+    from bench.manifest import Entry
+    from bench.run import ClipOutcome, calibrate
+
+    def outcome(role, ad_id, predicted, best, runner_up):
+        entry = Entry(line_number=1, role=role, path=Path("clip.m4a"), ad_id=ad_id, clip_seconds=8.0)
+        return ClipOutcome(entry, "MATCH", predicted, best, runner_up, {}, 0)
+
+    # Dense fingerprints: unrelated audio reaches 80 aligned landmarks, real clips 120 or more.
+    outcomes = [outcome("query", "ad-1", "ad-1", 120 + index, 10) for index in range(20)]
+    outcomes += [outcome("negative", "", "ad-1", 80, 10) for _ in range(20)]
+    best = calibrate(outcomes)["best"]
+    assert best is not None
+    assert best["minimum_aligned_landmarks"] > 80
+    assert best["false_positive_rate"] == 0 and best["accuracy_8_second_clips"] == 1.0

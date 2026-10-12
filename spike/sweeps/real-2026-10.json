@@ -1,0 +1,15 @@
+[
+  {},
+  {"maximum_peaks_per_frame": 20},
+  {"peak_floor_above_median_decibels": 7.0},
+  {"peak_floor_above_median_decibels": 5.0},
+  {"peak_neighborhood": 8},
+  {"peak_neighborhood": 6},
+  {"fan_value": 15},
+  {"fan_value": 20},
+  {"peak_neighborhood": 8, "peak_floor_above_median_decibels": 7.0},
+  {"peak_neighborhood": 8, "fan_value": 15},
+  {"peak_floor_above_median_decibels": 5.0, "fan_value": 15},
+  {"peak_neighborhood": 8, "peak_floor_above_median_decibels": 7.0, "fan_value": 15},
+  {"peak_neighborhood": 6, "peak_floor_above_median_decibels": 5.0, "maximum_peaks_per_frame": 20}
+]

@@ -1,0 +1,29 @@
+# ngrok traffic policy for phone walkthroughs (P4 design, set-up B and decision P4-D35).
+#
+# The tunnel puts the local API on the internet, so only the routes the listener app calls get
+# through; everything else — portal sign-in, station and admin routes, health — is answered 404 at
+# ngrok and never reaches this PC. Start the tunnel with:
+#
+#   ngrok http 3100 --traffic-policy-file infra/ngrok/listener-routes-only.yml
+#
+# The portal stays on http://localhost:5180 and is never tunnelled.
+on_http_request:
+  - expressions:
+      - >-
+        !(
+          (req.method == 'POST' && req.url.path in [
+            '/api/v1/installs',
+            '/api/v1/recognize',
+            '/api/v1/engagements',
+            '/api/v1/client-errors'
+          ])
+          || (req.method == 'GET' && req.url.path == '/api/v1/stations')
+          || (req.method == 'POST' && req.url.path.matches('^/api/v1/recognitions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(choice|report)$'))
+        )
+    actions:
+      - type: custom-response
+        config:
+          status_code: 404
+          headers:
+            content-type: text/plain
+          body: Not found
