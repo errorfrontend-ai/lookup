@@ -6,6 +6,7 @@ import { DatabaseHardening1791300000000 } from './1791300000000-DatabaseHardenin
 import { AdHistoryIndexes1791400000000 } from './1791400000000-AdHistoryIndexes.js';
 import { EngineHookup1791500000000 } from './1791500000000-EngineHookup.js';
 import { StationResolution1791600000000 } from './1791600000000-StationResolution.js';
+import { FingerprintVersionTwo1791700000000 } from './1791700000000-FingerprintVersionTwo.js';
 
 /** Every migration, oldest first. The migration script runs these; the API never does. */
 export const ALL_MIGRATIONS = [
@@ -17,4 +18,5 @@ export const ALL_MIGRATIONS = [
   AdHistoryIndexes1791400000000,
   EngineHookup1791500000000,
   StationResolution1791600000000,
+  FingerprintVersionTwo1791700000000,
 ];

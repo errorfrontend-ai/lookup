@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { createHash, randomUUID } from 'node:crypto';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ActionCard } from '@lookup/contracts';
 import type pg from 'pg';
 import { describeActionCardChanges } from '../src/features/action-cards/action-card-changes.js';
@@ -161,14 +161,7 @@ export async function seedSampleAds(
   const clientIds = new Map<string, string>(
     (await client.query(`SELECT id, name FROM app.clients WHERE station_id = $1`, [stationId])).rows.map((row) => [row.name as string, row.id as string]),
   );
-  const storageClient = new S3Client({
-    endpoint: storage.endpoint,
-    region: storage.region,
-    forcePathStyle: true,
-    credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-  });
+  const storageClient = sampleStorageClient(storage);
   let createdCount = 0;
   try {
     for (const sample of samples) {
@@ -232,6 +225,17 @@ export async function seedSampleAds(
 }
 
 export const SAMPLE_AD_TITLES = SAMPLE_ADS.map((sample) => sample.title);
+
+function sampleStorageClient(storage: SampleStorage): S3Client {
+  return new S3Client({
+    endpoint: storage.endpoint,
+    region: storage.region,
+    forcePathStyle: true,
+    credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
+  });
+}
 
 /**
  * Gives each named client of the station its usual card (P4 design §5.15; P4-FALLBACK-04), as the portal route
@@ -319,6 +323,88 @@ export async function giveSampleCardsSafeNumbers(client: pg.Client, stationId: s
       throw error;
     }
     replacedCount += 1;
+  }
+  return replacedCount;
+}
+
+/** The notes of the sample ad with this title (an ad with no notes of its own has the shared jingle's). */
+export function sampleJingleNotes(title: string): readonly number[] | undefined {
+  return [...SAMPLE_ADS, ...SECOND_STATION_SAMPLE_ADS].find((sample) => sample.title === title)?.jingleNotes;
+}
+
+async function storedFileSha256(storageClient: S3Client, bucket: string, objectKey: string): Promise<Buffer | null> {
+  try {
+    const stored = await storageClient.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+    return createHash('sha256').update(await (stored.Body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray()).digest();
+  } catch {
+    return null; // no file there (or it cannot be read): it gets today's
+  }
+}
+
+/**
+ * Development data seeded before 12 October 2026 has the 6 s jingle of pure notes, which a phone could not recognise
+ * through the air (ADR-001, "Real captures, October 2026"). Each sample ad whose file the seed uploaded (its object
+ * key ends in `/sample`) and whose file is not today's jingle, by content (a READY ad's checksum, or the stored file of
+ * one still PROCESSING), gets today's jingle in the same place and waits to be fingerprinted again as a new upload
+ * would: PROCESSING, with no recording, checksum or length, and an "upload checked" line in its history. The ingest
+ * worker then links Station A's and Station B's shared ad to one recording again. A file uploaded in the portal, an
+ * archived ad and a refused one are left alone; an ad that changed while it was looked at is left for the next run;
+ * running it again changes nothing. Returns how many ads it gave the new jingle.
+ */
+export async function giveSampleAdsTheLongerJingle(
+  client: pg.Client,
+  stationId: string,
+  storage: SampleStorage,
+  ownerId: string,
+  samples: readonly SampleAd[] = SAMPLE_ADS,
+): Promise<number> {
+  const storageClient = sampleStorageClient(storage);
+  let replacedCount = 0;
+  try {
+    for (const sample of samples) {
+      if (sample.uploadState !== 'checked') continue;
+      const jingle = createSampleJingleWav(sample.jingleNotes);
+      const jingleSha256 = createHash('sha256').update(jingle).digest();
+      const ad = (
+        await client.query(
+          `SELECT id, upload_object_key, status, upload_content_sha256 FROM app.ads
+            WHERE station_id = $1 AND title = $2 AND upload_object_key LIKE 'ad-uploads/%/sample' AND archived_at IS NULL
+              AND status IN ('READY', 'PROCESSING')`,
+          [stationId, sample.title],
+        )
+      ).rows[0] as { id: string; upload_object_key: string; status: string; upload_content_sha256: Buffer | null } | undefined;
+      if (!ad) continue;
+      const storedSha256 = ad.status === 'READY' ? ad.upload_content_sha256 : await storedFileSha256(storageClient, storage.bucket, ad.upload_object_key);
+      if (storedSha256?.equals(jingleSha256)) continue;
+
+      // The row first (it stays locked until the commit), then the file: an ad that changed meanwhile keeps its file.
+      await client.query('BEGIN');
+      try {
+        const reset = await client.query(
+          `UPDATE app.ads SET status = 'PROCESSING', audio_asset_id = NULL, upload_content_sha256 = NULL, duration_milliseconds = NULL,
+                              processing_error_code = NULL, upload_size_bytes = $5
+            WHERE id = $1 AND upload_object_key = $2 AND status = $3 AND archived_at IS NULL AND upload_content_sha256 IS NOT DISTINCT FROM $4`,
+          [ad.id, ad.upload_object_key, ad.status, ad.upload_content_sha256, jingle.length],
+        );
+        if (reset.rowCount !== 1) {
+          await client.query('ROLLBACK'); // it changed meanwhile: the next run looks at it again
+          continue;
+        }
+        await storageClient.send(new PutObjectCommand({ Bucket: storage.bucket, Key: ad.upload_object_key, Body: jingle, ContentType: 'audio/wav' }));
+        await client.query(
+          `INSERT INTO app.audit_events (station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id)
+           VALUES ($1, $2, 'ad_upload_verified', 'ad', $3, $4, 'development-seed')`,
+          [stationId, ownerId, ad.id, JSON.stringify({ sizeBytes: jingle.length, contentType: 'audio/wav' })],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      }
+      replacedCount += 1;
+    }
+  } finally {
+    storageClient.destroy();
   }
   return replacedCount;
 }

@@ -5,17 +5,21 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 import uuid
 
 import psycopg
 import pytest
 
+from lookup_fingerprint import FINGERPRINT_VERSION, hash_table_name
 from workers import engine_process
 from workers.engine_pool import EnginePool
 from workers.ingest import IngestJobHandler
 from workers.ingest_store import IngestStore
 
-from .test_workers import ingest_job, wav_bytes
+from .test_workers import ingest_job, refingerprint_job, wav_bytes
+
+HASHES = hash_table_name()          # the current version's table
 from .worker_support import fingerprint_worker_database_url, setup_database_url
 
 
@@ -68,8 +72,16 @@ def _ad(setup_connection, ad_id: str) -> dict:
 
 def _hash_rows(setup_connection, audio_asset_id) -> int:
     return setup_connection.execute(
-        "SELECT count(*) FROM fingerprints.hashes_version_1 hash JOIN fingerprints.audio_assets asset "
+        f"SELECT count(*) FROM {HASHES} hash JOIN fingerprints.audio_assets asset "
         "ON asset.asset_number = hash.audio_asset_number WHERE asset.id = %s", (audio_asset_id,)).fetchone()[0]
+
+
+def _rows_of_recording(setup_connection, file_bytes: bytes) -> tuple[int, int]:
+    """(recordings with this file's SHA-256, their rows in the current hash table): this test's rows only, so other
+    work on the shared database cannot change them."""
+    return setup_connection.execute(
+        f"SELECT count(*), coalesce(sum((SELECT count(*) FROM {HASHES} hash WHERE hash.audio_asset_number = asset.asset_number)), 0) "
+        "FROM fingerprints.audio_assets asset WHERE asset.content_sha256 = %s", (hashlib.sha256(file_bytes).digest(),)).fetchone()
 
 
 def _ingest(handler: IngestJobHandler, ad_id: str) -> dict:
@@ -94,7 +106,7 @@ def test_a_new_recording_is_stored_with_all_its_hashes_and_the_ad_becomes_ready(
     assert bytes(ad["upload_content_sha256"]) == hashlib.sha256(file_bytes).digest()
     asset = setup_connection.execute("SELECT hash_count, fingerprint_version, fingerprint_status FROM fingerprints.audio_assets WHERE id = %s",
                                      (ad["audio_asset_id"],)).fetchone()
-    assert asset[1:] == (1, "READY")
+    assert asset[1:] == (FINGERPRINT_VERSION, "READY")
     assert asset[0] == _hash_rows(setup_connection, ad["audio_asset_id"]) > 0
 
 
@@ -103,14 +115,12 @@ def test_the_same_file_again_links_to_the_first_recording_and_adds_no_hashes(tes
     first_ad, second_ad = test_station["new_ad"](), test_station["new_ad"]()
     handler = IngestJobHandler(pool, store, download=lambda address: file_bytes)
     _ingest(handler, first_ad)
-    asset_count_before = setup_connection.execute("SELECT count(*) FROM fingerprints.audio_assets").fetchone()[0]
-    hash_count_before = setup_connection.execute("SELECT count(*) FROM fingerprints.hashes_version_1").fetchone()[0]
+    rows_before = _rows_of_recording(setup_connection, file_bytes)
 
     assert _ingest(handler, second_ad) == {"outcome": "READY", "is_linked_to_existing_audio": True}
     assert _ad(setup_connection, second_ad)["audio_asset_id"] == _ad(setup_connection, first_ad)["audio_asset_id"]
     assert _ad(setup_connection, second_ad)["status"] == "READY"
-    assert setup_connection.execute("SELECT count(*) FROM fingerprints.audio_assets").fetchone()[0] == asset_count_before
-    assert setup_connection.execute("SELECT count(*) FROM fingerprints.hashes_version_1").fetchone()[0] == hash_count_before
+    assert _rows_of_recording(setup_connection, file_bytes) == rows_before and rows_before[0] == 1
 
 
 def test_running_a_job_twice_changes_nothing_the_second_time(test_station, store, pool, setup_connection):
@@ -118,9 +128,9 @@ def test_running_a_job_twice_changes_nothing_the_second_time(test_station, store
     ad_id = test_station["new_ad"]()
     handler = IngestJobHandler(pool, store, download=lambda address: file_bytes)
     _ingest(handler, ad_id)
-    counts = setup_connection.execute("SELECT (SELECT count(*) FROM fingerprints.audio_assets), (SELECT count(*) FROM fingerprints.hashes_version_1)").fetchone()
+    rows_before = _rows_of_recording(setup_connection, file_bytes)
     assert _ingest(handler, ad_id) == {"outcome": "SKIPPED", "is_linked_to_existing_audio": True}
-    assert setup_connection.execute("SELECT (SELECT count(*) FROM fingerprints.audio_assets), (SELECT count(*) FROM fingerprints.hashes_version_1)").fetchone() == counts
+    assert _rows_of_recording(setup_connection, file_bytes) == rows_before and rows_before[0] == 1
     assert _ad(setup_connection, ad_id)["status"] == "READY"
 
 
@@ -189,6 +199,126 @@ def test_the_same_new_file_ingested_twice_at_once_is_stored_once_and_linked_once
     assets = setup_connection.execute("SELECT count(*) FROM fingerprints.audio_assets WHERE content_sha256 = %s", (content_sha256,)).fetchone()[0]
     assert assets == 1
     assert len({_ad(setup_connection, ad_id)["audio_asset_id"] for ad_id in ad_ids}) == 1
+
+
+# ---- re-fingerprinting (fingerprint version 2, ADR-001) ---------------------------------------------------------
+
+def _recording_on_version_one(setup_connection, store, pool, test_station, seed: int) -> tuple[str, int, bytes]:
+    """An ad fingerprinted today, then turned back into a version 1 recording: its current-version hashes removed, two
+    version 1 rows of its own, version 1 on the asset. Returns (ad id, asset number, the uploaded file)."""
+    file_bytes = wav_bytes(10.0, seed=seed)
+    ad_id = test_station["new_ad"]()
+    _ingest(IngestJobHandler(pool, store, download=lambda address: file_bytes), ad_id)
+    audio_asset_id = _ad(setup_connection, ad_id)["audio_asset_id"]
+    asset_number = setup_connection.execute("SELECT asset_number FROM fingerprints.audio_assets WHERE id = %s", (audio_asset_id,)).fetchone()[0]
+    setup_connection.execute(f"DELETE FROM {HASHES} WHERE audio_asset_number = %s", (asset_number,))
+    setup_connection.execute("INSERT INTO fingerprints.hashes_version_1 (hash, audio_asset_number, time_offset_frames) VALUES (11, %s, 0), (12, %s, 1)",
+                             (asset_number, asset_number))
+    setup_connection.execute("UPDATE fingerprints.audio_assets SET fingerprint_version = 1, hash_count = 2 WHERE asset_number = %s", (asset_number,))
+    return ad_id, asset_number, file_bytes
+
+
+def _asset(setup_connection, asset_number: int) -> tuple:
+    return setup_connection.execute(
+        f"SELECT fingerprint_version, hash_count, (SELECT count(*) FROM {HASHES} WHERE audio_asset_number = %s), "
+        "(SELECT count(*) FROM fingerprints.hashes_version_1 WHERE audio_asset_number = %s) FROM fingerprints.audio_assets WHERE asset_number = %s",
+        (asset_number, asset_number, asset_number)).fetchone()
+
+
+def _ad_and_its_history(setup_connection, ad_id: str) -> tuple:
+    ad = setup_connection.execute("SELECT status, audio_asset_id, duration_milliseconds, updated_at FROM app.ads WHERE id = %s", (ad_id,)).fetchone()
+    history = setup_connection.execute("SELECT count(*) FROM app.audit_events WHERE entity_id = %s", (ad_id,)).fetchone()[0]
+    return ad, history
+
+
+def test_a_recording_on_an_older_version_is_fingerprinted_again_and_no_ad_changes(test_station, store, pool, setup_connection):
+    ad_id, asset_number, file_bytes = _recording_on_version_one(setup_connection, store, pool, test_station, seed=301)
+    ad_before = _ad_and_its_history(setup_connection, ad_id)
+    handler = IngestJobHandler(pool, store, download=lambda address: file_bytes)
+
+    result = asyncio.run(handler(refingerprint_job(audio_asset_number=asset_number)))
+
+    assert result["outcome"] == "REFINGERPRINTED" and result["hash_count"] > 0
+    assert _asset(setup_connection, asset_number) == (FINGERPRINT_VERSION, result["hash_count"], result["hash_count"], 2)
+    assert _ad_and_its_history(setup_connection, ad_id) == ad_before
+    # Again: already on the version, so nothing is downloaded or written.
+    again = IngestJobHandler(pool, store, download=lambda address: 1 / 0)
+    assert asyncio.run(again(refingerprint_job(audio_asset_number=asset_number))) == {"outcome": "SKIPPED", "hash_count": None}
+    assert _asset(setup_connection, asset_number) == (FINGERPRINT_VERSION, result["hash_count"], result["hash_count"], 2)
+
+
+def test_a_download_that_is_not_the_recording_is_refused_and_changes_nothing(test_station, store, pool, setup_connection):
+    _ad_id, asset_number, _file_bytes = _recording_on_version_one(setup_connection, store, pool, test_station, seed=302)
+    handler = IngestJobHandler(pool, store, download=lambda address: wav_bytes(10.0, seed=303))
+    assert asyncio.run(handler(refingerprint_job(audio_asset_number=asset_number))) == {"outcome": "REFUSED", "hash_count": None}
+    assert _asset(setup_connection, asset_number) == (1, 2, 0, 2)
+
+
+def test_two_jobs_for_one_recording_at_once_store_its_hashes_once(test_station, store, pool, setup_connection):
+    """Both write; the version is recorded by one, and the other's rows are rolled back with it."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    _ad_id, asset_number, file_bytes = _recording_on_version_one(setup_connection, store, pool, test_station, seed=304)
+    prepared = engine_process.prepare_ad_audio_in_process(file_bytes)
+
+    def refingerprint(_attempt: int) -> bool:
+        return IngestStore(fingerprint_worker_database_url()).store_refingerprinted_audio(asset_number, prepared)
+
+    # Hold the recording's row, so both jobs have deleted and are writing their hashes (the foreign key waits on the
+    # row) before either can record the version: they truly overlap.
+    with psycopg.connect(setup_database_url()) as holder:
+        holder.execute("SELECT 1 FROM fingerprints.audio_assets WHERE asset_number = %s FOR UPDATE", (asset_number,))
+        with ThreadPoolExecutor(max_workers=2) as threads:
+            running = [threads.submit(refingerprint, attempt) for attempt in range(2)]
+            for _ in range(200):
+                waiting = setup_connection.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE usename = 'lookup_fingerprint_worker' AND wait_event_type = 'Lock' AND query ILIKE 'COPY%%'"
+                ).fetchone()[0]
+                if waiting >= 2:
+                    break
+                time.sleep(0.05)
+            assert waiting >= 2, "both jobs should be waiting on the recording's row"
+            holder.commit()
+            recorded = [job.result(timeout=30) for job in running]
+    assert sorted(recorded) == [False, True]
+    assert _asset(setup_connection, asset_number) == (FINGERPRINT_VERSION, len(prepared["hashes"]), len(prepared["hashes"]), 2)
+
+
+def test_an_exact_copy_of_a_version_one_recording_gets_the_current_versions_hashes_and_both_ads_are_recognisable(test_station, store, pool, setup_connection):
+    first_ad, asset_number, file_bytes = _recording_on_version_one(setup_connection, store, pool, test_station, seed=306)
+    second_ad = test_station["new_ad"]()
+
+    assert _ingest(IngestJobHandler(pool, store, download=lambda address: file_bytes), second_ad) == {"outcome": "READY", "is_linked_to_existing_audio": True}
+
+    version, hash_count, current_rows, version_one_rows = _asset(setup_connection, asset_number)
+    assert (version, version_one_rows) == (FINGERPRINT_VERSION, 2) and hash_count == current_rows > 0
+    assert _ad(setup_connection, second_ad)["audio_asset_id"] == _ad(setup_connection, first_ad)["audio_asset_id"]
+
+
+def test_an_ingest_that_meets_a_version_one_recording_on_insert_gives_it_the_current_versions_hashes(test_station, store, pool, setup_connection):
+    """The race path: the recording appeared after this job looked for it, stored by a worker on an older version."""
+    _first_ad, asset_number, file_bytes = _recording_on_version_one(setup_connection, store, pool, test_station, seed=307)
+    prepared = engine_process.prepare_ad_audio_in_process(file_bytes)
+    outcome = store.store_new_audio(test_station["new_ad"](), hashlib.sha256(file_bytes).digest(), prepared, "race")
+
+    assert outcome.linked_to_existing_audio and outcome.ad_changed
+    assert _asset(setup_connection, asset_number) == (FINGERPRINT_VERSION, len(prepared["hashes"]), len(prepared["hashes"]), 2)
+
+
+def test_re_fingerprinting_a_recording_that_is_gone_writes_nothing_and_says_so(store, setup_connection):
+    prepared = engine_process.prepare_ad_audio_in_process(wav_bytes(6.0, seed=308))
+    assert store.store_refingerprinted_audio(2_000_000_000, prepared) is False
+    assert setup_connection.execute(f"SELECT count(*) FROM {HASHES} WHERE audio_asset_number = 2000000000").fetchone()[0] == 0
+
+
+def test_the_new_version_is_recorded_only_through_the_function_and_only_for_a_version_with_a_table(test_station, store, pool, setup_connection):
+    _ad_id, asset_number, _file_bytes = _recording_on_version_one(setup_connection, store, pool, test_station, seed=305)
+    with psycopg.connect(fingerprint_worker_database_url()) as connection:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege), connection.transaction():
+            connection.execute("UPDATE fingerprints.audio_assets SET fingerprint_version = 2 WHERE asset_number = %s", (asset_number,))
+        with pytest.raises(psycopg.errors.InvalidParameterValue), connection.transaction():
+            connection.execute("SELECT fingerprints.record_asset_refingerprinted(%s::integer, 9::smallint)", (asset_number,))
+    assert _asset(setup_connection, asset_number) == (1, 2, 0, 2)
 
 
 class _InlinePool:

@@ -130,13 +130,19 @@ def test_the_workers_hold_no_fingerprint_maths_of_their_own():
 
 
 def test_the_match_thresholds_are_settings_and_decide_the_outcome():
-    """T and R come from MatchThresholds (ADR-001: 26 and 2.0); the same evidence is decided by them, not by constants."""
-    assert (MatchThresholds().minimum_aligned_landmarks, MatchThresholds().minimum_margin) == (26, 2.0)
+    """T and R come from MatchThresholds (ADR-001, fingerprint version 2: 26 and 3.0); the same evidence is decided by
+    them, not by constants."""
+    assert (MatchThresholds().minimum_aligned_landmarks, MatchThresholds().minimum_margin) == (26, 3.0)
     borderline = [Candidate(audio_asset_number=7, aligned_landmarks=30, offset_frames=4),
-                  Candidate(audio_asset_number=9, aligned_landmarks=14, offset_frames=2)]
+                  Candidate(audio_asset_number=9, aligned_landmarks=9, offset_frames=2)]
     assert decide(borderline, MatchThresholds()).status == "MATCH"
     assert decide(borderline, MatchThresholds(minimum_aligned_landmarks=31)).status == "NO_MATCH"
-    assert decide(borderline, MatchThresholds(minimum_margin=2.5)).status == "AMBIGUOUS"
+    assert decide(borderline, MatchThresholds(minimum_margin=3.5)).status == "AMBIGUOUS"
+    # Version 1's margin of 2.0 let a clip that was only 2.1 times closer to one recording than to another count as
+    # a match; real recordings of one synthetic voice reading two ads came that close (ADR-001, October 2026).
+    two_close_recordings = [Candidate(audio_asset_number=7, aligned_landmarks=30, offset_frames=4),
+                            Candidate(audio_asset_number=9, aligned_landmarks=14, offset_frames=2)]
+    assert decide(two_close_recordings, MatchThresholds()).status == "AMBIGUOUS"
 
 
 def test_the_deprecated_scipy_filters_module_is_never_used():

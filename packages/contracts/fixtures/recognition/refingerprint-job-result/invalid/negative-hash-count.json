@@ -1,0 +1,7 @@
+{
+  "description": "A hash count is never negative",
+  "result": {
+    "outcome": "REFINGERPRINTED",
+    "hash_count": -1
+  }
+}

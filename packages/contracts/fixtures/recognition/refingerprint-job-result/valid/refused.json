@@ -1,0 +1,7 @@
+{
+  "description": "The download was not the stored recording, or could not be read; nothing changed",
+  "result": {
+    "outcome": "REFUSED",
+    "hash_count": null
+  }
+}

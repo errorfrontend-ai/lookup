@@ -52,7 +52,7 @@ describe('the ingest sweep', () => {
     expect(queued).toContain(longWaiting);
     expect(queued).not.toContain(justUploaded);
     const job = await queue.getJob(IngestQueue.jobIdFor(longWaiting));
-    expect(IngestJobData.parse(job?.data)).toMatchObject({ ad_id: longWaiting, fingerprint_version: 1 });
+    expect(IngestJobData.parse(job?.data)).toMatchObject({ ad_id: longWaiting, fingerprint_version: 2 });
     expect(job?.data.request_id).toMatch(/^ingest-sweep-/);
     expect(job?.data.download_address).toMatch(/X-Amz-Expires=1800/);
     expect(JSON.stringify(job?.data)).not.toContain(process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY as string);

@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
-import { IngestJobData, IngestJobResult, RecognizeJobData, RecognizeJobResult } from '../src/recognition/fingerprint-job-schemas.js';
+import { IngestJobData, IngestJobResult, RecognizeJobData, RecognizeJobResult, RefingerprintJobData, RefingerprintJobResult } from '../src/recognition/fingerprint-job-schemas.js';
 import { readFixtureFolder } from './fixtures.js';
 
 /**
@@ -24,6 +24,8 @@ const JOB_FIXTURE_FOLDERS: Array<{ folder: string; field: 'job' | 'result'; sche
   { folder: 'recognition/recognize-job-result', field: 'result', schema: RecognizeJobResult, schemaFile: 'recognize-job-result.schema.json' },
   { folder: 'recognition/ingest-job', field: 'job', schema: IngestJobData, schemaFile: 'ingest-job-data.schema.json' },
   { folder: 'recognition/ingest-job-result', field: 'result', schema: IngestJobResult, schemaFile: 'ingest-job-result.schema.json' },
+  { folder: 'recognition/refingerprint-job', field: 'job', schema: RefingerprintJobData, schemaFile: 'refingerprint-job-data.schema.json' },
+  { folder: 'recognition/refingerprint-job-result', field: 'result', schema: RefingerprintJobResult, schemaFile: 'refingerprint-job-result.schema.json' },
 ];
 
 describe.each(JOB_FIXTURE_FOLDERS)('the $folder fixtures', ({ folder, field, schema, schemaFile }) => {

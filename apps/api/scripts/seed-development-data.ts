@@ -1,8 +1,8 @@
 /**
  * Development data: two ACTIVE stations with one owner, so the portal can be used and judged straight away
  * and a listener's "Which station?" can be walked through (P4 design §5.15):
- *  - "Station A" (98.1 FM, Lusaka): two clients and sample ads in every state, each with a short generated
- *    jingle as its audio;
+ *  - "Station A" (98.1 FM, Lusaka): two clients and sample ads in every state, each with a generated 20-second
+ *    jingle as its audio (ads seeded earlier with the old 6-second one are given the new one);
  *  - "Station B" (104.3 FM, Kitwe): Brand A's "Summer service offer" on the same jingle as Station A's, so
  *    the two share one recording, with its all-day schedule left as a draft to publish in the portal;
  *  - usual cards for Brand A at both stations and for Brand B at Station A.
@@ -16,7 +16,9 @@ import pg from 'pg';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { PasswordPolicy } from '../src/features/authentication/password-policy.js';
 import { loadDatabaseSetupConfig } from './database-setup-config.js';
+import { assertDevelopmentDatabase, assertOnThisMachine } from './development-walkthrough-tools.js';
 import {
+  giveSampleAdsTheLongerJingle,
   giveSampleCardsSafeNumbers,
   SAMPLE_DEFAULT_CARDS,
   type SampleStorage,
@@ -40,6 +42,8 @@ export interface DevelopmentSeed {
 
 export async function seedDevelopmentData(setupUrl: string, seed: DevelopmentSeed): Promise<{ stationId: string; ownerId: string }> {
   if (process.env.NODE_ENV === 'production') throw new Error('Refusing to seed development data in production.');
+  // Only a database on this machine, reached from the checked parts of its address (the walkthrough tools' guard).
+  const connection = assertDevelopmentDatabase(setupUrl, process.env.NODE_ENV);
   const refusalReason = new PasswordPolicy().check(seed.ownerPassword, {
     fullName: seed.ownerFullName,
     email: seed.ownerEmail,
@@ -48,7 +52,7 @@ export async function seedDevelopmentData(setupUrl: string, seed: DevelopmentSee
   if (refusalReason) throw new Error(`SEED_OWNER_PASSWORD is not acceptable: ${refusalReason}`);
   const passwordHash = await new PasswordHasher().hashNewPassword(seed.ownerPassword);
 
-  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-development-seed' });
+  const client = new pg.Client({ ...connection, application_name: 'lookup-development-seed' });
   await client.connect();
   try {
     await client.query('BEGIN');
@@ -137,7 +141,7 @@ async function seedFromEnvironment(): Promise<string> {
     `  Station B (104.3 FM, Kitwe): ${portalPageOf(secondStation.stationId)}`,
   ].join('\n');
 
-  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-development-seed' });
+  const client = new pg.Client({ ...assertDevelopmentDatabase(setupUrl, process.env.NODE_ENV), application_name: 'lookup-development-seed' });
   await client.connect();
   try {
     const defaultCardCount =
@@ -145,13 +149,20 @@ async function seedFromEnvironment(): Promise<string> {
       (await seedDefaultCards(client, secondStation.stationId, ownerId, SECOND_STATION_SAMPLE_DEFAULT_CARDS));
     const defaultCardsNote = defaultCardCount === 0 ? 'Usual cards: already there.' : `Usual cards: ${plural(defaultCardCount, 'client')} given one.`;
     const storage = sampleStorageFromEnvironment();
+    // The seed writes files there and gives older sample ads new ones: only storage on this machine.
+    if (storage) assertOnThisMachine(storage.endpoint, 'OBJECT_STORAGE_ENDPOINT');
     if (!storage) return `Development data ready, one owner for both stations:\n${pages}\n${defaultCardsNote} Sample ads skipped: object storage settings are not set.`;
     const createdCount =
       (await seedSampleAds(client, stationId, storage, ownerId)) + (await seedSampleAds(client, secondStation.stationId, storage, ownerId, SECOND_STATION_SAMPLE_ADS));
     const safeNumberCount = await giveSampleCardsSafeNumbers(client, stationId, ownerId);
     const safeNumbersNote = safeNumberCount === 0 ? '' : ` ${plural(safeNumberCount, 'older sample card')} now have safe sample phone numbers.`;
+    const longerJingleCount =
+      (await giveSampleAdsTheLongerJingle(client, stationId, storage, ownerId)) +
+      (await giveSampleAdsTheLongerJingle(client, secondStation.stationId, storage, ownerId, SECOND_STATION_SAMPLE_ADS));
+    const longerJingleNote =
+      longerJingleCount === 0 ? '' : ` ${plural(longerJingleCount, 'older sample ad')} now have the 20-second jingle; the ingest worker fingerprints them again within a minute or two.`;
     const adsNote = createdCount === 0 ? 'Sample ads: already there.' : `Sample ads: ${createdCount} new; the ingest worker prepares them for recognition within a minute or two of the API starting.`;
-    return `Development data ready, one owner for both stations:\n${pages}\n${adsNote} ${defaultCardsNote}${safeNumbersNote}`;
+    return `Development data ready, one owner for both stations:\n${pages}\n${adsNote} ${defaultCardsNote}${safeNumbersNote}${longerJingleNote}`;
   } finally {
     await client.end();
   }

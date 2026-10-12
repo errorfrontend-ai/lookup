@@ -8,6 +8,7 @@ from typing import Protocol
 
 import numpy as np
 
+from .config import hash_table_name
 from .fingerprint import Fingerprint
 
 
@@ -101,17 +102,18 @@ class MemoryIndex:
 
 
 class PostgresIndex:
-    """fingerprints.hashes_version_1-style table:
+    """A fingerprints.hashes_version_N table:
     (hash bigint, audio_asset_number integer, time_offset_frames integer).
 
-    Needs the optional `postgres` extra (psycopg 3). The table name is configurable so the
-    benchmark can run against a scratch table without touching real data.
+    Needs the optional `postgres` extra (psycopg 3). The table is the current fingerprint version's
+    (`hash_table_name()`) unless one is named, so the benchmark can run against a scratch table without
+    touching real data.
     """
 
     def __init__(
         self,
         connection_string: str | None = None,
-        table: str = "fingerprints.hashes_version_1",
+        table: str | None = None,
         statement_timeout_milliseconds: int = 800,
         *,
         connection=None,
@@ -128,7 +130,7 @@ class PostgresIndex:
         if (connection_string is None) == (connection is None):
             raise ValueError("give either a connection string or a connection")
         self._psycopg = psycopg
-        schema_name, _, table_name = table.rpartition(".")
+        schema_name, _, table_name = (table or hash_table_name()).rpartition(".")
         self._schema = sql.Identifier(schema_name or "public")
         self._table = sql.Identifier(schema_name or "public", table_name)
         self._table_name = table_name

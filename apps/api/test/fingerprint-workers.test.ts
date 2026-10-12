@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -10,9 +10,11 @@ import { Redis } from 'ioredis';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { planRefingerprinting, queueRefingerprintJobs } from '../scripts/refingerprint-recordings.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { RecognizeQueue, RecognizeWaitTimedOut } from '../src/infrastructure/job-queues/recognize-queue.js';
 import { workerHeartbeatKey } from '../src/infrastructure/job-queues/worker-heartbeat-key.js';
+import { ObjectStorage } from '../src/infrastructure/object-storage/object-storage.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { assertNoInternalDetails } from './support/internal-detail-patterns.js';
 import { CALL_CARD, recognize, registerInstall } from './support/listener-test-kit.js';
@@ -27,6 +29,10 @@ import { createTestApplication, type TestApplication } from './support/test-appl
  * object storage. Node adds the jobs, Python takes them: the cross-language contract (S3-TESTS-01).
  * The tests run in order and build on each other, like a station and a listener would.
  */
+/** The fingerprint version the API and the workers run (ADR-001, "Real captures, October 2026"), and its hash table. */
+const FINGERPRINT_VERSION = 2;
+const HASHES = `fingerprints.hashes_version_${FINGERPRINT_VERSION}`;
+
 describe('the fingerprint workers, end to end', () => {
   let testApplication: TestApplication;
   let setupClient: pg.Client;
@@ -101,8 +107,16 @@ describe('the fingerprint workers, end to end', () => {
     return installToken;
   }
 
-  async function hashRowCount(): Promise<number> {
-    return (await setupClient.query('SELECT count(*)::integer AS rows FROM fingerprints.hashes_version_1')).rows[0].rows as number;
+  /** Recordings with these bytes' SHA-256 and their rows in the current hash table: this test's own, whatever else runs. */
+  async function rowsOfRecording(bytes: Buffer): Promise<{ recordings: number; hashes: number }> {
+    return (
+      await setupClient.query(
+        `SELECT count(*)::integer AS recordings,
+                coalesce(sum((SELECT count(*) FROM ${HASHES} AS hash WHERE hash.audio_asset_number = asset.asset_number)), 0)::integer AS hashes
+           FROM fingerprints.audio_assets AS asset WHERE asset.content_sha256 = $1`,
+        [createHash('sha256').update(bytes).digest()],
+      )
+    ).rows[0] as { recordings: number; hashes: number };
   }
 
   beforeAll(async () => {
@@ -141,7 +155,7 @@ describe('the fingerprint workers, end to end', () => {
     expect(ad.status).toBe('READY');
     expect(ad).not.toHaveProperty('audioAssetId');
     const stored = (await setupClient.query(
-      `SELECT ad.duration_milliseconds, asset.hash_count, (SELECT count(*)::integer FROM fingerprints.hashes_version_1 WHERE audio_asset_number = asset.asset_number) AS hash_rows
+      `SELECT ad.duration_milliseconds, asset.hash_count, (SELECT count(*)::integer FROM ${HASHES} WHERE audio_asset_number = asset.asset_number) AS hash_rows
          FROM app.ads ad JOIN fingerprints.audio_assets asset ON asset.id = ad.audio_asset_id WHERE ad.id = $1`, [adId])).rows[0];
     const expected = JSON.parse(readFileSync(join(audioDirectory, 'expected.json'), 'utf8')) as { ad_hash_count: number };
     expect(stored).toEqual({ duration_milliseconds: 30_000, hash_count: expected.ad_hash_count, hash_rows: expected.ad_hash_count });
@@ -176,6 +190,52 @@ describe('the fingerprint workers, end to end', () => {
     expect(response.body).not.toHaveProperty('result');
   }, 60_000);
 
+  it('re-fingerprinting brings a version 1 recording to the current version: the hashes a new upload gets, no ad changed, and clips still match', async () => {
+    const recording = (await setupClient.query(
+      'SELECT asset.asset_number FROM app.ads ad JOIN fingerprints.audio_assets asset ON asset.id = ad.audio_asset_id WHERE ad.id = $1', [adId])).rows[0] as { asset_number: number };
+    // Back to how every recording was before October 2026: version 1, and nothing in the current table.
+    await setupClient.query(`DELETE FROM ${HASHES} WHERE audio_asset_number = $1`, [recording.asset_number]);
+    await setupClient.query('UPDATE fingerprints.audio_assets SET fingerprint_version = 1 WHERE asset_number = $1', [recording.asset_number]);
+    const adRow = () => setupClient.query('SELECT status, audio_asset_id, duration_milliseconds, updated_at FROM app.ads WHERE id = $1', [adId]).then((result) => result.rows[0]);
+    const adBefore = await adRow();
+
+    const plan = await planRefingerprinting(setupClient, FINGERPRINT_VERSION);
+    const planned = plan.toRefingerprint.filter((found) => found.audioAssetNumber === recording.asset_number);
+    expect(planned).toHaveLength(1);
+    const objectStorage = testApplication.application.get(ObjectStorage);
+    const queueConnection = new Redis(process.env.KEY_VALUE_STORE_URL as string, { maxRetriesPerRequest: null });
+    const queue = new Queue(INGEST_QUEUE_NAME, { connection: queueConnection, prefix: queuePrefix() });
+    try {
+      await queueRefingerprintJobs(planned, {
+        fingerprintVersion: FINGERPRINT_VERSION,
+        requestId: 'refingerprint-test',
+        createDownloadAddress: (key, seconds) => objectStorage.createWorkerDownloadUrl(key, seconds),
+        addJob: (name, data, options) => queue.add(name, data, options),
+      });
+      const startedAt = Date.now();
+      for (;;) {
+        const { fingerprint_version } = (await setupClient.query('SELECT fingerprint_version FROM fingerprints.audio_assets WHERE asset_number = $1', [recording.asset_number])).rows[0];
+        if (fingerprint_version === FINGERPRINT_VERSION) break;
+        if (Date.now() - startedAt > 60_000) throw new Error(`not re-fingerprinted after 60 seconds; the ingest worker wrote:\n${ingestWorker.logLines.slice(-10).map((line) => JSON.stringify(line)).join('\n')}`);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    } finally {
+      await queue.close();
+      await queueConnection.quit();
+    }
+
+    const expected = JSON.parse(readFileSync(join(audioDirectory, 'expected.json'), 'utf8')) as { ad_hash_count: number };
+    const stored = (await setupClient.query(
+      `SELECT hash_count, (SELECT count(*)::integer FROM ${HASHES} WHERE audio_asset_number = $1) AS hash_rows FROM fingerprints.audio_assets WHERE asset_number = $1`,
+      [recording.asset_number])).rows[0];
+    expect(stored).toEqual({ hash_count: expected.ad_hash_count, hash_rows: expected.ad_hash_count });
+    expect(await adRow()).toEqual(adBefore);
+    expect(ingestWorker.logLines.some((line) => line.request_id === 'refingerprint-test' && line.message === 'job finished' && line.outcome === 'REFINGERPRINTED')).toBe(true);
+    expect(JSON.stringify(ingestWorker.logLines)).not.toMatch(/X-Amz-Signature|X-Amz-Credential/);
+    const response = await recognize(client, { installToken: await newInstallToken(), audio: audio('clip.m4a') });
+    expect(response.body).toMatchObject({ status: 'MATCH', result: { title: 'Summer service offer' } });
+  }, 120_000);
+
   it('a clip that starts like an M4A but cannot be decoded is 400 INVALID_AUDIO from the real worker, recorded as such, with none of the decoder’s words', async () => {
     const corrupt = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from('ftypM4A '), randomBytes(8_000)]);
     const response = await recognize(client, { installToken: await newInstallToken(), audio: corrupt });
@@ -190,12 +250,12 @@ describe('the fingerprint workers, end to end', () => {
   it('the queue contract: a job Node adds is answered by Python in the contract’s shape, and one past its deadline is dropped undecoded', async () => {
     const recognizeQueue = testApplication.application.get(RecognizeQueue);
     const clip = audio('clip.m4a').toString('base64');
-    const answer = await recognizeQueue.addAndWait(randomUUID(), { request_id: 'contract-test', audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() + 2_500, fingerprint_version: 1 }, 2_500);
+    const answer = await recognizeQueue.addAndWait(randomUUID(), { request_id: 'contract-test', audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() + 2_500, fingerprint_version: FINGERPRINT_VERSION }, 2_500);
     expect(RecognizeJobResult.safeParse(answer).success).toBe(true);
     expect(answer.status).toBe('MATCH');
 
     const expiredJobId = randomUUID();
-    const expired = await recognizeQueue.addAndWait(expiredJobId, { request_id: 'expired-test', audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() - 1, fingerprint_version: 1 }, 2_500);
+    const expired = await recognizeQueue.addAndWait(expiredJobId, { request_id: 'expired-test', audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() - 1, fingerprint_version: FINGERPRINT_VERSION }, 2_500);
     expect(expired).toEqual({ status: 'EXPIRED', audio_asset_number: null, aligned_hash_count: 0, match_margin: null, match_offset_milliseconds: null });
     expect(recognizeWorker.logLines.some((line) => line.job_id === expiredJobId && line.message === 'clip recognized')).toBe(false);
   }, 60_000);
@@ -206,7 +266,7 @@ describe('the fingerprint workers, end to end', () => {
     const clip = audio('clip.m4a').toString('base64');
     const jobIds = Array.from({ length: 6 }, () => randomUUID());
     const answers = await Promise.all(jobIds.map((jobId) =>
-      recognizeQueue.addAndWait(jobId, { request_id: `two-workers-${jobId}`, audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() + 20_000, fingerprint_version: 1 }, 20_000)));
+      recognizeQueue.addAndWait(jobId, { request_id: `two-workers-${jobId}`, audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() + 20_000, fingerprint_version: FINGERPRINT_VERSION }, 20_000)));
     expect(answers.every((answer) => answer.status === 'MATCH')).toBe(true);
     const handledJobIds = [recognizeWorker, ...extraWorkers].flatMap((worker) => worker.logLines.filter((line) => line.message === 'job finished').map((line) => line.job_id));
     for (const jobId of jobIds) expect(handledJobIds.filter((handled) => handled === jobId)).toHaveLength(1);
@@ -230,11 +290,12 @@ describe('the fingerprint workers, end to end', () => {
       `INSERT INTO app.ads (id, station_id, client_id, title, status, upload_object_key, uploaded_at) VALUES ($1, $2, $3, 'Retried ad', 'PROCESSING', 'ad-uploads/retried', now())`,
       [retriedAdId, owner.stationId, clientId],
     );
-    const queue = new Queue(INGEST_QUEUE_NAME, { connection: new Redis(process.env.KEY_VALUE_STORE_URL as string, { maxRetriesPerRequest: null }), prefix: queuePrefix() });
+    const retryConnection = new Redis(process.env.KEY_VALUE_STORE_URL as string, { maxRetriesPerRequest: null });
+    const queue = new Queue(INGEST_QUEUE_NAME, { connection: retryConnection, prefix: queuePrefix() });
     try {
       await queue.add(INGEST_QUEUE_NAME, {
         request_id: 'retry-test', ad_id: retriedAdId, download_address: `http://127.0.0.1:${(storage.address() as AddressInfo).port}/second-ad.wav`,
-        deadline_epoch_milliseconds: Date.now() + 120_000, fingerprint_version: 1,
+        deadline_epoch_milliseconds: Date.now() + 120_000, fingerprint_version: FINGERPRINT_VERSION,
       }, { jobId: `ingest-${retriedAdId}`, attempts: 3, backoff: { type: 'exponential', delay: 2_000 }, removeOnComplete: true, removeOnFail: true });
 
       // While the ingest worker is busy with that, the recognize worker answers at once.
@@ -249,6 +310,7 @@ describe('the fingerprint workers, end to end', () => {
       expect(ingestWorker.logLines.some((line) => line.message === 'job failed' && line.code === 'DOWNLOAD_FAILED' && line.request_id === 'retry-test')).toBe(true);
     } finally {
       await queue.close();
+      await retryConnection.quit();
       storage.close();
     }
   }, 120_000);
@@ -283,24 +345,22 @@ describe('the fingerprint workers, end to end', () => {
 
   it('a corrupt file ends FAILED with a reason the station can read, and stores no recording', async () => {
     const corrupt = audio('corrupt.wav');
-    const hashesBefore = await hashRowCount();
     const corruptAdId = await uploadAd(owner, clientId, corrupt, 'audio/wav', 'Broken upload');
     const ad = await waitForAd(owner, corruptAdId);
     expect(ad).toMatchObject({ status: 'FAILED', processingErrorCode: 'audio_unreadable' });
     expect((await setupClient.query('SELECT audio_asset_id FROM app.ads WHERE id = $1', [corruptAdId])).rows[0].audio_asset_id).toBeNull();
-    expect(await hashRowCount()).toBe(hashesBefore);
+    expect(await rowsOfRecording(corrupt)).toEqual({ recordings: 0, hashes: 0 });
   }, 120_000);
 
   it('the same ad uploaded by a second station links to the same recording: no new fingerprints, READY, and nothing shows it is shared', async () => {
     const otherOwner = await testUsers.create();
     const otherClientId = (await (await as(otherOwner))('post', `/api/v1/stations/${otherOwner.stationId}/clients`, { name: 'Brand A' })).body.id as string;
-    const assetsBefore = (await setupClient.query('SELECT count(*)::integer AS assets FROM fingerprints.audio_assets')).rows[0].assets as number;
-    const hashesBefore = await hashRowCount();
+    const rowsBefore = await rowsOfRecording(audio('ad.wav'));
+    expect(rowsBefore.recordings).toBe(1);
     const otherAdId = await uploadAd(otherOwner, otherClientId, audio('ad.wav'), 'audio/wav', 'Summer service offer');
     const otherAd = await waitForAd(otherOwner, otherAdId);
     expect(otherAd.status).toBe('READY');
-    expect((await setupClient.query('SELECT count(*)::integer AS assets FROM fingerprints.audio_assets')).rows[0].assets).toBe(assetsBefore);
-    expect(await hashRowCount()).toBe(hashesBefore);
+    expect(await rowsOfRecording(audio('ad.wav'))).toEqual(rowsBefore);
     const linked = (await setupClient.query('SELECT count(DISTINCT audio_asset_id)::integer AS recordings FROM app.ads WHERE id = ANY($1)', [[adId, otherAdId]])).rows[0];
     expect(linked.recordings).toBe(1);
 
@@ -384,7 +444,7 @@ describe('the fingerprint workers, end to end', () => {
     expect(loggedStack).toMatch(/\n\s+at /);
 
     // Node's own wait rejects too, rather than hanging (S3-TESTS-02).
-    await expect(testApplication.application.get(RecognizeQueue).addAndWait(randomUUID(), { request_id: 'stopped', audio_base64: 'AAAA', codec: 'aac', deadline_epoch_milliseconds: Date.now() + 500, fingerprint_version: 1 }, 500)).rejects.toBeInstanceOf(RecognizeWaitTimedOut);
+    await expect(testApplication.application.get(RecognizeQueue).addAndWait(randomUUID(), { request_id: 'stopped', audio_base64: 'AAAA', codec: 'aac', deadline_epoch_milliseconds: Date.now() + 500, fingerprint_version: FINGERPRINT_VERSION }, 500)).rejects.toBeInstanceOf(RecognizeWaitTimedOut);
 
     const keyValueStore = new Redis(process.env.KEY_VALUE_STORE_URL as string);
     await keyValueStore.del(workerHeartbeatKey(queuePrefix(), 'recognize'));

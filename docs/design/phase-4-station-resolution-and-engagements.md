@@ -1779,6 +1779,18 @@ going on. Before you start, I end Station A's other sample campaigns that share 
    clip was heard" needs a clip sent later; it is shown in Piece 4.) I set it back to ACTIVE, so both
    stations are live for Piece 3.
 
+**What happened (12 October 2026).** Through the air the identifies mostly came back "No match": the 6 s jingle gave
+the phone 1 or 2 matching landmarks, and of the user's own song ("Music test") only 3 of 7 clips reached the
+threshold when they were run again in memory. As planned above, we fixed
+that before going on: the engine's settings were chosen again from the user's phone recordings (fingerprint version
+2, ADR-001 "Real captures, October 2026"), every stored recording is fingerprinted again with them
+(`npm run fingerprints:refingerprint -w @lookup/api`), and the seed now gives the sample ads a 20 s jingle with a
+melody, chords and a beat (running `npm run database:seed` again gives ads seeded earlier the new one). The
+walkthrough resumes at step 2 once an over-the-air check on the real stack passes: identifies of "Music test" and
+the new jingle answer with the right ad, and unindexed audio answers "No match". It passed the same day: 6 of 6
+identifies answered with the right ad and 5 of 5 unindexed songs "No match" (ADR-001, "Over the air on the real
+stack").
+
 ### Piece 3 — The chooser's choice and the "My station" list
 
 **Built (server):** the choice route (§5.5), the station list (§5.6), the listener-route matcher and

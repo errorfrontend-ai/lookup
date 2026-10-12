@@ -59,6 +59,26 @@ export function assertDevelopmentDatabase(setupUrl: string | undefined, nodeEnvi
   };
 }
 
+/**
+ * Refuses unless another address a tool uses (the queue's Valkey, the object storage) points at this machine and
+ * carries no settings after "?". Like the database check, the refusal names the setting and never repeats the address,
+ * which can hold a password.
+ */
+export function assertOnThisMachine(address: string | undefined, settingName: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(address ?? '');
+  } catch {
+    throw new WalkthroughToolProblem(`Refused: ${settingName} is missing or cannot be read.`);
+  }
+  if (parsed.search !== '') {
+    throw new WalkthroughToolProblem(`Refused: ${settingName} carries settings after "?", which could point the tool at another machine.`);
+  }
+  if (!HOSTS_ON_THIS_MACHINE.has(parsed.hostname.toLowerCase())) {
+    throw new WalkthroughToolProblem(`Refused: this tool only works on this machine, and ${settingName} points somewhere else.`);
+  }
+}
+
 type Database = Pick<pg.Client, 'query'>;
 
 /** The one station with this name, or a plain refusal. */

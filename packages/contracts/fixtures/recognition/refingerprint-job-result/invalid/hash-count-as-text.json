@@ -1,0 +1,7 @@
+{
+  "description": "The hash count is a number, not text",
+  "result": {
+    "outcome": "REFINGERPRINTED",
+    "hash_count": "3"
+  }
+}

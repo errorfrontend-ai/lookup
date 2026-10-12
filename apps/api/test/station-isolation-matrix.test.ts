@@ -337,9 +337,10 @@ describe('station isolation and role privileges, table by table', () => {
       });
     });
 
-    it('S1-PRIVILEGES-11: the API role is refused on both fingerprint tables', async () => {
+    it('S1-PRIVILEGES-11: the API role is refused on every fingerprint table', async () => {
       await asStationA(async (client) => {
         await expectRefused(client, 'SELECT 1 FROM fingerprints.hashes_version_1 LIMIT 1', [], /permission denied/);
+        await expectRefused(client, 'SELECT 1 FROM fingerprints.hashes_version_2 LIMIT 1', [], /permission denied/);
         await expectRefused(client, 'SELECT 1 FROM fingerprints.audio_assets LIMIT 1', [], /permission denied/);
       });
     });
@@ -395,6 +396,7 @@ describe('station isolation and role privileges, table by table', () => {
     it('S1-PRIVILEGES-24: the fingerprint worker works only in the fingerprints schema', async () => {
       await asRole('lookup_fingerprint_worker', async (client) => {
         await client.query('SELECT 1 FROM fingerprints.hashes_version_1 LIMIT 1');
+        await client.query('SELECT 1 FROM fingerprints.hashes_version_2 LIMIT 1');
         await client.query('SELECT 1 FROM fingerprints.audio_assets LIMIT 1');
         await expectRefused(client, 'UPDATE fingerprints.audio_assets SET id = id', [], /permission denied/);
         await expectRefused(client, 'DELETE FROM fingerprints.audio_assets', [], /permission denied/);

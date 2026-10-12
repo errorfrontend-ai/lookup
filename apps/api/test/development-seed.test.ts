@@ -1,11 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ActionCard } from '@lookup/contracts';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  giveSampleAdsTheLongerJingle,
   giveSampleCardsSafeNumbers,
   SAMPLE_AD_TITLES,
+  sampleJingleNotes,
   SAMPLE_DEFAULT_CARDS,
   type SampleStorage,
   SECOND_STATION_SAMPLE_ADS,
@@ -13,6 +15,8 @@ import {
   seedDefaultCards,
   seedSampleAds,
 } from '../scripts/sample-ads.js';
+import { createSampleJingleWav, SHARED_JINGLE_NOTES } from '../scripts/sample-audio.js';
+import { WalkthroughToolProblem } from '../scripts/development-walkthrough-tools.js';
 import { seedDevelopmentData } from '../scripts/seed-development-data.js';
 import { databaseSetupClient } from './support/database-clients.js';
 
@@ -191,8 +195,8 @@ describe('development seed', () => {
     expect((after['Harvest festival'] as { id: string }).id).toBe(portalCardId);
   });
 
-  /** The bytes of each ad's uploaded audio at the station, by title, as SHA-256 digests. */
-  async function audioDigests(stationId: string): Promise<Record<string, string>> {
+  /** The bytes of each ad's uploaded audio at the station (or only the titles given), by title, as SHA-256 digests. */
+  async function audioDigests(stationId: string, titles: string[] | null = null): Promise<Record<string, string>> {
     const storage = sampleStorage();
     const storageClient = new S3Client({
       endpoint: storage.endpoint,
@@ -203,7 +207,10 @@ describe('development seed', () => {
       responseChecksumValidation: 'WHEN_REQUIRED',
     });
     try {
-      const ads = await setupClient.query(`SELECT title, upload_object_key FROM app.ads WHERE station_id = $1 AND upload_object_key IS NOT NULL`, [stationId]);
+      const ads = await setupClient.query(
+        `SELECT title, upload_object_key FROM app.ads WHERE station_id = $1 AND upload_object_key IS NOT NULL AND ($2::text[] IS NULL OR title = ANY($2))`,
+        [stationId, titles],
+      );
       const digests: Record<string, string> = {};
       for (const ad of ads.rows) {
         const object = await storageClient.send(new GetObjectCommand({ Bucket: storage.bucket, Key: ad.upload_object_key }));
@@ -308,6 +315,88 @@ describe('development seed', () => {
     }
   });
 
+  it('gives sample ads seeded with the old jingle their own 20-second one, waiting to be fingerprinted again, with a history line; portal, archived and refused files are left alone; running it again changes nothing', async () => {
+    const setupUrl = process.env.DATABASE_SETUP_URL as string;
+    const { stationId, ownerId } = await seedDevelopmentData(setupUrl, seed);
+    await seedSampleAds(setupClient, stationId, sampleStorage(), ownerId);
+    // Today's seed already uploads today's jingle (still PROCESSING here: its stored files are read).
+    expect(await giveSampleAdsTheLongerJingle(setupClient, stationId, sampleStorage(), ownerId)).toBe(0);
+
+    // As the seed left ads before 12 October 2026: the 6 s jingle's bytes in storage, fingerprinted and ready on a recording.
+    const storage = sampleStorage();
+    const storageClient = new S3Client({
+      endpoint: storage.endpoint,
+      region: storage.region,
+      forcePathStyle: true,
+      credentials: { accessKeyId: storage.accessKeyId, secretAccessKey: storage.secretAccessKey },
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
+    const oldRecordingIds: string[] = [];
+    const makeOld = async (title: string) => {
+      // The new jingle's length, so a size check could not tell them apart: only the content does.
+      const oldBytes = Buffer.concat([Buffer.from('RIFF'), randomBytes(createSampleJingleWav(SHARED_JINGLE_NOTES).length - 4)]);
+      const oldSha256 = createHash('sha256').update(oldBytes).digest();
+      const recordingId = randomUUID();
+      oldRecordingIds.push(recordingId);
+      await setupClient.query(
+        `INSERT INTO fingerprints.audio_assets (id, content_sha256, duration_milliseconds, fingerprint_version, hash_count) VALUES ($1, $2, 6000, 1, 300)`,
+        [recordingId, oldSha256],
+      );
+      const key = (await setupClient.query(`SELECT upload_object_key FROM app.ads WHERE station_id = $1 AND title = $2`, [stationId, title])).rows[0].upload_object_key as string;
+      await storageClient.send(new PutObjectCommand({ Bucket: storage.bucket, Key: key, Body: oldBytes, ContentType: 'audio/wav' }));
+      await setupClient.query(
+        `UPDATE app.ads SET status = 'READY', upload_size_bytes = $3, duration_milliseconds = 6000, upload_content_sha256 = $4, audio_asset_id = $5
+          WHERE station_id = $1 AND title = $2`,
+        [stationId, title, oldBytes.length, oldSha256, recordingId],
+      );
+    };
+    try {
+      await makeOld('Summer service offer'); // the shared jingle
+      await makeOld('Weekend sale'); // notes of its own
+      await makeOld('Back to school offer');
+      await setupClient.query(`UPDATE app.ads SET archived_at = now() WHERE station_id = $1 AND title = 'Back to school offer'`, [stationId]);
+      // A file a developer uploaded in the portal (not the seed's key) on the same old recording: left alone.
+      await makeOld('Harvest festival');
+      await setupClient.query(`UPDATE app.ads SET upload_object_key = replace(upload_object_key, '/sample', '/audio') WHERE station_id = $1 AND title = 'Harvest festival'`, [stationId]);
+      const leftAlone = `SELECT title, status, audio_asset_id, upload_content_sha256, archived_at FROM app.ads WHERE station_id = $1 AND title = ANY($2) ORDER BY title`;
+      const leftAloneTitles = ['Back to school offer', 'Festive greetings', 'Harvest festival'];
+      const before = (await setupClient.query(leftAlone, [stationId, leftAloneTitles])).rows;
+      const historyLines = `SELECT entity_id, changes, actor_portal_user_id FROM app.audit_events
+                             WHERE action = 'ad_upload_verified' AND entity_id IN (SELECT id FROM app.ads WHERE station_id = $1 AND title = ANY($2)) ORDER BY id`;
+      const historyBefore = (await setupClient.query(historyLines, [stationId, ['Summer service offer', 'Weekend sale']])).rows.length;
+
+      expect(await giveSampleAdsTheLongerJingle(setupClient, stationId, sampleStorage(), ownerId)).toBe(2);
+      expect(await giveSampleAdsTheLongerJingle(setupClient, stationId, sampleStorage(), ownerId)).toBe(0);
+
+      const swapped = await setupClient.query(
+        `SELECT id, title, status, audio_asset_id, upload_content_sha256, duration_milliseconds, upload_size_bytes FROM app.ads
+          WHERE station_id = $1 AND title = ANY($2) ORDER BY title`,
+        [stationId, ['Summer service offer', 'Weekend sale']],
+      );
+      const jingleBytes = 20 * 8_000 * 2 + 44;
+      for (const row of swapped.rows) {
+        expect(row, row.title).toMatchObject({ status: 'PROCESSING', audio_asset_id: null, upload_content_sha256: null, duration_milliseconds: null, upload_size_bytes: jingleBytes });
+      }
+      const digests = await audioDigests(stationId, ['Summer service offer', 'Weekend sale']);
+      const digestOf = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+      expect(digests['Summer service offer']).toBe(digestOf(createSampleJingleWav(SHARED_JINGLE_NOTES)));
+      expect(digests['Weekend sale']).toBe(digestOf(createSampleJingleWav(sampleJingleNotes('Weekend sale'))));
+      expect(digests['Weekend sale']).not.toBe(digests['Summer service offer']);
+      // The ingest sweep picks both up, and each has a line in its history like a new upload's.
+      const waiting = (await setupClient.query(`SELECT ad_id FROM app.find_ads_waiting_for_ingest(interval '5 minutes', 500)`)).rows.map((row) => row.ad_id);
+      for (const row of swapped.rows) expect(waiting, row.title).toContain(row.id);
+      const added = (await setupClient.query(historyLines, [stationId, ['Summer service offer', 'Weekend sale']])).rows.slice(historyBefore);
+      expect(added.map((row) => row.entity_id).sort()).toEqual(swapped.rows.map((row) => row.id).sort());
+      for (const row of added) expect(row).toMatchObject({ changes: { sizeBytes: jingleBytes, contentType: 'audio/wav' }, actor_portal_user_id: ownerId });
+      expect((await setupClient.query(leftAlone, [stationId, leftAloneTitles])).rows).toEqual(before);
+    } finally {
+      storageClient.destroy();
+      await setupClient.query(`UPDATE app.ads SET audio_asset_id = NULL WHERE audio_asset_id = ANY($1)`, [oldRecordingIds]);
+      await setupClient.query(`DELETE FROM fingerprints.audio_assets WHERE id = ANY($1)`, [oldRecordingIds]);
+    }
+  });
+
   it('refuses a weak owner password and refuses to run in production', async () => {
     const setupUrl = process.env.DATABASE_SETUP_URL as string;
     await expect(seedDevelopmentData(setupUrl, { ...seed, ownerPassword: 'short' })).rejects.toThrow(/too_short/);
@@ -317,6 +406,23 @@ describe('development seed', () => {
       await expect(seedDevelopmentData(setupUrl, seed)).rejects.toThrow(/Refusing to seed development data in production/);
     } finally {
       process.env.NODE_ENV = previousEnvironment;
+    }
+  });
+
+  it('refuses a database on another machine, or an address with settings after "?", before it connects and without repeating the address', async () => {
+    const local = new URL(process.env.DATABASE_SETUP_URL as string);
+    const remote = new URL(local.toString());
+    remote.hostname = 'database.example.com';
+    const hiddenRemote = new URL(local.toString());
+    hiddenRemote.search = '?host=database.example.com';
+    for (const address of [remote.toString(), hiddenRemote.toString()]) {
+      const refused = await seedDevelopmentData(address, seed).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(refused).toBeInstanceOf(WalkthroughToolProblem);
+      expect((refused as Error).message).not.toContain(decodeURIComponent(local.password));
+      expect((refused as Error).message).not.toContain('database.example.com');
     }
   });
 });

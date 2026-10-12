@@ -7,9 +7,10 @@ from bench.synthetic_audio import SOURCE_SAMPLE_RATE, synthesize_ad
 from lookup_fingerprint import FingerprintParameters, MatchThresholds, Matcher, MemoryIndex, fingerprint
 from scipy.signal import resample_poly
 
-# Thresholds calibrated by bench.run on the synthetic corpus. They keep these tests meaningful;
-# production values come from the real Phase 0 corpus, not from here.
-SYNTHETIC_THRESHOLDS = MatchThresholds(minimum_aligned_landmarks=7, minimum_margin=2.0)
+# The production thresholds (ADR-001, fingerprint version 2). The synthetic clips here clear them by far (an 8 s
+# phone clip of an indexed ad aligns about 258 landmarks, unrelated audio at most 7); the lower test-only threshold
+# of 7 used with version 1 let unrelated audio through once fingerprints became denser.
+SYNTHETIC_THRESHOLDS = MatchThresholds()
 
 
 def to_canonical(samples: np.ndarray, input_sample_rate: int, parameters: FingerprintParameters) -> np.ndarray:

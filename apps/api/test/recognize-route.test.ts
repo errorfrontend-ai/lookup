@@ -139,7 +139,7 @@ describe('POST /api/v1/recognize', () => {
         match_margin: 3.25,
         match_offset_milliseconds: 4048,
         clip_duration_milliseconds: 8000,
-        fingerprint_version: 1,
+        fingerprint_version: 2,
         attempt_count: 1,
       });
       expect(row?.completed_at).toBeInstanceOf(Date);
@@ -160,7 +160,7 @@ describe('POST /api/v1/recognize', () => {
 
       const [job] = worker.receivedJobs;
       expect(Object.keys(job?.data ?? {}).sort()).toEqual(['audio_base64', 'codec', 'deadline_epoch_milliseconds', 'fingerprint_version', 'request_id']);
-      expect(job?.data).toMatchObject({ request_id: response.headers['x-request-id'], codec: 'aac', fingerprint_version: 1, audio_base64: clip.toString('base64') });
+      expect(job?.data).toMatchObject({ request_id: response.headers['x-request-id'], codec: 'aac', fingerprint_version: 2, audio_base64: clip.toString('base64') });
       expect(job?.data.deadline_epoch_milliseconds).toBeGreaterThanOrEqual(sentAt + 2_400);
       expect(job?.data.deadline_epoch_milliseconds).toBeLessThanOrEqual(Date.now() + 2_500);
       expect(job?.options).toMatchObject({ attempts: 1, removeOnComplete: true, removeOnFail: true });

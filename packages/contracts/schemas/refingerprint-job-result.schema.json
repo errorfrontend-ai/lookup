@@ -1,0 +1,38 @@
+{
+  "$id": "https://contracts.lookup.invalid/refingerprint-job-result/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/RefingerprintJobResult",
+  "$defs": {
+    "RefingerprintJobResult": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "REFINGERPRINTED",
+            "SKIPPED",
+            "REFUSED",
+            "EXPIRED"
+          ]
+        },
+        "hash_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "hash_count"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

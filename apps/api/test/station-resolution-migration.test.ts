@@ -4,13 +4,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDatabaseRoles } from '../scripts/create-database-roles.js';
 import { loadDatabaseSetupConfig } from '../scripts/database-setup-config.js';
 import { runMigrations } from '../scripts/run-migrations.js';
+import { ALL_MIGRATIONS } from '../src/infrastructure/database/migrations/all-migrations.js';
 
 /**
  * The phase 4 migration, 1791600000000-StationResolution (P4 design §4, §4.7), run up and down as the migration
  * script runs it (database:migrate and database:revert-latest), in a database of its own made for this test and
  * dropped after it, so the shared database is never reverted: rows finished under Step 3 get the resolution Step
  * 3 decided before the strict check is added (P4-D33), and the down step gives back Step 3's schema exactly.
+ * Migrations released after it are reverted before it and applied again after it, as revert-latest would.
  */
+const MIGRATION_NAMES = ALL_MIGRATIONS.map((migration) => new migration().name);
+const LATER_MIGRATION_NAMES = MIGRATION_NAMES.slice(MIGRATION_NAMES.indexOf('StationResolution1791600000000') + 1);
+
 describe('the StationResolution migration, up and down', () => {
   const { setupUrl, rolePasswords } = loadDatabaseSetupConfig();
   const scratchDatabaseName = `lookup_migration_test_${randomBytes(4).toString('hex')}`;
@@ -32,13 +37,17 @@ describe('the StationResolution migration, up and down', () => {
     }
   };
   const rows = async <Row>(sql: string, parameters: unknown[] = []) => (await scratchClient.query(sql, parameters)).rows as Row[];
+  /** database:revert-latest, once for each later migration and once more for StationResolution itself. */
+  const revertThroughStationResolution = async () => {
+    for (let reverted = 0; reverted <= LATER_MIGRATION_NAMES.length; reverted += 1) await runMigrations(scratchUrl.toString(), { revertLatest: true });
+  };
 
   beforeAll(async () => {
     await onServer(`CREATE DATABASE ${scratchDatabaseName}`);
     await createDatabaseRoles(scratchUrl.toString(), rolePasswords);
     await runMigrations(scratchUrl.toString());
     // database:revert-latest: back to the Step 3 schema, where the rows below are made.
-    await runMigrations(scratchUrl.toString(), { revertLatest: true });
+    await revertThroughStationResolution();
     scratchClient = new pg.Client({ connectionString: scratchUrl.toString(), application_name: 'lookup-tests-migration' });
     await scratchClient.connect();
   }, 240_000);
@@ -73,7 +82,7 @@ describe('the StationResolution migration, up and down', () => {
     }
 
     // database:migrate
-    expect(await runMigrations(scratchUrl.toString())).toEqual(['StationResolution1791600000000']);
+    expect(await runMigrations(scratchUrl.toString())).toEqual(['StationResolution1791600000000', ...LATER_MIGRATION_NAMES]);
     const resolutions = await rows<{ id: string; resolution: string | null }>('SELECT id, resolution FROM app.recognition_events');
     expect(Object.fromEntries(resolutions.map((row) => [row.id, row.resolution]))).toEqual({
       [ids.match]: 'SCHEDULE_UNIQUE',
@@ -101,7 +110,7 @@ describe('the StationResolution migration, up and down', () => {
 
   it('the down step gives back Step 3: its functions and their grants, the integer skew, the table-wide read, and no phase 4 table, column or check; up again works', async () => {
     // database:revert-latest
-    await runMigrations(scratchUrl.toString(), { revertLatest: true });
+    await revertThroughStationResolution();
     const callable = async (signature: string) =>
       (await rows<{ is_callable: boolean | null }>(
         `SELECT CASE WHEN to_regprocedure($1) IS NULL THEN NULL ELSE has_function_privilege('lookup_api', to_regprocedure($1), 'EXECUTE') END AS is_callable`,
@@ -155,7 +164,7 @@ describe('the StationResolution migration, up and down', () => {
     expect(await rows('SELECT city FROM app.stations WHERE id = $1', [ids.station])).toEqual([{ city: null }]);
 
     // database:migrate, once more.
-    expect(await runMigrations(scratchUrl.toString())).toEqual(['StationResolution1791600000000']);
+    expect(await runMigrations(scratchUrl.toString())).toEqual(['StationResolution1791600000000', ...LATER_MIGRATION_NAMES]);
     expect(await callable('recognition.find_station_candidates(integer, timestamptz)')).toBe(true);
   }, 240_000);
 });

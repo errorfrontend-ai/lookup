@@ -5,6 +5,6 @@
     "audio_base64": "AAAAHGZ0eXBNNEEgAAAAAE00QSBpc29tbXA0MgAAAAhmcmVl",
     "codec": "mp3",
     "deadline_epoch_milliseconds": 1791361802500,
-    "fingerprint_version": 1
+    "fingerprint_version": 2
   }
 }

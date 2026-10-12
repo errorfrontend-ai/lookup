@@ -15,7 +15,7 @@ from workers import ingest, recognize
 from workers.ingest import IngestJobHandler
 from workers.recognize import RecognizeJobHandler
 
-from .test_workers import PREPARED, FakePool, FakeStore
+from .test_workers import ON_VERSION_ONE, PREPARED, UPLOADED, FakePool, FakeStore
 from .worker_support import assert_matches_contract, contract_fixtures
 
 # Fixture folder → the field holding the value in each file, and the contract's JSON Schema.
@@ -24,6 +24,8 @@ FIXTURE_FOLDERS = {
     "recognize-job-result": ("result", "recognize-job-result.schema.json"),
     "ingest-job": ("job", "ingest-job-data.schema.json"),
     "ingest-job-result": ("result", "ingest-job-result.schema.json"),
+    "refingerprint-job": ("job", "refingerprint-job-data.schema.json"),
+    "refingerprint-job-result": ("result", "refingerprint-job-result.schema.json"),
 }
 
 
@@ -60,6 +62,7 @@ def test_an_invalid_shared_fixture_is_refused_by_its_contract(folder, value):
 def test_the_workers_read_exactly_the_fields_of_a_valid_shared_job():
     assert [set(job) for job in _shared("recognize-job", "valid").values()] == [set(recognize.JOB_FIELDS)] * 3
     assert [set(job) for job in _shared("ingest-job", "valid").values()] == [set(ingest.JOB_FIELDS)] * 3
+    assert [set(job) for job in _shared("refingerprint-job", "valid").values()] == [set(ingest.REFINGERPRINT_JOB_FIELDS)] * 3
 
 
 def test_the_recognize_worker_answers_a_shared_job_with_a_shared_result():
@@ -90,3 +93,18 @@ def test_the_ingest_worker_answers_a_shared_job_with_a_shared_result():
         assert answer(FakePool(), FakeStore(existing_asset_id="an-existing-asset")) == results["ready-linked-to-existing-audio"], name
         assert answer(FakePool({"refusal_reason": "audio_too_short"}), FakeStore()) == results["refused"], name
         assert answer(FakePool(PREPARED), FakeStore(ad_changes=False)) == results["skipped"], name
+
+
+def test_the_ingest_worker_answers_a_shared_refingerprint_job_with_a_shared_result():
+    results = _shared("refingerprint-job-result", "valid")
+    for name, job in _shared("refingerprint-job", "valid").items():
+        deadline_seconds = job["deadline_epoch_milliseconds"] / 1000
+        in_time = _clock_at(deadline_seconds - 60)
+
+        def answer(pool, store, download=lambda address: UPLOADED, clock=in_time) -> dict:
+            return asyncio.run(IngestJobHandler(pool, store, download=download, clock=clock)(job))
+
+        assert answer(FakePool(), FakeStore(recording=ON_VERSION_ONE), clock=_clock_at(deadline_seconds + 1)) == results["expired"], name
+        assert answer(FakePool(PREPARED), FakeStore(recording=ON_VERSION_ONE)) == results["refingerprinted"], name
+        assert answer(FakePool(), FakeStore(recording=None)) == results["skipped"], name
+        assert answer(FakePool(), FakeStore(recording=ON_VERSION_ONE), download=lambda address: b"another file") == results["refused"], name

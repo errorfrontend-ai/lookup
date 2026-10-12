@@ -1,0 +1,8 @@
+{
+  "description": "A result never carries error text",
+  "result": {
+    "outcome": "REFUSED",
+    "hash_count": null,
+    "reason": "sha256 mismatch"
+  }
+}

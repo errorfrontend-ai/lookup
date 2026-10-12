@@ -66,7 +66,7 @@ const AppConfigSchema = z
     /** Prefix of every BullMQ key in Valkey; the workers must use the same one. */
     QUEUE_KEY_PREFIX: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).default('lookup'),
     /** The fingerprint settings the workers run (ADR-001); jobs for another version are refused. */
-    FINGERPRINT_VERSION: z.coerce.number().int().min(1).max(32_767).default(1),
+    FINGERPRINT_VERSION: z.coerce.number().int().min(1).max(32_767).default(2),
     /** How often ads left waiting for fingerprints get their ingest job again; 0 switches the sweep off. */
     INGEST_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(3_600).default(60),
     /** How long a live recognition waits for its worker before answering 503 RECOGNITION_TIMEOUT. */

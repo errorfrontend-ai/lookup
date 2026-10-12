@@ -94,6 +94,31 @@ def test_a_worker_that_cannot_reach_valkey_at_start_up_stops_with_one_fatal_line
         assert secret not in output
 
 
+def test_a_worker_stops_at_start_up_when_its_fingerprint_version_has_no_hash_table(monkeypatch):
+    """A worker started before the migrations would report healthy and then fail every job (ADR-001, version 2)."""
+    from workers import fingerprint_store_check, recognize
+    from workers.fingerprint_store_check import FingerprintStoreMissing
+
+    recognize.check_database_connection(fingerprint_worker_database_url())
+    IngestStore(fingerprint_worker_database_url()).check_fingerprint_store()
+
+    monkeypatch.setattr(fingerprint_store_check, "FINGERPRINT_VERSION", 99)
+    for check in (lambda: recognize.check_database_connection(fingerprint_worker_database_url()),
+                  lambda: IngestStore(fingerprint_worker_database_url()).check_fingerprint_store()):
+        with pytest.raises(FingerprintStoreMissing, match=r"no hash table for fingerprint version 99 .*npm run database:migrate"):
+            check()
+
+
+def test_the_ingest_worker_also_needs_the_re_fingerprint_function_and_the_recognize_worker_does_not(monkeypatch):
+    from workers import fingerprint_store_check, recognize
+    from workers.fingerprint_store_check import FingerprintStoreMissing
+
+    monkeypatch.setattr(fingerprint_store_check, "REFINGERPRINT_FUNCTION", "fingerprints.no_such_function(integer)")
+    recognize.check_database_connection(fingerprint_worker_database_url())
+    with pytest.raises(FingerprintStoreMissing, match=r"no fingerprints\.no_such_function"):
+        IngestStore(fingerprint_worker_database_url()).check_fingerprint_store()
+
+
 # ---- during a job ------------------------------------------------------------------------------------
 
 

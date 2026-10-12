@@ -21,6 +21,7 @@ from lookup_fingerprint import FINGERPRINT_VERSION
 
 from .engine_pool import EnginePool, EngineTaskTimedOut
 from .engine_process import ready, recognize_clip_in_process, start_recognize_process
+from .fingerprint_store_check import check_fingerprint_store
 from .job_failure import JobFailure
 from .queue_runner import run_from_command_line, run_queue_worker
 from .settings import WorkerSettings
@@ -78,9 +79,11 @@ def check_database_connection(database_url: str) -> None:
     """Connects once from the worker's own process, with a time limit, so an unreachable database stops
     the worker at once with one log line naming the error. Without it the database would first be met
     inside the pool's processes, which wait far longer for a connection: the worker would sit through
-    the pool's two-minute warm-up and then stop on a time-out that never names the database."""
+    the pool's two-minute warm-up and then stop on a time-out that never names the database. It also stops a worker
+    whose fingerprint version has no hash table yet (the migrations were not run), which would fail every clip."""
     with psycopg.connect(database_url, connect_timeout=DATABASE_CONNECT_TIMEOUT_SECONDS) as connection:
         connection.execute("SELECT 1")
+        check_fingerprint_store(connection)
 
 
 async def start(settings: WorkerSettings) -> None:

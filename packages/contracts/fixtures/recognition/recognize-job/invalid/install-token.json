@@ -5,7 +5,7 @@
     "audio_base64": "AAAAHGZ0eXBNNEEgAAAAAE00QSBpc29tbXA0MgAAAAhmcmVl",
     "codec": "aac",
     "deadline_epoch_milliseconds": 1791361802500,
-    "fingerprint_version": 1,
+    "fingerprint_version": 2,
     "install_token": "a-listeners-install-token"
   }
 }

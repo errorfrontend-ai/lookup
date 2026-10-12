@@ -19,6 +19,7 @@ const TABLES_WITHOUT_ROW_LEVEL_SECURITY: Record<string, string> = {
   'app.migrations': 'TypeORM bookkeeping; no service role has any grant on it',
   'fingerprints.audio_assets': 'global, shared across stations; no grant to either API role',
   'fingerprints.hashes_version_1': 'global, shared across stations; no grant to either API role',
+  'fingerprints.hashes_version_2': 'global, shared across stations; no grant to either API role',
 };
 /** Tables that name a station but give stations no policy, each for a stated reason. */
 const TABLES_WITH_A_STATION_BUT_NO_STATION_POLICY: Record<string, string> = {
@@ -71,7 +72,7 @@ describe('database catalogue', () => {
       for (const expected of [
         'app.stations', 'app.portal_users', 'app.station_memberships', 'app.refresh_tokens', 'app.clients', 'app.action_cards',
         'app.ads', 'app.campaigns', 'app.campaign_time_windows', 'fingerprints.audio_assets', 'fingerprints.hashes_version_1',
-        'app.listener_installs', 'app.recognition_events', 'app.audit_events',
+        'fingerprints.hashes_version_2', 'app.listener_installs', 'app.recognition_events', 'app.audit_events',
         'app.recognition_candidates', 'app.engagement_events', 'app.engagement_deduplication_keys', 'app.campaign_counters', 'app.recognition_reports',
       ]) {
         expect(tableNames).toContain(expected);
@@ -262,7 +263,7 @@ describe('database catalogue', () => {
       const columns = await rows<{ table_name: string; column_name: string }>(
         `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'fingerprints' ORDER BY table_name, ordinal_position`,
       );
-      expect(columns.map((column) => column.table_name)).toEqual(expect.arrayContaining(['audio_assets', 'hashes_version_1']));
+      expect(columns.map((column) => column.table_name)).toEqual(expect.arrayContaining(['audio_assets', 'hashes_version_1', 'hashes_version_2']));
       expect(columns.filter((column) => /station|client|campaign|ad_id|owner/.test(column.column_name))).toEqual([]);
     });
 
@@ -271,7 +272,7 @@ describe('database catalogue', () => {
         `SELECT role_name || ' ' || privilege || ' on ' || target AS grant_description
            FROM unnest(ARRAY['lookup_api', 'lookup_admin_api']) AS role_name,
                 unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS privilege,
-                unnest(ARRAY['fingerprints.audio_assets', 'fingerprints.hashes_version_1']) AS target
+                unnest(ARRAY['fingerprints.audio_assets', 'fingerprints.hashes_version_1', 'fingerprints.hashes_version_2']) AS target
           WHERE has_table_privilege(role_name, target, privilege)
          UNION ALL
          SELECT role_name || ' USAGE on schema fingerprints' FROM unnest(ARRAY['lookup_api', 'lookup_admin_api']) AS role_name

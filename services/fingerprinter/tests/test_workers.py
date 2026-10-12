@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import gc
+import hashlib
 import inspect
 import io
 import json
@@ -29,7 +30,7 @@ from workers import engine_process
 from workers.engine_pool import EnginePool, EngineTaskTimedOut
 from workers.heartbeat import heartbeat_key, keep_heartbeat
 from workers.ingest import IngestJobHandler, UploadTooLarge
-from workers.ingest_store import StoreOutcome
+from workers.ingest_store import ExistingAsset, StoreOutcome, StoredRecording
 from workers.job_failure import JobFailure
 from workers.queue_runner import job_processor
 from workers.recognize import EXPIRED_RESULT, RecognizeJobHandler
@@ -667,14 +668,28 @@ def test_a_file_with_no_audio_stream_is_refused_as_such():
 
 
 class FakeStore:
-    def __init__(self, existing_asset_id=None, ad_changes=True) -> None:
+    def __init__(self, existing_asset_id=None, ad_changes=True, recording=None, version_recorded=True,
+                 existing_asset_version=FINGERPRINT_VERSION) -> None:
         self.existing_asset_id = existing_asset_id
+        self.existing_asset_version = existing_asset_version
         self.ad_changes = ad_changes
+        self.recording = recording
+        self.version_recorded = version_recorded
         self.recorded: list[tuple] = []
         self.stored: list[tuple] = []
+        self.refingerprinted: list[tuple] = []
+
+    def find_recording(self, audio_asset_number):
+        return self.recording
+
+    def store_refingerprinted_audio(self, audio_asset_number, prepared):
+        self.refingerprinted.append((audio_asset_number, len(prepared["hashes"])))
+        return self.version_recorded
 
     def find_audio_asset(self, content_sha256):
-        return self.existing_asset_id
+        if self.existing_asset_id is None:
+            return None
+        return ExistingAsset(self.existing_asset_id, 9, self.existing_asset_version)
 
     def record_result(self, ad_id, audio_asset_id, content_sha256, refusal_reason, request_id):
         self.recorded.append((ad_id, audio_asset_id, refusal_reason, request_id))
@@ -709,6 +724,16 @@ def test_an_exact_copy_is_linked_without_decoding_or_fingerprinting():
     result = asyncio.run(IngestJobHandler(pool, store, download=lambda address: b"same bytes")(ingest_job()))
     assert result == {"outcome": "READY", "is_linked_to_existing_audio": True}
     assert pool.calls == [] and store.stored == []
+    assert store.recorded == [("0192a6c4-0000-4000-8000-0000000000aa", "existing-asset", None, "r-ingest")]
+
+
+def test_an_exact_copy_of_a_recording_on_an_older_version_is_fingerprinted_with_this_one_before_it_is_linked():
+    store = FakeStore(existing_asset_id="existing-asset", existing_asset_version=FINGERPRINT_VERSION - 1)
+    pool = FakePool(PREPARED)
+    result = asyncio.run(IngestJobHandler(pool, store, download=lambda address: b"same bytes")(ingest_job()))
+    assert result == {"outcome": "READY", "is_linked_to_existing_audio": True}
+    assert [call[0] for call in pool.calls] == ["prepare_ad_audio_in_process"]
+    assert store.refingerprinted == [(9, 3)] and store.stored == []
     assert store.recorded == [("0192a6c4-0000-4000-8000-0000000000aa", "existing-asset", None, "r-ingest")]
 
 
@@ -750,6 +775,80 @@ def test_an_expired_or_mismatched_ingest_job_does_no_work():
     with pytest.raises(JobFailure, match="FINGERPRINT_VERSION_MISMATCH"):
         asyncio.run(IngestJobHandler(FakePool(), store, download=lambda a: 1 / 0)(ingest_job(fingerprint_version=99)))
     assert store.recorded == []
+
+
+# ---- re-fingerprint jobs (fingerprint version 2, ADR-001) ---------------------------------------------------------
+
+def refingerprint_job(**changes) -> dict:
+    return {"request_id": "r-refingerprint", "audio_asset_number": 7,
+            "download_address": "http://127.0.0.1:39000/lookup-ad-uploads/key?X-Amz-Signature=s",
+            "deadline_epoch_milliseconds": int(time.time() * 1000) + 60_000, "fingerprint_version": FINGERPRINT_VERSION, **changes}
+
+
+UPLOADED = b"RIFF the uploaded ad"
+ON_VERSION_ONE = StoredRecording(content_sha256=hashlib.sha256(UPLOADED).digest(), fingerprint_version=1)
+
+
+def test_a_recording_on_an_older_version_is_fingerprinted_again_and_no_ad_is_touched():
+    store, pool = FakeStore(recording=ON_VERSION_ONE), FakePool(PREPARED)
+    result = asyncio.run(IngestJobHandler(pool, store, download=lambda address: UPLOADED)(refingerprint_job()))
+    assert result == {"outcome": "REFINGERPRINTED", "hash_count": 3}
+    assert_matches_contract(result, "refingerprint-job-result.schema.json")
+    assert [call[0] for call in pool.calls] == ["prepare_ad_audio_in_process"]
+    assert store.refingerprinted == [(7, 3)] and store.recorded == [] and store.stored == []
+
+
+@pytest.mark.parametrize("recording", [None, StoredRecording(content_sha256=b"x" * 32, fingerprint_version=FINGERPRINT_VERSION)],
+                         ids=["gone", "already-on-this-version"])
+def test_a_recording_that_is_gone_or_already_current_is_skipped_without_a_download(recording):
+    store = FakeStore(recording=recording)
+    result = asyncio.run(IngestJobHandler(FakePool(), store, download=lambda address: 1 / 0)(refingerprint_job()))
+    assert result == {"outcome": "SKIPPED", "hash_count": None}
+    assert store.refingerprinted == []
+
+
+def test_a_download_that_is_not_the_stored_recording_is_refused_before_decoding():
+    store, pool = FakeStore(recording=ON_VERSION_ONE), FakePool()
+    result = asyncio.run(IngestJobHandler(pool, store, download=lambda address: b"RIFF another file")(refingerprint_job()))
+    assert result == {"outcome": "REFUSED", "hash_count": None}
+    assert pool.calls == [] and store.refingerprinted == []
+
+
+@pytest.mark.parametrize("pool_answer", [{"refusal_reason": "audio_too_long"}, EngineTaskTimedOut()])
+def test_a_recording_that_can_no_longer_be_read_is_refused_and_left_as_it_is(pool_answer):
+    store = FakeStore(recording=ON_VERSION_ONE)
+    result = asyncio.run(IngestJobHandler(FakePool(pool_answer), store, download=lambda address: UPLOADED)(refingerprint_job()))
+    assert result == {"outcome": "REFUSED", "hash_count": None}
+    assert store.refingerprinted == [] and store.recorded == []
+
+
+def test_a_second_job_that_lost_the_race_is_skipped():
+    store = FakeStore(recording=ON_VERSION_ONE, version_recorded=False)
+    result = asyncio.run(IngestJobHandler(FakePool(PREPARED), store, download=lambda address: UPLOADED)(refingerprint_job()))
+    assert result == {"outcome": "SKIPPED", "hash_count": None}
+
+
+def test_an_expired_mismatched_or_malformed_refingerprint_job_does_no_work():
+    store = FakeStore(recording=ON_VERSION_ONE)
+    handler = IngestJobHandler(FakePool(), store, download=lambda address: 1 / 0)
+    assert asyncio.run(handler(refingerprint_job(deadline_epoch_milliseconds=1))) == {"outcome": "EXPIRED", "hash_count": None}
+    with pytest.raises(JobFailure, match="FINGERPRINT_VERSION_MISMATCH"):
+        asyncio.run(handler(refingerprint_job(fingerprint_version=FINGERPRINT_VERSION + 1)))
+    for asset_number in (0, -3, "7", True, 7.0):
+        with pytest.raises(JobFailure, match="INGEST_JOB_MALFORMED"):
+            asyncio.run(handler(refingerprint_job(audio_asset_number=asset_number)))
+    # A job carrying both an ad and a recording is neither kind.
+    with pytest.raises(JobFailure, match="INGEST_JOB_MALFORMED"):
+        asyncio.run(handler(refingerprint_job(ad_id="0192a6c4-0000-4000-8000-0000000000aa")))
+    assert store.refingerprinted == []
+
+
+def test_a_failed_refingerprint_download_is_retried():
+    def unreachable(address):
+        raise OSError("connection reset")
+
+    with pytest.raises(JobFailure, match="DOWNLOAD_FAILED"):
+        asyncio.run(IngestJobHandler(FakePool(), FakeStore(recording=ON_VERSION_ONE), download=unreachable)(refingerprint_job()))
 
 
 def test_an_ad_that_no_longer_waits_is_skipped():

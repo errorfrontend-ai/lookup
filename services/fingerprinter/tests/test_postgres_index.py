@@ -106,15 +106,19 @@ def test_the_lookup_is_cancelled_at_its_statement_timeout(ads, parameters):
         index.close()
 
 
-def test_the_hash_column_is_bigint(postgres_index):
+def test_the_hash_column_is_bigint_in_every_version_and_the_index_uses_the_current_one(postgres_index):
     import psycopg
+    from lookup_fingerprint import PostgresIndex, hash_table_name
 
     with psycopg.connect(DATABASE_URL) as connection:
-        column_type = connection.execute(
-            "SELECT data_type FROM information_schema.columns "
-            "WHERE table_schema = 'fingerprints' AND table_name = 'hashes_version_1' AND column_name = 'hash'"
-        ).fetchone()
-    assert column_type == ("bigint",)
+        column_types = connection.execute(
+            "SELECT table_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'fingerprints' AND table_name IN ('hashes_version_1', 'hashes_version_2') AND column_name = 'hash' "
+            "ORDER BY table_name"
+        ).fetchall()
+        assert column_types == [("hashes_version_1", "bigint"), ("hashes_version_2", "bigint")]
+        assert hash_table_name() == "fingerprints.hashes_version_2" and hash_table_name(1) == "fingerprints.hashes_version_1"
+        assert PostgresIndex(connection=connection)._table_name == "hashes_version_2"
 
 
 def test_an_index_can_write_inside_its_callers_transaction(ads, parameters):

@@ -5,7 +5,7 @@
     "ad_id": "0192a6c4-0000-4000-8000-0000000000aa",
     "download_address": "http://127.0.0.1:39000/lookup-ad-uploads/ad-uploads/0192a6c4-1111-4000-8000-000000000001/0192a6c4-0000-4000-8000-0000000000aa/audio?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=900&X-Amz-Signature=5d1c8f0e2b7a4c3d9e6f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
     "deadline_epoch_milliseconds": 1791361802500,
-    "fingerprint_version": 1,
+    "fingerprint_version": 2,
     "station_id": "0192a6c4-1111-4000-8000-000000000001"
   }
 }

@@ -67,6 +67,40 @@ export const IngestJobResult = z
   .meta({ id: 'IngestJobResult' });
 export type IngestJobResult = z.infer<typeof IngestJobResult>;
 
+/**
+ * A stored recording to fingerprint again with the workers' current version (ADR-001, "Real captures, October
+ * 2026"). It travels on the ingest queue under its own job name; the address reads the original upload of one of
+ * the recording's ads, and no ad changes: the worker writes the version's hash table and records the new version.
+ */
+export const REFINGERPRINT_JOB_NAME = 'refingerprint';
+
+export const RefingerprintJobData = z
+  .strictObject({
+    request_id: z.string().min(1).max(64),
+    /** The recording, by its number in the fingerprint store; never an ad or a station. */
+    audio_asset_number: z.number().int().positive(),
+    download_address: z.url().max(4096),
+    deadline_epoch_milliseconds: z.number().int().positive(),
+    fingerprint_version: z.number().int().positive(),
+  })
+  .meta({ id: 'RefingerprintJobData' });
+export type RefingerprintJobData = z.infer<typeof RefingerprintJobData>;
+
+/**
+ * REFINGERPRINTED: the new version's hashes are stored. SKIPPED: the recording was already on that version (or is
+ * gone). REFUSED: the download was not the stored recording, or could not be read; nothing changed. EXPIRED: too late.
+ */
+export const REFINGERPRINT_OUTCOMES = ['REFINGERPRINTED', 'SKIPPED', 'REFUSED', 'EXPIRED'] as const;
+
+export const RefingerprintJobResult = z
+  .strictObject({
+    outcome: z.enum(REFINGERPRINT_OUTCOMES),
+    /** How many hashes the new version stored; null unless REFINGERPRINTED. */
+    hash_count: z.number().int().min(0).nullable(),
+  })
+  .meta({ id: 'RefingerprintJobResult' });
+export type RefingerprintJobResult = z.infer<typeof RefingerprintJobResult>;
+
 const emitJobSchema = (schema: z.ZodType, id: string, io: 'input' | 'output') => () => ({
   $id: `https://contracts.lookup.invalid/${id}/1.json`,
   ...z.toJSONSchema(schema, { target: 'draft-2020-12', io, unrepresentable: 'throw' }),
@@ -75,3 +109,5 @@ export const emitRecognizeJobDataJsonSchema = emitJobSchema(RecognizeJobData, 'r
 export const emitRecognizeJobResultJsonSchema = emitJobSchema(RecognizeJobResult, 'recognize-job-result', 'output');
 export const emitIngestJobDataJsonSchema = emitJobSchema(IngestJobData, 'ingest-job-data', 'output');
 export const emitIngestJobResultJsonSchema = emitJobSchema(IngestJobResult, 'ingest-job-result', 'output');
+export const emitRefingerprintJobDataJsonSchema = emitJobSchema(RefingerprintJobData, 'refingerprint-job-data', 'output');
+export const emitRefingerprintJobResultJsonSchema = emitJobSchema(RefingerprintJobResult, 'refingerprint-job-result', 'output');

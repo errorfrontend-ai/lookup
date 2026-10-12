@@ -15,6 +15,8 @@ import {
   emitIngestJobResultJsonSchema,
   emitRecognizeJobDataJsonSchema,
   emitRecognizeJobResultJsonSchema,
+  emitRefingerprintJobDataJsonSchema,
+  emitRefingerprintJobResultJsonSchema,
 } from '../src/recognition/fingerprint-job-schemas.js';
 import { emitInstallRegistrationJsonSchema, emitRegisterInstallInputJsonSchema } from '../src/recognition/listener-install-schemas.js';
 import { emitListenerStationListJsonSchema } from '../src/recognition/listener-station-schemas.js';
@@ -38,6 +40,8 @@ export const JSON_SCHEMA_FILES = {
   'recognize-job-result.schema.json': emitRecognizeJobResultJsonSchema,
   'ingest-job-data.schema.json': emitIngestJobDataJsonSchema,
   'ingest-job-result.schema.json': emitIngestJobResultJsonSchema,
+  'refingerprint-job-data.schema.json': emitRefingerprintJobDataJsonSchema,
+  'refingerprint-job-result.schema.json': emitRefingerprintJobResultJsonSchema,
 };
 
 export function formatJsonSchema(schema: Record<string, unknown>): string {

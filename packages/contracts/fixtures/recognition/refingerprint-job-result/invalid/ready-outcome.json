@@ -1,0 +1,7 @@
+{
+  "description": "READY is an ingest outcome; re-fingerprinting changes no ad",
+  "result": {
+    "outcome": "READY",
+    "hash_count": 3
+  }
+}

@@ -96,7 +96,8 @@ Workers: see S3-D11.
 - **P5A/P5B:** logos and header images (and how they are served); the super-admin read path into
   `fingerprints` for overlap review.
 - **P8:** near-full and partial acoustic duplicates (`NEEDS_REVIEW`), re-indexing, calibration of
-  the thresholds on real recordings, continuous integration.
+  the thresholds on real recordings, continuous integration. (Brought forward on 12 October 2026:
+  a first calibration on real phone recordings and re-fingerprinting; see the amendment at the end.)
 
 ## Gate record (8 October 2026)
 
@@ -141,3 +142,29 @@ seconds; a shortened stack trace keeps the error it ends with.
 which the user deferred on 8 October 2026 to the deploy phase, where it is needed); the k6 load tests (P4); the listener app's halves of the
 shared-fixture and no-fingerprinting rules (Step 4); the decisions recorded above as built
 differently; and cross-feature imports inherited from Step 2 (S3-STRUCTURE-04).
+
+## Amendment (12 October 2026): fingerprint version 2
+
+The first identify through the air on the real stack failed (P4 design, Piece 2 walkthrough). The engine's
+settings were chosen again from real phone recordings, and the result is fingerprint version 2 (ADR-001, "Real
+captures, October 2026"): peak neighbourhood 6, each peak paired with the next 15, T = 26, R = 3.0.
+
+- **Database:** migration `1791700000000-FingerprintVersionTwo` adds `fingerprints.hashes_version_2` (version 1's
+  shape and rights) and `fingerprints.record_asset_refingerprinted(integer, smallint)` (SECURITY DEFINER, worker
+  only), which records a recording's new version after its hashes are written, counting them itself.
+- **Jobs (S3-D2, S3-D4):** a third job shape on the `ingest` queue, `refingerprint`:
+  `{request_id, audio_asset_number, download_address, deadline_epoch_milliseconds, fingerprint_version}`, answered
+  `{outcome: REFINGERPRINTED | SKIPPED | REFUSED | EXPIRED, hash_count}` (contracts `RefingerprintJobData`,
+  `RefingerprintJobResult`, with shared fixtures). The worker refuses a download that is not the recording byte for
+  byte, changes no ad and de-duplicates nothing.
+- **Configuration:** `FINGERPRINT_VERSION` defaults to 2 in the API; the workers run `FINGERPRINT_VERSION = 2` and
+  read and write only `hash_table_name()`'s table.
+- **De-duplication:** an upload that is an exact copy of a recording still on an older version is fingerprinted for
+  the current version before the ad is linked to it, so the ad can be recognised.
+- **Start-up:** both workers refuse to start on a database without their version's hash table (and, for ingest, the
+  re-fingerprint function), naming the migration step instead of failing every job.
+- **Tooling:** `npm run fingerprints:refingerprint -w @lookup/api` queues the jobs and waits for them, on this machine
+  only (database, Valkey and object storage; the walkthrough tools' guard), replaces jobs still waiting from an earlier
+  run, and exits with 1 unless every recording reached the version. The development cut-over: stop the workers,
+  migrate, restart the API so it sends version 2 jobs (rebuild it first if it runs from dist), start the workers on
+  version 2, re-fingerprint, identify. Switching with no gap is still P8.
