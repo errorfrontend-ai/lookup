@@ -263,6 +263,24 @@ export const CALL_CARD = {
   ],
 };
 
+/**
+ * A card for new tests (P4 design §6.1): numbers from Ofcom's drama range (+44 7700 900NNN, never given to a
+ * phone company) and links on example.com, each action with its own id. `firstNumber` picks NNN for the call
+ * button; the WhatsApp button takes the next number. CALL_CARD above keeps its numbers until the sweep (Q7).
+ */
+export function safeActionCard(options: { firstNumber?: number; callLabel?: string } = {}) {
+  const number = (offset: number) => `+447700900${String((((options.firstNumber ?? 1) + offset - 1) % 999) + 1).padStart(3, '0')}`;
+  return {
+    schema_version: 1,
+    layout: 'VERTICAL_STACK',
+    actions: [
+      { type: 'CALL', id: randomUUID(), label: options.callLabel ?? 'Call us', style: 'PRIMARY', phone_number_e164: number(0) },
+      { type: 'WHATSAPP', id: randomUUID(), label: 'Chat with us', style: 'SECONDARY', phone_number_e164: number(1), prefilled_text: 'Hi, I heard your ad' },
+      { type: 'LINK', id: randomUUID(), label: 'See the offer', style: 'OUTLINE', url: 'https://example.com/offer' },
+    ],
+  };
+}
+
 export interface AiringAd {
   stationId: string;
   clientId: string;
@@ -347,8 +365,23 @@ export class AiringAds {
 
   async removeAll(installIds: string[] = []): Promise<void> {
     const query = (sql: string, values: unknown[]) => this.setupClient.query(sql, values);
+    // What phase 4 stores about a recognition goes first: candidates refer to it, and taps, counters and
+    // reports to the stations' campaigns.
+    await query(
+      `DELETE FROM app.engagement_deduplication_keys WHERE recognition_id IN (
+         SELECT id FROM app.recognition_events WHERE listener_install_id = ANY($1) OR station_id = ANY($2))`,
+      [installIds, this.stationIds],
+    );
+    await query('DELETE FROM app.engagement_events WHERE station_id = ANY($1)', [this.stationIds]);
+    await query('DELETE FROM app.recognition_reports WHERE station_id = ANY($1)', [this.stationIds]);
+    await query('DELETE FROM app.campaign_counters WHERE station_id = ANY($1)', [this.stationIds]);
+    await query(
+      `DELETE FROM app.recognition_candidates WHERE station_id = ANY($2) OR recognition_id IN (
+         SELECT id FROM app.recognition_events WHERE listener_install_id = ANY($1))`,
+      [installIds, this.stationIds],
+    );
     await query('DELETE FROM app.recognition_idempotency_keys WHERE listener_install_id = ANY($1)', [installIds]);
-    await query('DELETE FROM app.recognition_events WHERE listener_install_id = ANY($1) OR station_id = ANY($2)', [installIds, this.stationIds]);
+    await query('DELETE FROM app.recognition_events WHERE listener_install_id = ANY($1) OR station_id = ANY($2) OR hinted_station_id = ANY($2)', [installIds, this.stationIds]);
     await query('DELETE FROM app.campaign_time_windows WHERE station_id = ANY($1)', [this.stationIds]);
     await query('DELETE FROM app.campaigns WHERE station_id = ANY($1)', [this.stationIds]);
     await query('DELETE FROM app.ads WHERE station_id = ANY($1)', [this.stationIds]);

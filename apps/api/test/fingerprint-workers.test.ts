@@ -125,6 +125,8 @@ describe('the fingerprint workers, end to end', () => {
     await Promise.allSettled([ingestWorker?.stop(), recognizeWorker?.stop(), ...extraWorkers.map((worker) => worker.stop())]);
     const assetIds = (await setupClient.query('SELECT DISTINCT audio_asset_id FROM app.ads WHERE station_id = ANY($1) AND audio_asset_id IS NOT NULL', [testUsers.stationIds])).rows.map((row) => row.audio_asset_id);
     await setupClient.query('DELETE FROM app.recognition_idempotency_keys WHERE listener_install_id = ANY($1)', [installRowIds]);
+    // Every match also stores the stations it weighed (P4-D8), and those rows refer to the recognition.
+    await setupClient.query('DELETE FROM app.recognition_candidates WHERE recognition_id IN (SELECT id FROM app.recognition_events WHERE listener_install_id = ANY($1))', [installRowIds]);
     await setupClient.query('DELETE FROM app.recognition_events WHERE listener_install_id = ANY($1)', [installRowIds]);
     await setupClient.query('DELETE FROM app.listener_installs WHERE id = ANY($1)', [installRowIds]);
     await testUsers.cleanUp();

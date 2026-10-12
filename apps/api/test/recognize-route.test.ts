@@ -542,7 +542,8 @@ describe('POST /api/v1/recognize', () => {
       expect(response.status).toBe(200);
       expect(Math.abs(new Date(response.body.captured_at).getTime() - (now - 10_000))).toBeLessThan(2_000);
       const row = await eventRow(response.body.recognition_id);
-      expect(row?.clock_skew_milliseconds as number).toBeGreaterThan(slow - 2_000);
+      // A bigint column, which the driver gives as text (P4-D18): any skew is stored exactly.
+      expect(Number(row?.clock_skew_milliseconds)).toBeGreaterThan(slow - 2_000);
       expect((row?.client_captured_at as Date).getTime()).toBe(now - slow - 10_000);
     });
 

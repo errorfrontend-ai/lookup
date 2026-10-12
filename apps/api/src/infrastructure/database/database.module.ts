@@ -4,7 +4,7 @@ import type { DataSource } from 'typeorm';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { lookupDataSourceOptions } from './data-source-options.js';
 import { assertDatabaseRoleIsRestricted } from './database-role-check.js';
-import { RecognitionEventPartitions } from './recognition-event-partitions.js';
+import { ListenerTrafficPartitions } from './listener-traffic-partitions.js';
 import { StationScopedTransaction } from './station-scoped-transaction.js';
 
 /**
@@ -24,7 +24,7 @@ import { StationScopedTransaction } from './station-scoped-transaction.js';
       }),
     }),
   ],
-  providers: [StationScopedTransaction, RecognitionEventPartitions],
+  providers: [StationScopedTransaction, ListenerTrafficPartitions],
   exports: [StationScopedTransaction],
 })
 export class DatabaseModule implements OnApplicationBootstrap {

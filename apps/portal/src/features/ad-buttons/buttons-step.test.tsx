@@ -504,7 +504,7 @@ describe('The buttons step', () => {
       // Change the times without saving them, then come back to the buttons and change those too.
       await person.click(screen.getByRole('button', { name: 'Save and continue' }));
       await screen.findByRole('heading', { level: 1, name: 'Set when it airs' });
-      await person.selectOptions(screen.getByLabelText('Keep giving the buttons after a slot ends'), '0');
+      await person.selectOptions(screen.getByLabelText('Keep giving the buttons before and after each slot'), '0');
       await person.click(screen.getByRole('button', { name: 'Back' }));
       await screen.findByRole('heading', { level: 1, name: 'Add the buttons' });
       await typeInto(rowNumber(1), 'Label', 'Phone Brand A');

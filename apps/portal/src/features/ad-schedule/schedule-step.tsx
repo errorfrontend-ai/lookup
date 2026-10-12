@@ -40,7 +40,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 /**
  * The schedule step: the dates, the times (an hour grid on a wide screen, a list of times anywhere),
- * how long after a slot ends listeners still count, and an optional tap limit; and, beside them, the
+ * how long before and after each slot listeners still count, and an optional tap limit; and, beside them, the
  * week as it will air. Everything is in the station's time.
  */
 export function ScheduleStep({
@@ -130,8 +130,8 @@ export function ScheduleStep({
 
           <Section title="Grace period">
             <SelectField
-              label="Keep giving the buttons after a slot ends"
-              hint="Listeners often hear an ad just as the slot closes. This many minutes after it, they still get the buttons."
+              label="Keep giving the buttons before and after each slot"
+              hint="A listener may hear the ad a little before a slot starts or just after it ends. This many minutes on either side, they still get the buttons."
               value={String(draft.gracePeriodMinutes)}
               onChange={(event) => onChange({ ...draft, gracePeriodMinutes: Number(event.target.value) })}
             >

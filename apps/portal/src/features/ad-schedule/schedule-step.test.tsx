@@ -90,7 +90,7 @@ describe('The schedule step', () => {
       expect(dateBox('First day')).toHaveValue('2026-10-06');
       expect(dateBox('Last day')).toHaveValue('2026-11-02');
       expect(screen.getByText('Airs for 28 days (4 weeks)')).toBeInTheDocument();
-      expect(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends'))).toHaveValue('10');
+      expect(screen.getByLabelText(endsWith('Keep giving the buttons before and after each slot'))).toHaveValue('10');
       expect(screen.getByRole('checkbox', { name: /Limit how many times/ })).not.toBeChecked();
       expect(within(week()).getByText('No hours set.')).toBeInTheDocument();
     });
@@ -426,8 +426,8 @@ describe('The schedule step', () => {
 
     it('offers the four grace periods in words', async () => {
       await openStep();
-      const options = within(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends'))).getAllByRole('option').map((option) => option.textContent);
-      expect(options).toEqual(['None: only during the slot', '5 minutes after the slot ends', '10 minutes after the slot ends', '20 minutes after the slot ends']);
+      const options = within(screen.getByLabelText(endsWith('Keep giving the buttons before and after each slot'))).getAllByRole('option').map((option) => option.textContent);
+      expect(options).toEqual(['None: only during the slot', '5 minutes before and after the slot', '10 minutes before and after the slot', '20 minutes before and after the slot']);
     });
 
     it('shows the tap limit box only when the limit is on, and says what a wrong number should be', async () => {
@@ -446,7 +446,7 @@ describe('The schedule step', () => {
       await person.click(cell('Monday', 8));
       await person.click(cell('Tuesday', 7));
       await person.click(cell('Tuesday', 8));
-      await person.selectOptions(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends')), '20');
+      await person.selectOptions(screen.getByLabelText(endsWith('Keep giving the buttons before and after each slot')), '20');
       await person.click(screen.getByRole('checkbox', { name: /Limit how many times/ }));
       await person.type(screen.getByLabelText(endsWith('Number of taps')), '1,500');
       setDate('Last day', '2026-10-31');
@@ -564,7 +564,7 @@ describe('The schedule step', () => {
       expect(screen.getByText('Edit ad · Brand A')).toBeInTheDocument();
       expect(dateBox('First day')).toHaveValue('2026-10-01');
       expect(dateBox('Last day')).toHaveValue('2026-10-31');
-      expect(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends'))).toHaveValue('5');
+      expect(screen.getByLabelText(endsWith('Keep giving the buttons before and after each slot'))).toHaveValue('5');
       expect(screen.getByLabelText(endsWith('Number of taps'))).toHaveValue('250');
       expect(cell('Wednesday', 7)).toHaveAttribute('aria-pressed', 'true');
       expect(cell('Wednesday', 9)).toHaveAttribute('aria-pressed', 'false');
@@ -630,7 +630,7 @@ describe('The schedule step', () => {
 
     it('keeps the saved dates when the start was in the past and the schedule is only being corrected', async () => {
       const { savedSchedules } = await openStep({ ad: published() });
-      await person.selectOptions(screen.getByLabelText(endsWith('Keep giving the buttons after a slot ends')), '0');
+      await person.selectOptions(screen.getByLabelText(endsWith('Keep giving the buttons before and after each slot')), '0');
       await person.click(screen.getByRole('button', { name: 'Save and close' }));
       await waitFor(() => expect(savedSchedules).toHaveLength(1));
       expect(savedSchedules[0]?.startsOn).toBe('2026-10-01');

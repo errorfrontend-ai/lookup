@@ -1093,6 +1093,9 @@ hint, then limits** (P4-D6).
 4. if every period starts after the capture, the one that starts first;
 5. then the campaign id.
 
+*Built as (Piece 2):* each rule breaks the ties of the one before, so two campaigns on air in slots that started
+together fall to the slot that ended last, then the latest period start, then the id.
+
 So a campaign that has not started yet never stands in for one that has been on air: the seed's
 "Weekend sale" (Brand B, starting in 3 days) can no longer put Brand B's default card on a clip of
 Brand A's "Summer service offer". The order also matches how stations are ordered (the slot that
@@ -1130,7 +1133,9 @@ the outcome, each with the card it would show and whether it was in window. P4-R
 not answer. The cost is one small row per station that could answer, in the same transaction.
 
 - "Exactly one station in *S*" is `SINGLE_OWNER` even when other stations own the ad but have no card
-  to show; the fallback reason then says `other_owners_have_no_card` (gap 27).
+  to show; the fallback reason then says `other_owners_have_no_card` (gap 27). *Built as (Piece 2):* any other
+  `MATCH_DEFAULT` stores why the usual card was shown as its fallback reason: `not_on_air`, `campaign_not_active`
+  (paused or ended after the capture), `campaign_at_tap_limit` or `campaign_has_no_card`.
 - When stations are in window, owners out of window are never offered: the listener most likely
   heard one of the stations on air.
 - The hint is used only when it names a station of *W* (on air) or, with none on air, of *S*, whether
@@ -1506,7 +1511,8 @@ each kind of item on its own (a point for the P6 design's sender).
   database address points at this machine and `NODE_ENV` is not `production`, and prints plain words.
   None prints an install id, a token, card contents or a phone number.
   - `npm run development:set-station-status -- "Station B" SUSPENDED` (or `ACTIVE`).
-  - `npm run development:set-campaign-status -- "Station B" "Summer service offer" PAUSED` (or `ACTIVE`).
+  - `npm run development:set-campaign-status -- "Station B" "Summer service offer" PAUSED` (or `ACTIVE`, or `ENDED`
+    for the shared-jingle campaigns below; a draft is published, and an ended campaign rescheduled, in the portal).
   - *Added after review:* `npm run development:reset-sample-schedule -- "Station A" "Summer service offer"`
     puts back the seed's schedule after a walkthrough changed it in the portal: every day, 00:00 to
     12:00 and 12:00 to 00:00 (the portal's "all day"), with the 10-minute grace.

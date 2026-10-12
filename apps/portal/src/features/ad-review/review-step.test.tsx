@@ -275,7 +275,7 @@ describe('Review and publish', () => {
       const { router } = await openReview();
       await person.click(screen.getByRole('link', { name: 'Change the schedule' }));
       await screen.findByRole('heading', { level: 1, name: 'Set when it airs' });
-      await person.selectOptions(screen.getByLabelText('Keep giving the buttons after a slot ends'), '0');
+      await person.selectOptions(screen.getByLabelText('Keep giving the buttons before and after each slot'), '0');
       await router.navigate({ search: '?step=review' });
 
       const notice = await screen.findByText("Some changes aren't saved yet");

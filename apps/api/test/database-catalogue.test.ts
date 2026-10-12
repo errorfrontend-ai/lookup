@@ -9,7 +9,10 @@ import { databaseSetupClient } from './support/database-clients.js';
 const OUR_SCHEMAS = ['app', 'fingerprints', 'recognition'];
 const LOGIN_ROLES = ['lookup_api', 'lookup_admin_api', 'lookup_fingerprint_worker'];
 const SCHEMA_OWNER = 'lookup_schema_owner';
-const STATION_OWNED_TABLES = ['action_cards', 'ads', 'campaign_time_windows', 'campaigns', 'clients', 'station_memberships'];
+const STATION_OWNED_TABLES = [
+  'action_cards', 'ads', 'campaign_time_windows', 'campaigns', 'clients', 'station_memberships',
+  'recognition_candidates', 'engagement_events', 'campaign_counters',
+];
 /** Tables with no row-level security, each for a stated reason. */
 const TABLES_WITHOUT_ROW_LEVEL_SECURITY: Record<string, string> = {
   'app.listener_installs': 'global (no station); reached only through SECURITY DEFINER recognition functions',
@@ -17,6 +20,19 @@ const TABLES_WITHOUT_ROW_LEVEL_SECURITY: Record<string, string> = {
   'fingerprints.audio_assets': 'global, shared across stations; no grant to either API role',
   'fingerprints.hashes_version_1': 'global, shared across stations; no grant to either API role',
 };
+/** Tables that name a station but give stations no policy, each for a stated reason. */
+const TABLES_WITH_A_STATION_BUT_NO_STATION_POLICY: Record<string, string> = {
+  'app.recognition_reports': '"Report this" reports are for super admins only (the 5a console); no station ever reads them (P4-D28)',
+};
+/** Tables with row-level security and no policy at all: no service role reads or writes them directly. */
+const TABLES_WITH_NO_POLICY: Record<string, string> = {
+  'app.engagement_deduplication_keys': 'one tap per recognition and action across months; only recognition.record_engagement touches it',
+  'app.portal_sessions': 'only the sign-in functions touch it',
+  'app.recognition_idempotency_keys': 'only the recognition functions touch it',
+  'app.refresh_tokens': 'only the sign-in functions touch it',
+};
+/** Tables whose ids the API makes (UUID version 7, time-ordered for the busiest tables), or that number their rows. */
+const TABLES_WITHOUT_AN_ID_DEFAULT = ['migrations', 'recognition_events', 'audit_events', 'engagement_events'];
 
 describe('database catalogue', () => {
   let client: pg.Client;
@@ -56,6 +72,7 @@ describe('database catalogue', () => {
         'app.stations', 'app.portal_users', 'app.station_memberships', 'app.refresh_tokens', 'app.clients', 'app.action_cards',
         'app.ads', 'app.campaigns', 'app.campaign_time_windows', 'fingerprints.audio_assets', 'fingerprints.hashes_version_1',
         'app.listener_installs', 'app.recognition_events', 'app.audit_events',
+        'app.recognition_candidates', 'app.engagement_events', 'app.engagement_deduplication_keys', 'app.campaign_counters', 'app.recognition_reports',
       ]) {
         expect(tableNames).toContain(expected);
       }
@@ -157,7 +174,7 @@ describe('database catalogue', () => {
     });
 
     it('S1-ROLES-05: every station table has an explicit full-access policy for the super-admin role', async () => {
-      for (const tableName of [...STATION_OWNED_TABLES, 'stations', 'portal_users', 'audit_events', 'recognition_events']) {
+      for (const tableName of [...STATION_OWNED_TABLES, 'stations', 'portal_users', 'audit_events', 'recognition_events', 'recognition_reports']) {
         const policies = await rows<{ polname: string; roles: string[] }>(
           `SELECT polname, ARRAY(SELECT rolname::text FROM pg_roles WHERE oid = ANY(polroles)) AS roles FROM pg_policy WHERE polrelid = $1::regclass`,
           [`app.${tableName}`],
@@ -174,9 +191,9 @@ describe('database catalogue', () => {
       expect(extensions).not.toContain('uuid-ossp');
       const idDefaults = await rows<{ table_name: string; column_default: string }>(
         `SELECT table_schema || '.' || table_name AS table_name, column_default FROM information_schema.columns
-          WHERE column_name = 'id' AND table_schema = ANY($1) AND table_name NOT IN ('migrations', 'recognition_events', 'audit_events')
-            AND table_name NOT LIKE 'recognition\\_events\\_%'`,
-        [OUR_SCHEMAS],
+          WHERE column_name = 'id' AND table_schema = ANY($1) AND table_name <> ALL($2)
+            AND table_name NOT LIKE 'recognition\\_events\\_%' AND table_name NOT LIKE 'engagement\\_events\\_%'`,
+        [OUR_SCHEMAS, TABLES_WITHOUT_AN_ID_DEFAULT],
       );
       expect(idDefaults.length).toBeGreaterThan(5);
       for (const column of idDefaults) expect(column.column_default, column.table_name).toBe('gen_random_uuid()');
@@ -195,8 +212,30 @@ describe('database catalogue', () => {
       );
       for (const table of tables) {
         expect(table.relrowsecurity, table.table_name).toBe(!(table.table_name in TABLES_WITHOUT_ROW_LEVEL_SECURITY));
-        if (table.has_station) expect(table.station_policy_count, table.table_name).toBeGreaterThan(0);
+        if (table.has_station && !(table.table_name in TABLES_WITH_A_STATION_BUT_NO_STATION_POLICY)) {
+          expect(table.station_policy_count, table.table_name).toBeGreaterThan(0);
+        }
       }
+    });
+
+    it('the tables with row-level security and no policy at all are exactly the ones only database functions touch', async () => {
+      const tables = await rows<{ table_name: string }>(
+        `SELECT relnamespace::regnamespace || '.' || relname AS table_name FROM pg_class
+          WHERE relnamespace = ANY($1::regnamespace[]) AND relkind IN ('r', 'p') AND NOT relispartition AND relrowsecurity
+            AND NOT EXISTS (SELECT 1 FROM pg_policy WHERE polrelid = pg_class.oid)
+          ORDER BY 1`,
+        [OUR_SCHEMAS],
+      );
+      expect(tables.map((table) => table.table_name)).toEqual(Object.keys(TABLES_WITH_NO_POLICY).sort());
+    });
+
+    it('every time is stored with its time zone (timestamptz), never as a bare timestamp', async () => {
+      const bareTimestamps = await rows<{ column_name: string }>(
+        `SELECT table_schema || '.' || table_name || '.' || column_name AS column_name FROM information_schema.columns
+          WHERE table_schema = ANY($1) AND data_type = 'timestamp without time zone'`,
+        [OUR_SCHEMAS],
+      );
+      expect(bareTimestamps).toEqual([]);
     });
 
     it('S1-ISOLATION-15: every station-owned table has a mandatory station_id', async () => {
@@ -273,20 +312,82 @@ describe('database catalogue', () => {
     it('a partition created later gets readable index and constraint names derived from its parent', async () => {
       await client.query('BEGIN');
       try {
-        await client.query('SELECT app.create_recognition_event_partitions(9)');
+        expect((await rows<{ created: number }>('SELECT app.create_listener_traffic_partitions(9) AS created'))[0]?.created).toBeGreaterThan(0);
         const partitionIndexes = await rows<{ index_name: string; partition_name: string }>(
           `SELECT indexrelid::regclass::text AS index_name, indrelid::regclass::text AS partition_name
              FROM pg_index JOIN pg_inherits ON pg_inherits.inhrelid = pg_index.indrelid
-            WHERE pg_inherits.inhparent = 'app.recognition_events'::regclass`,
+            WHERE pg_inherits.inhparent IN ('app.recognition_events'::regclass, 'app.recognition_candidates'::regclass, 'app.engagement_events'::regclass)`,
         );
-        expect(partitionIndexes.length).toBeGreaterThan(0);
+        expect(new Set(partitionIndexes.map((index) => index.partition_name.replace(/_(\d{4}_\d{2}|default)$/, ''))).size).toBe(3);
         for (const index of partitionIndexes) {
           expect(index.index_name.startsWith(`${index.partition_name}_`), index.index_name).toBe(true);
           expect(index.index_name).toMatch(/_(primary_key|index)$/);
         }
+        // Candidates hold a foreign key on each month of recognitions, named after it, never ..._fkey1.
+        const unreadable = await rows<{ constraint_name: string }>(
+          `SELECT conrelid::regclass || ': ' || conname AS constraint_name FROM pg_constraint
+            WHERE connamespace = ANY($1::regnamespace[]) AND conname !~ '_(primary_key|foreign_key|unique|check|exclusion)$'`,
+          [OUR_SCHEMAS],
+        );
+        expect(unreadable).toEqual([]);
+        const monthlyKeys = await rows<{ constraint_name: string }>(
+          `SELECT conname AS constraint_name FROM pg_constraint
+            WHERE conrelid = 'app.recognition_candidates'::regclass AND confrelid <> 'app.recognition_events'::regclass
+              AND confrelid IN (SELECT inhrelid FROM pg_inherits WHERE inhparent = 'app.recognition_events'::regclass)`,
+        );
+        expect(monthlyKeys.length).toBeGreaterThan(9);
+        for (const key of monthlyKeys) expect(key.constraint_name).toMatch(/^recognition_candidates_recognition_events_(\d{4}_\d{2}|default)_foreign_key$/);
       } finally {
         await client.query('ROLLBACK');
       }
+    });
+
+    it('P4-D34, ALL-DATABASE-NAMING-11: every index that backs no constraint is named <table>_<columns>_index, or <table>_<rule>_unique_index when it is a partial unique index', async () => {
+      const indexes = await rows<{ index_name: string; table_name: string; is_unique: boolean; is_partial: boolean }>(
+        `SELECT index_class.relname AS index_name, table_class.relname AS table_name, index_entry.indisunique AS is_unique,
+                index_entry.indpred IS NOT NULL AS is_partial
+           FROM pg_index AS index_entry
+           JOIN pg_class AS index_class ON index_class.oid = index_entry.indexrelid
+           JOIN pg_class AS table_class ON table_class.oid = index_entry.indrelid
+          WHERE table_class.relnamespace = ANY($1::regnamespace[]) AND table_class.relname <> 'migrations'
+            AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE pg_constraint.conindid = index_entry.indexrelid AND pg_constraint.conrelid = index_entry.indrelid)`,
+        [OUR_SCHEMAS],
+      );
+      expect(indexes.length).toBeGreaterThan(20);
+      const misnamed = indexes.filter(
+        (index) =>
+          !index.index_name.startsWith(`${index.table_name}_`) ||
+          (index.is_unique && !(index.is_partial && index.index_name.endsWith('_unique_index'))) ||
+          (!index.is_unique && (!index.index_name.endsWith('_index') || index.index_name.endsWith('_unique_index'))),
+      );
+      expect(misnamed).toEqual([]);
+      expect(indexes.filter((index) => index.index_name.endsWith('_unique_index')).map((index) => index.index_name)).toEqual(
+        expect.arrayContaining(['recognition_candidates_one_chosen_unique_index', 'recognition_candidates_display_position_unique_index']),
+      );
+    });
+
+    it('P4-DATABASE-05: taps and reports hold no foreign key to recognitions, so an old month of recognitions can always be detached', async () => {
+      const keys = await rows<{ table_name: string; referenced_table: string }>(
+        `SELECT conrelid::regclass::text AS table_name, confrelid::regclass::text AS referenced_table FROM pg_constraint
+          WHERE contype = 'f' AND conrelid IN ('app.engagement_events'::regclass, 'app.recognition_reports'::regclass, 'app.engagement_deduplication_keys'::regclass)
+          ORDER BY 1, 2`,
+      );
+      expect(keys.filter((key) => key.referenced_table.startsWith('app.recognition_events'))).toEqual([]);
+      expect(keys.map((key) => `${key.table_name} -> ${key.referenced_table}`)).toEqual([
+        'app.engagement_events -> app.action_cards',
+        'app.engagement_events -> app.campaigns',
+        'app.engagement_events -> app.stations',
+        'app.recognition_reports -> app.stations',
+      ]);
+    });
+
+    it('P4-LIMITS-03: tap limits are counted in campaign_counters, one row per campaign, with row-level security on', async () => {
+      const [table] = await rows<{ relkind: string; key_columns: string; relrowsecurity: boolean }>(
+        `SELECT relkind::text, pg_get_constraintdef(constraint_entry.oid) AS key_columns, relrowsecurity
+           FROM pg_class JOIN pg_constraint AS constraint_entry ON constraint_entry.conrelid = pg_class.oid AND contype = 'p'
+          WHERE pg_class.oid = 'app.campaign_counters'::regclass`,
+      );
+      expect(table).toEqual({ relkind: 'r', key_columns: 'PRIMARY KEY (campaign_id)', relrowsecurity: true });
     });
   });
 });

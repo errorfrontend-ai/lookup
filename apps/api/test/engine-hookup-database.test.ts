@@ -5,8 +5,10 @@ import { databaseSetupClient, fingerprintWorkerClient, lookupApiClient } from '.
 
 /**
  * Step 3's database functions (docs/design/step-3-engine-hookup.md), called as the roles that use
- * them: the ingest worker's one way to change an ad, the API's ingest sweep, and the recognition
- * functions (claim, finish, find the stations, describe for a replay).
+ * them: the ingest worker's one way to change an ad, the API's ingest sweep, and claiming and finishing a
+ * recognition. P4 created the claim and the finish again (P4 design §4.4): their Step 3 tests keep their names
+ * here; what P4 added, and the functions that replaced finding the stations and describing a replay, are
+ * tested in station-resolution-database.test.ts.
  */
 describe('engine hookup: database functions', () => {
   let setupClient: pg.Client;
@@ -70,34 +72,6 @@ describe('engine hookup: database functions', () => {
         `ad-uploads/${station.stationId}/${adId}/audio`, options.uploadedMinutesAgo ?? 0, options.archived ?? false],
     );
     return adId;
-  }
-
-  async function createCard(station: { stationId: string; clientId: string }, label: string) {
-    const cardId = randomUUID();
-    const content = { schema_version: 1, layout: 'VERTICAL_STACK', actions: [{ type: 'CALL', id: randomUUID(), label, style: 'PRIMARY', phone_number_e164: '+260977123456' }] };
-    await setupClient.query(`INSERT INTO app.action_cards (id, station_id, client_id, schema_version, content) VALUES ($1, $2, $3, 1, $4)`, [
-      cardId, station.stationId, station.clientId, content,
-    ]);
-    return { cardId, content };
-  }
-
-  /** A published campaign from `startsAt` to `endsAt` with one window (station time). */
-  async function createCampaign(
-    station: { stationId: string; clientId: string },
-    adId: string,
-    options: { startsAt: string; endsAt: string; days?: number[]; from?: string; to?: string; status?: string; cardId?: string },
-  ) {
-    const campaignId = randomUUID();
-    await setupClient.query(
-      `INSERT INTO app.campaigns (id, station_id, ad_id, action_card_id, name, status, active_period)
-       VALUES ($1, $2, $3, $4, 'Campaign', $5, tstzrange($6::timestamptz, $7::timestamptz))`,
-      [campaignId, station.stationId, adId, options.cardId ?? null, options.status ?? 'ACTIVE', options.startsAt, options.endsAt],
-    );
-    await setupClient.query(
-      `INSERT INTO app.campaign_time_windows (campaign_id, station_id, days_of_week, local_start_time, local_end_time) VALUES ($1, $2, $3, $4, $5)`,
-      [campaignId, station.stationId, options.days ?? [1, 2, 3, 4, 5, 6, 7], options.from ?? '08:00', options.to ?? '10:00'],
-    );
-    return campaignId;
   }
 
   async function createInstall() {
@@ -178,19 +152,13 @@ describe('engine hookup: database functions', () => {
         WHERE p.proname = ANY($1) ORDER BY 1`,
       [['record_ad_ingest_result', 'find_ads_waiting_for_ingest', 'claim_recognition', 'finish_recognition', 'find_stations_for_audio', 'describe_recognition']],
     )).rows as Array<{ name: string; result: string; callers: string[] }>;
+    // P4 created the claim and the finish again, and replaced finding the stations and describing a replay
+    // (station-resolution-database.test.ts checks the new functions).
     expect(Object.fromEntries(functions.map((found) => [found.name, { result: found.result, callers: found.callers }]))).toEqual({
       'app.find_ads_waiting_for_ingest': { result: 'TABLE(ad_id uuid, upload_object_key text)', callers: ['lookup_api'] },
       'fingerprints.record_ad_ingest_result': { result: 'boolean', callers: ['lookup_fingerprint_worker'] },
       'recognition.claim_recognition': {
-        result: 'TABLE(recognition_id uuid, recognition_received_at timestamp with time zone, attempt_number integer, claim_outcome text, previous_outcome text)',
-        callers: ['lookup_api'],
-      },
-      'recognition.describe_recognition': {
-        result: 'TABLE(outcome text, is_deferred boolean, captured_at timestamp with time zone, station_id uuid, station_name text, station_frequency_label text, ad_title text, client_name text, action_card jsonb)',
-        callers: ['lookup_api'],
-      },
-      'recognition.find_stations_for_audio': {
-        result: 'TABLE(station_id uuid, station_name text, station_frequency_label text, ad_title text, client_name text, campaign_id uuid, campaign_action_card_id uuid, campaign_card jsonb, client_default_action_card_id uuid, client_default_card jsonb, is_in_window boolean)',
+        result: 'TABLE(recognition_id uuid, recognition_received_at timestamp with time zone, recognition_captured_at timestamp with time zone, attempt_number integer, claim_outcome text, previous_outcome text, is_deferred boolean)',
         callers: ['lookup_api'],
       },
       'recognition.finish_recognition': { result: 'boolean', callers: ['lookup_api'] },
@@ -224,8 +192,9 @@ describe('engine hookup: database functions', () => {
         installId, key, randomUUID(), `request-${randomUUID()}`, receivedAt, receivedAt, 0, receivedAt, false, 8000,
       ]).then((result) => result.rows[0] as Claimed);
     type Claimed = { recognition_id: string; recognition_received_at: Date; attempt_number: number; claim_outcome: string; previous_outcome: string | null };
+    // An outcome with no station shown: no resolution, no hint and no stations weighed.
     const finish = (claimed: Claimed, outcome: string) =>
-      apiClient.query('SELECT recognition.finish_recognition($1, $2, $3, $4, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 120, 1::smallint) AS changed', [
+      apiClient.query("SELECT recognition.finish_recognition($1, $2, $3, $4, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[]'::jsonb, 0, NULL, NULL, 120, 1::smallint) AS changed", [
         claimed.recognition_id, claimed.recognition_received_at, claimed.attempt_number, outcome,
       ]).then((result) => result.rows[0].changed as boolean);
     const eventRow = (recognitionId: string) =>
@@ -242,7 +211,7 @@ describe('engine hookup: database functions', () => {
       expect(finished.outcome).toBe('NO_MATCH');
       expect(finished.completed_at).toBeInstanceOf(Date);
       // A late second finish cannot overwrite it.
-      expect(await finish(claimed, 'MATCH')).toBe(false);
+      expect(await finish(claimed, 'AMBIGUOUS')).toBe(false);
       expect((await eventRow(claimed.recognition_id)).outcome).toBe('NO_MATCH');
     });
 
@@ -261,8 +230,8 @@ describe('engine hookup: database functions', () => {
 
       // The first attempt answers late: it is no longer that attempt's to record.
       expect(await finish(first, 'NO_MATCH')).toBe(false);
-      expect(await finish(retried, 'MATCH')).toBe(true);
-      expect(await claim(installId, key)).toMatchObject({ recognition_id: first.recognition_id, claim_outcome: 'FINISHED', previous_outcome: 'MATCH' });
+      expect(await finish(retried, 'AMBIGUOUS')).toBe(true);
+      expect(await claim(installId, key)).toMatchObject({ recognition_id: first.recognition_id, claim_outcome: 'FINISHED', previous_outcome: 'AMBIGUOUS' });
     });
 
     it('keys belong to their install: another install with the same key gets its own recognition', async () => {
@@ -286,7 +255,7 @@ describe('engine hookup: database functions', () => {
       await expect(apiClient.query(`DELETE FROM app.recognition_idempotency_keys`)).rejects.toThrow(/permission denied/);
       await expect(apiClient.query(`UPDATE app.recognition_events SET outcome = 'MATCH'`)).rejects.toThrow(/permission denied/);
       await expect(workerClient.query(`SELECT * FROM recognition.claim_recognition(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`)).rejects.toThrow(/permission denied/);
-      await expect(workerClient.query(`SELECT * FROM recognition.find_stations_for_audio(1, now())`)).rejects.toThrow(/permission denied/);
+      await expect(workerClient.query(`SELECT * FROM recognition.find_station_candidates(1, now())`)).rejects.toThrow(/permission denied/);
     });
 
     it('refuses an outcome it does not know', async () => {
@@ -295,144 +264,9 @@ describe('engine hookup: database functions', () => {
     });
   });
 
-  describe('recognition.find_stations_for_audio', () => {
-    const find = (assetNumber: number, capturedAt: string) =>
-      apiClient.query('SELECT * FROM recognition.find_stations_for_audio($1, $2::timestamptz)', [assetNumber, capturedAt]).then((result) => result.rows);
-
-    it('returns the station, its card and only what a listener may see, in window inside the period and a window', async () => {
-      const station = await createStation();
-      const asset = await createAudioAsset();
-      const adId = await createAd(station, { status: 'READY', audioAssetId: asset.assetId });
-      const card = await createCard(station, 'Call us');
-      await createCampaign(station, adId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z', cardId: card.cardId });
-
-      // Lusaka is UTC+2: the 08:00–10:00 window is 06:00–08:00 UTC.
-      const rows = await find(asset.assetNumber, '2026-10-07T06:30:00Z');
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ station_id: station.stationId, ad_title: 'Summer offer', client_name: 'Brand A', campaign_action_card_id: card.cardId, campaign_card: card.content, is_in_window: true });
-      expect(Object.keys(rows[0]).sort()).toEqual([
-        'ad_title', 'campaign_action_card_id', 'campaign_card', 'campaign_id', 'client_default_action_card_id', 'client_default_card',
-        'client_name', 'is_in_window', 'station_frequency_label', 'station_id', 'station_name',
-      ]);
-      expect((await find(asset.assetNumber, '2026-10-07T08:30:00Z'))[0]?.is_in_window).toBe(false);
-    });
-
-    it('judges the period as [start, end): one instant before the start and exactly at the end are out', async () => {
-      const station = await createStation({ timeZone: 'UTC' });
-      const asset = await createAudioAsset();
-      const adId = await createAd(station, { status: 'READY', audioAssetId: asset.assetId });
-      // Both ends fall inside the 08:00–10:00 window, so only the period can put a moment out.
-      await createCampaign(station, adId, { startsAt: '2026-10-05T09:00:00Z', endsAt: '2026-10-09T09:00:00Z', from: '08:00', to: '10:00' });
-      expect((await find(asset.assetNumber, '2026-10-05T08:59:59.999Z'))[0]?.is_in_window).toBe(false);
-      expect((await find(asset.assetNumber, '2026-10-05T09:00:00Z'))[0]?.is_in_window).toBe(true);
-      expect((await find(asset.assetNumber, '2026-10-09T08:59:59Z'))[0]?.is_in_window).toBe(true);
-      expect((await find(asset.assetNumber, '2026-10-09T09:00:00Z'))[0]?.is_in_window).toBe(false);
-    });
-
-    it('runs an overnight window past midnight, belonging to the day it starts', async () => {
-      const station = await createStation({ timeZone: 'UTC' });
-      const asset = await createAudioAsset();
-      const adId = await createAd(station, { status: 'READY', audioAssetId: asset.assetId });
-      // Fridays only (ISO day 5), 22:00 to 02:00. 9 Oct 2026 is a Friday.
-      await createCampaign(station, adId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z', days: [5], from: '22:00', to: '02:00' });
-      const inWindow = async (moment: string) => (await find(asset.assetNumber, moment))[0]?.is_in_window;
-      expect(await inWindow('2026-10-09T23:30:00Z')).toBe(true);
-      expect(await inWindow('2026-10-10T01:30:00Z')).toBe(true);
-      expect(await inWindow('2026-10-10T02:30:00Z')).toBe(false);
-      expect(await inWindow('2026-10-09T21:00:00Z')).toBe(false);
-      expect(await inWindow('2026-10-10T23:30:00Z')).toBe(false);
-    });
-
-    it('ignores stations that are not active, campaigns that are not active, archived ads, and ads on other recordings', async () => {
-      const asset = await createAudioAsset();
-      for (const status of ['PENDING_VERIFICATION', 'PENDING_REVIEW', 'SUSPENDED', 'REJECTED']) {
-        const station = await createStation({ status });
-        const adId = await createAd(station, { status: 'READY', audioAssetId: asset.assetId });
-        await createCampaign(station, adId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z' });
-      }
-      for (const status of ['DRAFT', 'PAUSED', 'ENDED']) {
-        const station = await createStation();
-        const adId = await createAd(station, { status: 'READY', audioAssetId: asset.assetId });
-        await createCampaign(station, adId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z', status });
-      }
-      const archivedStation = await createStation();
-      const archivedAdId = await createAd(archivedStation, { status: 'READY', audioAssetId: asset.assetId, archived: true });
-      await createCampaign(archivedStation, archivedAdId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z' });
-      // An active station airing another recording is found for that recording only.
-      const otherAsset = await createAudioAsset();
-      const otherStation = await createStation();
-      const otherAdId = await createAd(otherStation, { status: 'READY', audioAssetId: otherAsset.assetId });
-      await createCampaign(otherStation, otherAdId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z' });
-
-      expect(await find(asset.assetNumber, '2026-10-07T06:30:00Z')).toEqual([]);
-      expect((await find(otherAsset.assetNumber, '2026-10-07T06:30:00Z')).map((row) => row.station_id)).toEqual([otherStation.stationId]);
-    });
-
-    it('lists every station that owns the audio, each with its own card and its client’s default card', async () => {
-      const asset = await createAudioAsset();
-      const stationA = await createStation();
-      const stationB = await createStation();
-      const cardA = await createCard(stationA, 'Call A');
-      const defaultCardB = await createCard(stationB, 'Default B');
-      await setupClient.query('UPDATE app.clients SET default_action_card_id = $2 WHERE id = $1', [stationB.clientId, defaultCardB.cardId]);
-      const adA = await createAd(stationA, { status: 'READY', audioAssetId: asset.assetId });
-      const adB = await createAd(stationB, { status: 'READY', audioAssetId: asset.assetId });
-      await createCampaign(stationA, adA, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z', cardId: cardA.cardId });
-      await createCampaign(stationB, adB, { startsAt: '2026-10-02T00:00:00Z', endsAt: '2026-11-01T00:00:00Z', from: '12:00', to: '13:00' });
-
-      const rows = await find(asset.assetNumber, '2026-10-07T06:30:00Z');
-      expect(rows.map((row) => [row.station_id, row.is_in_window])).toEqual([[stationB.stationId, false], [stationA.stationId, true]]);
-      expect(rows[0]).toMatchObject({ client_default_action_card_id: defaultCardB.cardId, client_default_card: defaultCardB.content });
-    });
-
-    it('as the API role with no station context, the tables behind it show nothing directly', async () => {
-      for (const table of ['app.ads', 'app.campaigns', 'app.action_cards']) {
-        expect((await apiClient.query(`SELECT count(*)::integer AS visible FROM ${table}`)).rows[0].visible).toBe(0);
-      }
-      await expect(apiClient.query('SELECT 1 FROM fingerprints.audio_assets LIMIT 1')).rejects.toThrow(/permission denied/);
-    });
-  });
-
   it('a station’s name and frequency keep to what a listener’s answer can carry', async () => {
     await expect(setupClient.query(`INSERT INTO app.stations (id, name, frequency_label) VALUES ($1, $2, '98.1 FM')`, [randomUUID(), 'x'.repeat(121)])).rejects.toThrow(/stations_name_check/);
     await expect(setupClient.query(`INSERT INTO app.stations (id, name, frequency_label) VALUES ($1, 'Station', $2)`, [randomUUID(), '9'.repeat(33)])).rejects.toThrow(/stations_frequency_label_check/);
   });
 
-  describe('recognition.describe_recognition', () => {
-    it('describes a finished recognition to the install that made it, and to no other', async () => {
-      const station = await createStation();
-      const asset = await createAudioAsset();
-      const adId = await createAd(station, { status: 'READY', audioAssetId: asset.assetId });
-      const card = await createCard(station, 'Call us');
-      const campaignId = await createCampaign(station, adId, { startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z', cardId: card.cardId });
-      const installId = await createInstall();
-      const receivedAt = new Date();
-      const claimed = (await apiClient.query('SELECT * FROM recognition.claim_recognition($1, $2, $3, $4, $5, $5, 0, $5, false, 8000)', [
-        installId, randomUUID(), randomUUID(), 'request-describe', receivedAt,
-      ])).rows[0];
-      await apiClient.query('SELECT recognition.finish_recognition($1, $2, $3, $4, NULL, $5, $6, $7, $8, 40, 3.5, 6000, 300, 1::smallint)', [
-        claimed.recognition_id, claimed.recognition_received_at, claimed.attempt_number, 'MATCH', asset.assetNumber, station.stationId, campaignId, card.cardId,
-      ]);
-
-      // What it is given must belong together: another station's campaign, or a card that is neither
-      // the campaign's nor its client's default, is refused.
-      const otherStation = await createStation();
-      const otherCard = await createCard(otherStation, 'Not theirs');
-      const another = (await apiClient.query('SELECT * FROM recognition.claim_recognition($1, $2, $3, $4, $5, $5, 0, $5, false, 8000)', [
-        installId, randomUUID(), randomUUID(), 'request-mismatch', new Date(),
-      ])).rows[0];
-      for (const [stationId, cardId] of [[otherStation.stationId, card.cardId], [station.stationId, otherCard.cardId], [station.stationId, null]]) {
-        await expect(apiClient.query('SELECT recognition.finish_recognition($1, $2, $3, $4, NULL, $5, $6, $7, $8, 40, 3.5, 6000, 300, 1::smallint)', [
-          another.recognition_id, another.recognition_received_at, another.attempt_number, 'MATCH', asset.assetNumber, stationId, campaignId, cardId,
-        ])).rejects.toThrow(/belong together|come together/);
-      }
-
-      const described = (await apiClient.query('SELECT * FROM recognition.describe_recognition($1, $2, $3)', [claimed.recognition_id, claimed.recognition_received_at, installId])).rows;
-      expect(described).toEqual([expect.objectContaining({ outcome: 'MATCH', station_id: station.stationId, ad_title: 'Summer offer', client_name: 'Brand A', action_card: card.content })]);
-      expect((await apiClient.query('SELECT * FROM recognition.describe_recognition($1, $2, $3)', [claimed.recognition_id, claimed.recognition_received_at, await createInstall()])).rows).toEqual([]);
-
-      const stored = (await setupClient.query('SELECT audio_asset_id, aligned_hash_count, match_margin, latency_milliseconds, fingerprint_version FROM app.recognition_events WHERE id = $1', [claimed.recognition_id])).rows[0];
-      expect(stored).toEqual({ audio_asset_id: asset.assetId, aligned_hash_count: 40, match_margin: 3.5, latency_milliseconds: 300, fingerprint_version: 1 });
-    });
-  });
 });

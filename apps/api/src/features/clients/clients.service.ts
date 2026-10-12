@@ -1,4 +1,4 @@
-import type { ClientListItem, ClientSummary, CreateClientInput } from '@lookup/contracts';
+import type { ClientDefaultCardReason, ClientListItem, ClientSummary, CreateClientInput, SetClientDefaultActionCardInput } from '@lookup/contracts';
 import { Injectable } from '@nestjs/common';
 import { AuditTrail } from '../../common/audit/audit-trail.js';
 import { AppError } from '../../common/errors/app-error.js';
@@ -62,5 +62,37 @@ export class ClientsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * The client's usual card: one of its own saved card versions, or none. Row-level security keeps it to this
+   * station, so another station's client is not found (404) and another station's card is never this client's.
+   * The audit trail records the previous and the new card ids, never a card's content. Saving what is already set
+   * changes and records nothing.
+   */
+  setDefaultActionCard(clientId: string, input: SetClientDefaultActionCardInput): Promise<void> {
+    const actionCardId = input.actionCardId?.toLowerCase() ?? null;
+    return this.stationScopedTransaction.run(async (database) => {
+      const [client] = (await database.query(`SELECT id, default_action_card_id FROM app.clients WHERE id = $1 FOR UPDATE`, [clientId])) as Array<{
+        id: string;
+        default_action_card_id: string | null;
+      }>;
+      if (!client) throw new AppError('NOT_FOUND', { internalDetail: 'client not found at this station' });
+      if (actionCardId !== null) {
+        const ownCards = (await database.query(`SELECT 1 FROM app.action_cards WHERE id = $1 AND client_id = $2`, [actionCardId, clientId])) as unknown[];
+        if (ownCards.length === 0) {
+          const reason: ClientDefaultCardReason = 'card_not_of_this_client';
+          throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'actionCardId', code: reason }], internalDetail: 'the card is not one of this client’s card versions' });
+        }
+      }
+      if (client.default_action_card_id === actionCardId) return;
+      await database.query(`UPDATE app.clients SET default_action_card_id = $2 WHERE id = $1`, [clientId, actionCardId]);
+      await this.auditTrail.record(database, {
+        action: 'client_default_card_changed',
+        entityType: 'client',
+        entityId: clientId,
+        changes: { previousActionCardId: client.default_action_card_id, actionCardId },
+      });
+    });
   }
 }

@@ -57,7 +57,7 @@ describe('Ad page', () => {
       expect(within(airs).getByText('1 – 31 Oct')).toBeInTheDocument();
       expect(within(airs).getByText('Mon–Fri · 07:00–09:00')).toBeInTheDocument();
       expect(within(airs).getByText('10 hours a week · in station time (Africa/Lusaka)')).toBeInTheDocument();
-      expect(within(airs).getByText('10 minutes after each slot')).toBeInTheDocument();
+      expect(within(airs).getByText('10 minutes before and after each slot')).toBeInTheDocument();
       expect(within(airs).getByText('None')).toBeInTheDocument();
 
       const preview = screen.getByRole('region', { name: 'What listeners see' });

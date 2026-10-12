@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { uuidVersion7, uuidVersion7Milliseconds } from '../src/common/identifiers/uuid-version-7.js';
 import { isListenerRoute } from '../src/common/rate-limiting/limit-requests-per-client-address.js';
-import { type StationCandidate, chooseStation } from '../src/features/recognition/choose-station.js';
 import { assertClipSignature, correctCaptureTime } from '../src/features/recognition/clip-checks.js';
 import { BREAKER_RESET_MILLISECONDS, createRecognitionBreaker } from '../src/features/recognition/recognition-breaker.js';
 import { RecognizeJobFailed, RecognizeWaitTimedOut } from '../src/infrastructure/job-queues/recognize-queue.js';
@@ -38,6 +37,18 @@ describe('the capture time', () => {
     expect(corrected.isDeferred).toBe(false);
   });
 
+  it('P4-CLOCK-01: is corrected the same way for a phone 3 hours fast, and left as it is for an exact clock', () => {
+    // 3 hours fast: the phone says it heard the clip at 10:59:50 and sent it at 11:00:00, when the server's clock says 08:00:00.
+    const fast = correctCaptureTime({ capturedAt: new Date('2026-10-07T10:59:50Z'), sentAt: new Date('2026-10-07T11:00:00Z'), receivedAt, isDeferredByApp: false });
+    expect(fast.effectiveCapturedAt.toISOString()).toBe('2026-10-07T07:59:50.000Z');
+    expect(fast.clockSkewMilliseconds).toBe(-3 * 60 * 60 * 1000);
+    expect(fast.isDeferred).toBe(false);
+    // An exact clock: nothing moves, and the skew is a stored 0, never left out.
+    const exact = correctCaptureTime({ capturedAt: new Date('2026-10-07T07:59:50Z'), sentAt: receivedAt, receivedAt, isDeferredByApp: false });
+    expect(exact.effectiveCapturedAt.toISOString()).toBe('2026-10-07T07:59:50.000Z');
+    expect(exact.clockSkewMilliseconds).toBe(0);
+  });
+
   it('refuses a clip heard more than 24 hours ago, and one from more than 2 minutes in the future', () => {
     const capture = (capturedAt: string) => () =>
       correctCaptureTime({ capturedAt: new Date(capturedAt), sentAt: receivedAt, receivedAt, isDeferredByApp: true });
@@ -55,9 +66,11 @@ describe('the capture time', () => {
     expect(at('2026-10-07T07:59:59Z', true)).toBe(true);
   });
 
-  it('stores no skew for a phone clock off by weeks, which the column cannot hold', () => {
+  it('stores the exact skew of a phone clock off by weeks', () => {
+    // About 279 days: far beyond the 2,147,483,647 milliseconds an integer column could hold (P4-D18).
     const corrected = correctCaptureTime({ capturedAt: new Date('2026-01-01T00:00:00Z'), sentAt: new Date('2026-01-01T00:00:05Z'), receivedAt, isDeferredByApp: false });
-    expect(corrected.clockSkewMilliseconds).toBeNull();
+    expect(corrected.clockSkewMilliseconds).toBe(receivedAt.getTime() - Date.parse('2026-01-01T00:00:05Z'));
+    expect(corrected.clockSkewMilliseconds).toBeGreaterThan(2 ** 31);
     expect(corrected.effectiveCapturedAt.toISOString()).toBe('2026-10-07T07:59:55.000Z');
   });
 });
@@ -72,45 +85,6 @@ describe('the clip’s first bytes', () => {
     for (const [bytes, codec] of [[ogg, 'aac'], [m4a, 'opus'], [Buffer.from('this is plain text named clip.m4a'), 'aac'], [Buffer.alloc(0), 'aac'], [Buffer.from('\x89PNG\r\n\x1a\n'), 'aac']] as const) {
       expect(() => assertClipSignature(bytes, codec)).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_MEDIA_TYPE' }));
     }
-  });
-});
-
-describe('choosing the station', () => {
-  const card = (label: string) => ({ schema_version: 1 as const, layout: 'VERTICAL_STACK' as const, actions: [{ type: 'CALL' as const, id: '0192a6c4-0000-4000-8000-000000000001', label, style: 'PRIMARY' as const, phone_number_e164: '+260977123456' }] });
-  const candidate = (stationId: string, changes: Partial<StationCandidate> = {}): StationCandidate => ({
-    station_id: stationId,
-    station_name: `Station ${stationId}`,
-    station_frequency_label: '98.1 FM',
-    ad_title: 'Summer offer',
-    client_name: 'Brand A',
-    campaign_id: `campaign-${stationId}`,
-    campaign_action_card_id: `card-${stationId}`,
-    campaign_card: card(`Call ${stationId}`),
-    client_default_action_card_id: null,
-    client_default_card: null,
-    is_in_window: false,
-    ...changes,
-  });
-
-  it('gives the campaign card of the one station that had it on air', () => {
-    const choice = chooseStation([candidate('A'), candidate('B', { is_in_window: true })]);
-    expect(choice).toMatchObject({ outcome: 'MATCH', kind: 'CAMPAIGN', actionCardId: 'card-B' });
-  });
-
-  it('gives the client’s default card when the only owner did not have it on air, and no match without one', () => {
-    const withDefault = chooseStation([candidate('A', { client_default_action_card_id: 'default-A', client_default_card: card('Visit us') })]);
-    expect(withDefault).toMatchObject({ outcome: 'MATCH_DEFAULT', kind: 'CLIENT_DEFAULT', actionCardId: 'default-A' });
-    expect(chooseStation([candidate('A')])).toMatchObject({ outcome: 'NO_MATCH', fallbackReason: 'not_on_air_and_no_default_card' });
-  });
-
-  it('gives no match when no station airs it, or when several could be meant (P4 asks the listener)', () => {
-    expect(chooseStation([])).toMatchObject({ outcome: 'NO_MATCH', fallbackReason: 'no_station_airs_it' });
-    expect(chooseStation([candidate('A', { is_in_window: true }), candidate('B', { is_in_window: true })])).toMatchObject({ outcome: 'NO_MATCH', fallbackReason: 'several_stations' });
-    expect(chooseStation([candidate('A'), candidate('B', { client_default_card: card('B'), client_default_action_card_id: 'd' })])).toMatchObject({ outcome: 'NO_MATCH', fallbackReason: 'several_stations' });
-  });
-
-  it('treats two campaigns of the same station on air as one station', () => {
-    expect(chooseStation([candidate('A', { is_in_window: true }), candidate('A', { is_in_window: true, campaign_id: 'second' })])).toMatchObject({ outcome: 'MATCH' });
   });
 });
 

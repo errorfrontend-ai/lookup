@@ -5,19 +5,24 @@
 const SAMPLE_RATE = 8_000;
 const SECONDS = 6;
 
-/** The notes of the jingle, in hertz, each held for the same time. */
-const NOTES = [523.25, 659.25, 783.99, 659.25, 880.0, 783.99, 659.25, 523.25];
+/**
+ * The notes of the shared jingle, in hertz, each held for the same time. "Summer service offer" airs on Station A
+ * and on Station B with this one recording, so the fingerprint workers link both ads to one audio asset; these are
+ * also the notes every sample ad had before each got its own, so development data seeded earlier still matches.
+ */
+export const SHARED_JINGLE_NOTES: readonly number[] = [523.25, 659.25, 783.99, 659.25, 880.0, 783.99, 659.25, 523.25];
 
-export function createSampleJingleWav(): Buffer {
+/** A jingle with the given notes (by default the shared one). Other notes make another recording. */
+export function createSampleJingleWav(notes: readonly number[] = SHARED_JINGLE_NOTES): Buffer {
   const sampleCount = SAMPLE_RATE * SECONDS;
-  const samplesPerNote = Math.floor(sampleCount / NOTES.length);
+  const samplesPerNote = Math.floor(sampleCount / notes.length);
   const pcm = Buffer.alloc(sampleCount * 2);
   for (let index = 0; index < sampleCount; index += 1) {
-    const noteIndex = Math.min(Math.floor(index / samplesPerNote), NOTES.length - 1);
+    const noteIndex = Math.min(Math.floor(index / samplesPerNote), notes.length - 1);
     const positionInNote = (index % samplesPerNote) / samplesPerNote;
     // A quick attack and a smooth fade so each note sounds like a note, not a click.
     const envelope = Math.min(positionInNote / 0.05, 1) * (1 - positionInNote) ** 0.6;
-    const frequency = NOTES[noteIndex] as number;
+    const frequency = notes[noteIndex] as number;
     const value = Math.sin((2 * Math.PI * frequency * index) / SAMPLE_RATE) * 0.55 + Math.sin((2 * Math.PI * frequency * 2 * index) / SAMPLE_RATE) * 0.15;
     pcm.writeInt16LE(Math.round(value * envelope * 0.7 * 32_767), index * 2);
   }

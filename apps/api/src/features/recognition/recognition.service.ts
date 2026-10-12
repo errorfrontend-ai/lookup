@@ -1,13 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  type ActionCard,
-  type RecognitionResult,
-  type RecognizeJobData,
-  type RecognizeJobResult,
-  type RecognizeRequestFields,
-  RecognizeResponse,
-} from '@lookup/contracts';
+import type { RecognizeJobData, RecognizeJobResult, RecognizeRequestFields, RecognizeResponse } from '@lookup/contracts';
 import type { Response } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { PinoLogger } from 'nestjs-pino';
@@ -19,10 +12,11 @@ import type { RateLimitRule } from '../../common/rate-limiting/rate-limit-rule.j
 import { RateLimiter } from '../../common/rate-limiting/rate-limiter.js';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { RecognizeJobFailed, RecognizeQueue, RecognizeWaitTimedOut } from '../../infrastructure/job-queues/recognize-queue.js';
-import { chooseStation } from './choose-station.js';
+import { assertClipSignature, correctCaptureTime } from './clip-checks.js';
+import { type AnswerBasics, answerNoMatch, answerReplay, answerResolution } from './recognition-answers.js';
 import { createRecognitionBreaker } from './recognition-breaker.js';
-import { assertClipSignature, type CorrectedCaptureTime, correctCaptureTime } from './clip-checks.js';
-import { type Claim, type DescribedRecognition, type FinishedRecognition, RecognitionRecords } from './recognition-records.js';
+import { type Claim, type FinishedRecognition, RecognitionRecords } from './recognition-records.js';
+import { resolveStation } from './resolve-station.js';
 
 export const BUSY_RETRY_AFTER_SECONDS = 10;
 export const TIMEOUT_RETRY_AFTER_SECONDS = 5;
@@ -30,11 +24,15 @@ const IN_PROGRESS_RETRY_AFTER_SECONDS = 3;
 
 type AdmissionRefusal = 'no_worker_heartbeat' | 'queue_too_deep' | 'breaker_open';
 
+/** Records the attempt's outcome; the hint, the latency and the fingerprint version are added for every outcome. */
+type FinishAttempt = (finished: Omit<FinishedRecognition, 'latencyMilliseconds' | 'fingerprintVersion' | 'hintedStationId'>) => Promise<void>;
+
 /**
  * The Recognition Supervisor (blueprint): for one clip, after the install token and the body have
  * been checked, it checks the clip, claims the idempotency key, decides whether to try at all
- * (admission), sends the clip to a worker through the circuit breaker and waits, chooses the station,
- * records the outcome and answers in the contract's shape. Every refusal has a catalogue code, and
+ * (admission), sends the clip to a worker through the circuit breaker and waits, resolves whose
+ * buttons the matched recording gets (resolveStation, P4 design §5.1), records the outcome with the
+ * stations it weighed and answers in the contract's shape. Every refusal has a catalogue code, and
  * every attempt that was claimed is finished with an outcome, so none is left PENDING.
  */
 @Injectable()
@@ -129,22 +127,29 @@ export class RecognitionService {
       isDeferred: time.isDeferred,
       clipDurationMilliseconds: fields.clip_duration_milliseconds,
     });
+    const hasStationHint = fields.station_hint !== undefined;
     if (claim.claimOutcome === 'IN_PROGRESS') {
       response.setHeader('Retry-After', String(IN_PROGRESS_RETRY_AFTER_SECONDS));
       throw new AppError('RECOGNITION_IN_PROGRESS', { internalDetail: `recognition ${claim.recognitionId} is still being worked on` });
     }
-    if (claim.claimOutcome === 'FINISHED') return this.replay(claim, listenerInstallId, requestId);
+    if (claim.claimOutcome === 'FINISHED') return this.replay(claim, listenerInstallId, requestId, hasStationHint);
 
     let isFinished = false;
-    const finish = async (finished: Omit<FinishedRecognition, 'latencyMilliseconds' | 'fingerprintVersion'>) => {
-      const isRecorded = await this.records.finish(claim, { ...finished, latencyMilliseconds: Date.now() - receivedAt.getTime(), fingerprintVersion: this.config.FINGERPRINT_VERSION });
+    const finish: FinishAttempt = async (finished) => {
+      const isRecorded = await this.records.finish(claim, {
+        ...finished,
+        // The listener's "My station" goes with every outcome; the database keeps it only when the station exists.
+        hintedStationId: fields.station_hint ?? null,
+        latencyMilliseconds: Date.now() - receivedAt.getTime(),
+        fingerprintVersion: this.config.FINGERPRINT_VERSION,
+      });
       isFinished = true;
       if (!isRecorded) {
         this.logger.warn({ requestId, recognitionId: claim.recognitionId, attempt: claim.attemptNumber, outcome: finished.outcome }, 'a later attempt had already taken over this recognition; this outcome was not recorded');
       }
     };
     try {
-      return await this.answerClaimedRecognition(fields, audio, claim, time, requestId, finish, response);
+      return await this.answerClaimedRecognition(fields, audio, claim, requestId, hasStationHint, finish, response);
     } catch (error) {
       // Whatever went wrong, the attempt is finished, so it is never left PENDING (S3-RECORDING-08);
       // a repeat of the same key then starts a new attempt at once.
@@ -161,9 +166,9 @@ export class RecognitionService {
     fields: RecognizeRequestFields,
     audio: Buffer,
     claim: Claim,
-    time: CorrectedCaptureTime,
     requestId: string,
-    finish: (finished: Omit<FinishedRecognition, 'latencyMilliseconds' | 'fingerprintVersion'>) => Promise<void>,
+    hasStationHint: boolean,
+    finish: FinishAttempt,
     response: Response,
   ): Promise<RecognizeResponse> {
     const refusal = this.admissionRefusal();
@@ -198,35 +203,54 @@ export class RecognitionService {
       matchMargin: workerResult.match_margin,
       matchOffsetMilliseconds: workerResult.match_offset_milliseconds,
     };
-    const common = { recognitionId: claim.recognitionId, requestId, isDeferred: time.isDeferred, capturedAt: time.effectiveCapturedAt };
+    // A retry keeps the first receipt and capture times, so it is resolved at the moment the clip was first
+    // heard, and answers the stored deferred flag (P4-D2).
+    const basics: AnswerBasics = { recognitionId: claim.recognitionId, requestId, isDeferred: claim.isDeferred, capturedAt: claim.capturedAt };
     if (workerResult.status !== 'MATCH' || workerResult.audio_asset_number === null) {
       // AMBIGUOUS is kept as AMBIGUOUS, and the listener hears "no match" (S3-RESPONSE-16).
-      const answer = this.respond({ ...common, result: null });
-      await finish({ outcome: workerResult.status === 'AMBIGUOUS' ? 'AMBIGUOUS' : 'NO_MATCH', ...matchFacts });
+      const outcome = workerResult.status === 'AMBIGUOUS' ? 'AMBIGUOUS' : 'NO_MATCH';
+      const answer = answerNoMatch(basics);
+      await finish({ outcome, ...matchFacts });
+      this.logAnswer({ requestId, recognitionId: claim.recognitionId, outcome, resolution: null, candidateCount: 0, hasStationHint, isReplay: false });
       return answer;
     }
 
-    const choice = chooseStation(await this.records.findStations(workerResult.audio_asset_number, time.effectiveCapturedAt));
-    if (choice.outcome === 'NO_MATCH') {
-      const answer = this.respond({ ...common, result: null });
-      await finish({ outcome: 'NO_MATCH', fallbackReason: choice.fallbackReason, ...matchFacts });
-      return answer;
-    }
-    // The answer is built (and checked against the contract) before the outcome is recorded, so a
-    // recognition is never stored as a match the listener did not receive.
-    const answer = this.respond({
-      ...common,
-      result: this.resultFor(choice.kind, {
-        stationId: choice.candidate.station_id,
-        stationName: choice.candidate.station_name,
-        frequencyLabel: choice.candidate.station_frequency_label,
-        clientName: choice.candidate.client_name,
-        title: choice.candidate.ad_title,
-        card: choice.card,
-      }),
+    const resolution = resolveStation(await this.records.findStationCandidates(workerResult.audio_asset_number, claim.capturedAt), {
+      capturedAt: claim.capturedAt,
+      stationHint: fields.station_hint ?? null,
     });
-    await finish({ outcome: choice.outcome, ...matchFacts, stationId: choice.candidate.station_id, campaignId: choice.candidate.campaign_id, actionCardId: choice.actionCardId });
+    // The answer is built (and checked against the contract) before the outcome is recorded, so a
+    // recognition is never stored as an answer the listener did not receive.
+    const answer = answerResolution(basics, resolution);
+    const matched = resolution.outcome === 'MATCH' || resolution.outcome === 'MATCH_DEFAULT' ? resolution.matched : null;
+    await finish({
+      outcome: resolution.outcome,
+      fallbackReason: resolution.fallbackReason,
+      resolution: resolution.resolution,
+      stationId: matched?.stationId ?? null,
+      campaignId: matched?.campaignId ?? null,
+      actionCardId: matched?.actionCardId ?? null,
+      weighedCandidates: resolution.weighedCandidates,
+      ...matchFacts,
+    });
+    this.logAnswer({
+      requestId,
+      recognitionId: claim.recognitionId,
+      outcome: resolution.outcome,
+      resolution: resolution.resolution,
+      candidateCount: resolution.weighedCandidates.length,
+      hasStationHint,
+      isReplay: false,
+    });
     return answer;
+  }
+
+  /**
+   * One line per answered recognition (P4 design §5.13): the outcome, how the station was decided and how many
+   * stations were weighed. Whether a hint came, never its value: a station id with a time is a listening habit.
+   */
+  private logAnswer(facts: { requestId: string; recognitionId: string; outcome: string; resolution: string | null; candidateCount: number; hasStationHint: boolean; isReplay: boolean }): void {
+    this.logger.info(facts, facts.isReplay ? 'recognition answered again (replay)' : 'recognition answered');
   }
 
   private admissionRefusal(): AdmissionRefusal | null {
@@ -240,7 +264,7 @@ export class RecognitionService {
   /** What a failed attempt is recorded as, and what the caller is told (S3-D23). The worker's code never reaches the caller. */
   private async answerWorkerFailure(
     error: unknown,
-    finish: (finished: Omit<FinishedRecognition, 'latencyMilliseconds' | 'fingerprintVersion'>) => Promise<void>,
+    finish: FinishAttempt,
     response: Response,
   ): Promise<AppError> {
     if (error instanceof RecognizeJobFailed && error.code === 'INVALID_AUDIO') {
@@ -264,45 +288,26 @@ export class RecognitionService {
     return new AppError('RECOGNITION_BUSY', { internalDetail: `recognition failed: ${cause}`, cause: error });
   }
 
-  /** A recognition this install already finished, answered again the same way: same id, same card version. */
-  private async replay(claim: Claim, listenerInstallId: string, requestId: string): Promise<RecognizeResponse> {
-    const described = (await this.records.describe(claim, listenerInstallId)) as DescribedRecognition;
-    if (described.outcome === 'INVALID_AUDIO') throw new AppError('INVALID_AUDIO', { internalDetail: 'replay of a clip that could not be used' });
-    const common = { recognitionId: claim.recognitionId, requestId, isDeferred: described.is_deferred, capturedAt: described.captured_at };
-    const isMatch = (described.outcome === 'MATCH' || described.outcome === 'MATCH_DEFAULT') && described.action_card && described.station_id;
-    if (!isMatch) return this.respond({ ...common, result: null });
-    return this.respond({
-      ...common,
-      result: this.resultFor(described.outcome === 'MATCH' ? 'CAMPAIGN' : 'CLIENT_DEFAULT', {
-        stationId: described.station_id as string,
-        stationName: described.station_name as string,
-        frequencyLabel: described.station_frequency_label as string,
-        clientName: described.client_name as string,
-        title: described.ad_title as string,
-        card: described.action_card as ActionCard,
-      }),
+  /**
+   * A recognition this install already finished, answered again from what was stored (P4 design §5.4): same id,
+   * status and card versions, a chooser's stations in the same order, the stored deferred flag and capture time,
+   * minus any station no longer ACTIVE. No job, no row and no counter changes.
+   */
+  private async replay(claim: Claim, listenerInstallId: string, requestId: string, hasStationHint: boolean): Promise<RecognizeResponse> {
+    const rows = await this.records.describeForReplay(claim, listenerInstallId);
+    const first = rows[0];
+    if (!first) throw new AppError('INTERNAL', { internalDetail: `finished recognition ${claim.recognitionId} has nothing to replay` });
+    if (first.outcome === 'INVALID_AUDIO') throw new AppError('INVALID_AUDIO', { internalDetail: 'replay of a clip that could not be used' });
+    const answer = answerReplay({ recognitionId: claim.recognitionId, requestId }, rows);
+    this.logAnswer({
+      requestId,
+      recognitionId: claim.recognitionId,
+      outcome: answer.status,
+      resolution: null,
+      candidateCount: answer.status === 'CHOOSE_STATION' ? answer.candidates.length : answer.status === 'MATCH' ? 1 : 0,
+      hasStationHint,
+      isReplay: true,
     });
-  }
-
-  private resultFor(
-    kind: RecognitionResult['kind'],
-    shown: { stationId: string; stationName: string; frequencyLabel: string; clientName: string; title: string; card: ActionCard },
-  ): RecognitionResult {
-    return {
-      kind,
-      // The contract now always carries the station's city. The Step 3 lookups do not read it, so it is
-      // sent as "not given" (null) until the P4 resolution functions return it (P4 design, Piece 2).
-      station: { id: shown.stationId, name: shown.stationName, frequency_label: shown.frequencyLabel, city: null, logo: null },
-      client: { name: shown.clientName, logo: null },
-      title: shown.title,
-      // No screen sets header images or logos yet (S3-D21).
-      card: { schema_version: shown.card.schema_version, layout: shown.card.layout, header_image: null, actions: shown.card.actions },
-    };
-  }
-
-  /** Every answer is checked against the shared contract before it leaves, so nothing outside it can. */
-  private respond(answer: { recognitionId: string; requestId: string; isDeferred: boolean; capturedAt: Date; result: RecognitionResult | null }): RecognizeResponse {
-    const common = { recognition_id: answer.recognitionId, request_id: answer.requestId, is_deferred: answer.isDeferred, captured_at: answer.capturedAt.toISOString() };
-    return RecognizeResponse.parse(answer.result ? { status: 'MATCH', ...common, result: answer.result } : { status: 'NO_MATCH', ...common });
+    return answer;
   }
 }

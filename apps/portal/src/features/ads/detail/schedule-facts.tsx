@@ -1,7 +1,7 @@
 import type { AdSchedule } from '@lookup/contracts';
 import { describeGracePeriod, describeTimeWindow, formatDateRange, hoursOnAirPerWeek } from '../../../formatting/describe-schedule';
 
-/** A schedule written out: dates, each time slot, how long after a slot still counts, and any tap limit. */
+/** A schedule written out: dates, each time slot, how long before and after a slot still counts, and any tap limit. */
 export function ScheduleFacts({ schedule }: { schedule: AdSchedule | null }) {
   if (!schedule) return <p className="text-body text-muted">Not scheduled yet. Set when this ad airs, then publish it.</p>;
   const hoursPerWeek = hoursOnAirPerWeek(schedule.timeWindows);

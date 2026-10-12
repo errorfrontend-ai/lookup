@@ -7,7 +7,10 @@ import { asLookupApi, databaseSetupClient, lookupApiClient } from './support/dat
 import { PLACEHOLDER_PASSWORD_HASH } from './support/test-data.js';
 
 /** Every station-owned table, and how to insert a row into it for a given station's data. */
-const STATION_TABLES = ['station_memberships', 'clients', 'action_cards', 'ads', 'campaigns', 'campaign_time_windows', 'audit_events', 'recognition_events'];
+const STATION_TABLES = [
+  'station_memberships', 'clients', 'action_cards', 'ads', 'campaigns', 'campaign_time_windows', 'audit_events', 'recognition_events',
+  'recognition_candidates', 'engagement_events', 'campaign_counters',
+];
 
 /**
  * Isolation and privileges across every station-owned table, proven against Postgres with each
@@ -26,6 +29,9 @@ describe('station isolation and role privileges, table by table', () => {
   };
   const unresolvedRecognition = randomUUID();
   const installId = randomUUID();
+  /** When each station's recognition arrived: candidates and taps name a recognition by its id and this time. */
+  const recognitionReceivedAt = new Date(Date.now() - 60_000);
+  const unresolvedRecognitionReceivedAt = new Date(Date.now() - 30_000);
   const asStationA = <Result>(work: (client: pg.Client) => Promise<Result>) =>
     asLookupApi(apiClient, { stationId: stationIds.A, userId: data.A.owner }, work);
 
@@ -90,20 +96,35 @@ describe('station isolation and role privileges, table by table', () => {
         stationId,
       ]);
       await setupClient.query(
-        `INSERT INTO app.recognition_events (id, listener_install_id, idempotency_key, request_id, captured_at, received_at, outcome, station_id)
-         VALUES ($1, $2, $3, 'test', now(), now(), 'MATCH', $4)`,
-        [ids.recognition, installId, randomUUID(), stationId],
+        `INSERT INTO app.recognition_events (id, listener_install_id, idempotency_key, request_id, captured_at, received_at, outcome, resolution, station_id)
+         VALUES ($1, $2, $3, 'test', $5, $5, 'MATCH', 'SINGLE_OWNER', $4)`,
+        [ids.recognition, installId, randomUUID(), stationId, recognitionReceivedAt],
       );
+      await setupClient.query(
+        `INSERT INTO app.recognition_candidates (recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind, is_in_window)
+         VALUES ($1, $2, $3, $4, $5, 'CAMPAIGN', true)`,
+        [ids.recognition, recognitionReceivedAt, stationId, ids.campaign, ids.card],
+      );
+      await setupClient.query(
+        `INSERT INTO app.engagement_events (id, received_at, recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind,
+                                            action_id, action_type, occurred_at, client_occurred_at, clock_skew_milliseconds, is_counted, request_id)
+         VALUES ($1, now(), $2, $3, $4, $5, $6, 'CAMPAIGN', $7, 'CALL', now(), now(), 0, true, 'test')`,
+        [randomUUID(), ids.recognition, recognitionReceivedAt, stationId, ids.campaign, ids.card, randomUUID()],
+      );
+      await setupClient.query(`INSERT INTO app.campaign_counters (campaign_id, station_id, counted_engagement_count) VALUES ($1, $2, 1)`, [ids.campaign, stationId]);
     }
     await setupClient.query(
       `INSERT INTO app.recognition_events (id, listener_install_id, idempotency_key, request_id, captured_at, received_at, outcome)
-       VALUES ($1, $2, $3, 'test', now(), now(), 'NO_MATCH')`,
-      [unresolvedRecognition, installId, randomUUID()],
+       VALUES ($1, $2, $3, 'test', $4, $4, 'NO_MATCH')`,
+      [unresolvedRecognition, installId, randomUUID(), unresolvedRecognitionReceivedAt],
     );
   });
 
   afterAll(async () => {
     const both = [stationIds.A, stationIds.B];
+    await setupClient.query('DELETE FROM app.engagement_events WHERE station_id = ANY($1)', [both]);
+    await setupClient.query('DELETE FROM app.campaign_counters WHERE station_id = ANY($1)', [both]);
+    await setupClient.query('DELETE FROM app.recognition_candidates WHERE station_id = ANY($1)', [both]);
     await setupClient.query('DELETE FROM app.recognition_events WHERE listener_install_id = $1', [installId]);
     await setupClient.query('DELETE FROM app.listener_installs WHERE id = $1', [installId]);
     await setupClient.query('DELETE FROM app.audit_events WHERE station_id = ANY($1)', [both]);
@@ -169,6 +190,15 @@ describe('station isolation and role privileges, table by table', () => {
         await expectRefused(client, `INSERT INTO app.campaign_time_windows (campaign_id, station_id, days_of_week, local_start_time, local_end_time) VALUES ($1, $2, '{1}', '07:00', '08:00')`, [ofB.campaign, stationIds.B]);
         await expectRefused(client, `INSERT INTO app.station_memberships (station_id, portal_user_id, role) VALUES ($1, $2, 'MANAGER')`, [stationIds.B, data.A.owner]);
         await expectRefused(client, `INSERT INTO app.audit_events (station_id, action, entity_type, request_id) VALUES ($1, 'intruder', 'station', 'test')`, [stationIds.B]);
+        // Phase 4's tables take no write from the API role at all (P4-DATABASE-01, -02).
+        await expectRefused(
+          client,
+          `INSERT INTO app.recognition_candidates (recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind, is_in_window)
+           VALUES ($1, $2, $3, $4, $5, 'CAMPAIGN', true)`,
+          [ofB.recognition, recognitionReceivedAt, stationIds.B, ofB.campaign, ofB.card],
+        );
+        await expectRefused(client, `INSERT INTO app.campaign_counters (campaign_id, station_id) VALUES ($1, $2)`, [ofB.campaign, stationIds.B]);
+        await expectRefused(client, `UPDATE app.campaign_counters SET counted_engagement_count = 0 WHERE station_id = $1`, [stationIds.A]);
       });
     });
 
@@ -241,6 +271,37 @@ describe('station isolation and role privileges, table by table', () => {
       ['time window → campaign', `INSERT INTO app.campaign_time_windows (campaign_id, station_id, days_of_week, local_start_time, local_end_time) VALUES ($2, $1, '{1}', '07:00', '08:00')`, (ofB: typeof data.B) => [stationIds.A, ofB.campaign], 'campaign_time_windows_campaign_foreign_key'],
       ['client → default card', `UPDATE app.clients SET default_action_card_id = $2 WHERE id = $1`, (ofB: typeof data.B) => [data.A.client, ofB.card], 'clients_default_action_card_foreign_key'],
       ['ad → current card', `UPDATE app.ads SET current_action_card_id = $2 WHERE id = $1`, (ofB: typeof data.B) => [data.A.ad, ofB.card], 'ads_current_action_card_foreign_key'],
+      [
+        'recognition candidate → campaign',
+        `INSERT INTO app.recognition_candidates (recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind, is_in_window)
+         VALUES ($1, $2, $3, $4, $5, 'CAMPAIGN', true)`,
+        (ofB: typeof data.B) => [unresolvedRecognition, unresolvedRecognitionReceivedAt, stationIds.A, ofB.campaign, data.A.card],
+        'recognition_candidates_campaign_foreign_key',
+      ],
+      [
+        'recognition candidate → card',
+        `INSERT INTO app.recognition_candidates (recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind, is_in_window)
+         VALUES ($1, $2, $3, $4, $5, 'CAMPAIGN', true)`,
+        (ofB: typeof data.B) => [unresolvedRecognition, unresolvedRecognitionReceivedAt, stationIds.A, data.A.campaign, ofB.card],
+        'recognition_candidates_action_card_foreign_key',
+      ],
+      [
+        'tap → campaign',
+        `INSERT INTO app.engagement_events (id, received_at, recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind,
+                                            action_id, action_type, occurred_at, client_occurred_at, clock_skew_milliseconds, is_counted, request_id)
+         VALUES (gen_random_uuid(), now(), $1, now(), $2, $3, $4, 'CAMPAIGN', gen_random_uuid(), 'CALL', now(), now(), 0, false, 'test')`,
+        (ofB: typeof data.B) => [data.A.recognition, stationIds.A, ofB.campaign, data.A.card],
+        'engagement_events_campaign_foreign_key',
+      ],
+      [
+        'tap → card',
+        `INSERT INTO app.engagement_events (id, received_at, recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind,
+                                            action_id, action_type, occurred_at, client_occurred_at, clock_skew_milliseconds, is_counted, request_id)
+         VALUES (gen_random_uuid(), now(), $1, now(), $2, $3, $4, 'CAMPAIGN', gen_random_uuid(), 'CALL', now(), now(), 0, false, 'test')`,
+        (ofB: typeof data.B) => [data.A.recognition, stationIds.A, data.A.campaign, ofB.card],
+        'engagement_events_action_card_foreign_key',
+      ],
+      ['tap counter → campaign', `UPDATE app.campaign_counters SET station_id = $1 WHERE campaign_id = $2`, (ofB: typeof data.B) => [stationIds.A, ofB.campaign], 'campaign_counters_campaign_foreign_key'],
     ])("S1-ISOLATION-11: station A's %s cannot reference station B's row", async (_reference, sql, parameters, constraintName) => {
       await setupClient.query('BEGIN');
       try {

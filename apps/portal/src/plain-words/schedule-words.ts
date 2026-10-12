@@ -45,7 +45,7 @@ export function describeScheduleProblem(field: ScheduleField, code: string): str
   return PROBLEM_WORDS[field][code] ?? 'Check this one.';
 }
 
-/** The grace period choices in words. */
+/** The grace period choices in words: grace widens each slot on both sides (P4 design, Q1). */
 export function describeGraceOption(minutes: number): string {
-  return minutes === 0 ? 'None: only during the slot' : `${minutes} minutes after the slot ends`;
+  return minutes === 0 ? 'None: only during the slot' : `${minutes} minutes before and after the slot`;
 }

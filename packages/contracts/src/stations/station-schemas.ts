@@ -8,6 +8,23 @@ export const CreateClientInput = z.strictObject({
 });
 export type CreateClientInput = z.infer<typeof CreateClientInput>;
 
+/**
+ * Why a client's usual card was refused, relayed in VALIDATION_FAILED (path `actionCardId`): the card is not one
+ * of this client's saved card versions (another client's, another station's, or none at all).
+ */
+export const CLIENT_DEFAULT_CARD_REASONS = ['card_not_of_this_client'] as const;
+export type ClientDefaultCardReason = (typeof CLIENT_DEFAULT_CARD_REASONS)[number];
+
+/**
+ * PUT /stations/{stationId}/clients/{clientId}/default-action-card: the client's usual card, which listeners get
+ * when its ad is heard out of its slots, after its campaign was paused or ended, or once the campaign reached its
+ * tap limit; null takes it away. It must be one of this client's saved card versions.
+ */
+export const SetClientDefaultActionCardInput = z.strictObject({
+  actionCardId: z.uuid().nullable(),
+});
+export type SetClientDefaultActionCardInput = z.infer<typeof SetClientDefaultActionCardInput>;
+
 /** The ten provinces of Zambia, as the profile offers them. */
 export const ZAMBIAN_PROVINCES = ['Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka', 'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western'] as const;
 export type ZambianProvince = (typeof ZAMBIAN_PROVINCES)[number];

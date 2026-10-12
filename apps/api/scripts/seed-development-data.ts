@@ -1,8 +1,13 @@
 /**
- * Development data: one ACTIVE station ("Station A", 98.1 FM), its owner, two clients and sample ads in
- * every state (with a short generated jingle as their audio), so the portal can be used and judged
- * straight away. Safe to run again (it updates rather than duplicates). Refuses to run in production.
- * Self sign-up replaces this for real stations (phase 5a).
+ * Development data: two ACTIVE stations with one owner, so the portal can be used and judged straight away
+ * and a listener's "Which station?" can be walked through (P4 design §5.15):
+ *  - "Station A" (98.1 FM, Lusaka): two clients and sample ads in every state, each with a short generated
+ *    jingle as its audio;
+ *  - "Station B" (104.3 FM, Kitwe): Brand A's "Summer service offer" on the same jingle as Station A's, so
+ *    the two share one recording, with its all-day schedule left as a draft to publish in the portal;
+ *  - usual cards for Brand A at both stations and for Brand B at Station A.
+ * Safe to run again (it updates rather than duplicates). Refuses to run in production. Self sign-up
+ * replaces this for real stations (phase 5a).
  *
  *   npm run database:seed   (reads SEED_OWNER_EMAIL and SEED_OWNER_PASSWORD from .env)
  */
@@ -11,11 +16,22 @@ import pg from 'pg';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { PasswordPolicy } from '../src/features/authentication/password-policy.js';
 import { loadDatabaseSetupConfig } from './database-setup-config.js';
-import { giveSampleCardsSafeNumbers, type SampleStorage, seedSampleAds } from './sample-ads.js';
+import {
+  giveSampleCardsSafeNumbers,
+  SAMPLE_DEFAULT_CARDS,
+  type SampleStorage,
+  SECOND_STATION_SAMPLE_ADS,
+  SECOND_STATION_SAMPLE_DEFAULT_CARDS,
+  seedDefaultCards,
+  seedSampleAds,
+} from './sample-ads.js';
 
 export interface DevelopmentSeed {
   stationName: string;
   frequencyLabel: string;
+  /** Where the station is, as its profile says (Lusaka unless given). */
+  province?: string;
+  city?: string;
   ownerEmail: string;
   ownerPassword: string;
   ownerFullName: string;
@@ -44,8 +60,8 @@ export async function seedDevelopmentData(setupUrl: string, seed: DevelopmentSee
       existingStation.rows[0]?.id ??
       (
         await client.query(
-          `INSERT INTO app.stations (name, frequency_label, province, city, status) VALUES ($1, $2, 'Lusaka', 'Lusaka', 'ACTIVE') RETURNING id`,
-          [seed.stationName, seed.frequencyLabel],
+          `INSERT INTO app.stations (name, frequency_label, province, city, status) VALUES ($1, $2, $3, $4, 'ACTIVE') RETURNING id`,
+          [seed.stationName, seed.frequencyLabel, seed.province ?? 'Lusaka', seed.city ?? 'Lusaka'],
         )
       ).rows[0].id;
     await client.query(`UPDATE app.stations SET status = 'ACTIVE' WHERE id = $1`, [stationId]);
@@ -92,28 +108,50 @@ function sampleStorageFromEnvironment(): SampleStorage | null {
   };
 }
 
+/** Where a station's pages open in the portal: the first allowed browser origin (the portal), or the local one. */
+function portalPageOf(stationId: string): string {
+  const portalOrigin = (process.env.ALLOWED_BROWSER_ORIGINS ?? '').split(',')[0]?.trim() || 'http://localhost:5180';
+  return `${portalOrigin}/stations/${stationId}/ads`;
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+
 async function seedFromEnvironment(): Promise<string> {
   const { setupUrl } = loadDatabaseSetupConfig();
   const ownerEmail = process.env.SEED_OWNER_EMAIL;
   const ownerPassword = process.env.SEED_OWNER_PASSWORD;
   if (!ownerEmail || !ownerPassword) throw new Error('Missing configuration: SEED_OWNER_EMAIL, SEED_OWNER_PASSWORD');
-  const { stationId, ownerId } = await seedDevelopmentData(setupUrl, {
-    stationName: 'Station A',
-    frequencyLabel: '98.1 FM',
-    ownerEmail,
-    ownerPassword,
-    ownerFullName: 'Station A Owner',
-    clientNames: ['Brand A', 'Brand B'],
+  const owner = { ownerEmail, ownerPassword, ownerFullName: 'Station A Owner' };
+  const { stationId, ownerId } = await seedDevelopmentData(setupUrl, { stationName: 'Station A', frequencyLabel: '98.1 FM', ...owner, clientNames: ['Brand A', 'Brand B'] });
+  // The same owner is a member of Station B too, so one sign-in opens both stations' pages.
+  const secondStation = await seedDevelopmentData(setupUrl, {
+    stationName: 'Station B',
+    frequencyLabel: '104.3 FM',
+    province: 'Copperbelt',
+    city: 'Kitwe',
+    ...owner,
+    clientNames: ['Brand A'],
   });
-  const storage = sampleStorageFromEnvironment();
-  if (!storage) return `Development data ready: Station A (${stationId}), its owner and two clients. Sample ads skipped: object storage settings are not set.`;
+  const pages = [
+    `  Station A (98.1 FM, Lusaka): ${portalPageOf(stationId)}`,
+    `  Station B (104.3 FM, Kitwe): ${portalPageOf(secondStation.stationId)}`,
+  ].join('\n');
+
   const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-development-seed' });
   await client.connect();
   try {
-    const createdCount = await seedSampleAds(client, stationId, storage, ownerId);
+    const defaultCardCount =
+      (await seedDefaultCards(client, stationId, ownerId, SAMPLE_DEFAULT_CARDS)) +
+      (await seedDefaultCards(client, secondStation.stationId, ownerId, SECOND_STATION_SAMPLE_DEFAULT_CARDS));
+    const defaultCardsNote = defaultCardCount === 0 ? 'Usual cards: already there.' : `Usual cards: ${plural(defaultCardCount, 'client')} given one.`;
+    const storage = sampleStorageFromEnvironment();
+    if (!storage) return `Development data ready, one owner for both stations:\n${pages}\n${defaultCardsNote} Sample ads skipped: object storage settings are not set.`;
+    const createdCount =
+      (await seedSampleAds(client, stationId, storage, ownerId)) + (await seedSampleAds(client, secondStation.stationId, storage, ownerId, SECOND_STATION_SAMPLE_ADS));
     const safeNumberCount = await giveSampleCardsSafeNumbers(client, stationId, ownerId);
-    const safeNumbersNote = safeNumberCount === 0 ? '' : ` ${safeNumberCount} older sample cards now have safe sample phone numbers.`;
-    return `Development data ready: Station A (${stationId}), its owner, two clients and ${createdCount === 0 ? 'its sample ads (already there)' : `${createdCount} new sample ads`}.${safeNumbersNote}`;
+    const safeNumbersNote = safeNumberCount === 0 ? '' : ` ${plural(safeNumberCount, 'older sample card')} now have safe sample phone numbers.`;
+    const adsNote = createdCount === 0 ? 'Sample ads: already there.' : `Sample ads: ${createdCount} new; the ingest worker prepares them for recognition within a minute or two of the API starting.`;
+    return `Development data ready, one owner for both stations:\n${pages}\n${adsNote} ${defaultCardsNote}${safeNumbersNote}`;
   } finally {
     await client.end();
   }

@@ -22,6 +22,10 @@
     "database:revert-latest": "tsx scripts/run-migrations.ts --revert-latest",
     "object-storage:prepare": "tsx scripts/prepare-object-storage.ts",
     "database:seed": "tsx scripts/seed-development-data.ts",
+    "development:show-recognitions": "tsx scripts/development-walkthrough-tools.ts show-recognitions",
+    "development:set-station-status": "tsx scripts/development-walkthrough-tools.ts set-station-status",
+    "development:set-campaign-status": "tsx scripts/development-walkthrough-tools.ts set-campaign-status",
+    "development:reset-sample-schedule": "tsx scripts/development-walkthrough-tools.ts reset-sample-schedule",
     "test": "vitest run"
   },
   "dependencies": {

@@ -31,6 +31,14 @@ interface SampleAd {
   /** The number on its Call and WhatsApp buttons, each card its own; null: the ad has no buttons yet. */
   phoneNumberOnButtons: string | null;
   campaign?: SampleCampaign;
+  /** Its own jingle's notes; none: the shared jingle, so the ad shares one recording with the other station's. */
+  jingleNotes?: readonly number[];
+}
+
+/** A client's usual card, which listeners get when its ad is out of its slots (P4 design §5.15). */
+export interface SampleDefaultCard {
+  clientName: string;
+  phoneNumberOnButtons: string;
 }
 
 const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
@@ -47,16 +55,38 @@ const ALL_DAY_EVERY_DAY = [
 export const SAMPLE_PHONE_NUMBER_PREFIX = '+447700900';
 const samplePhoneNumber = (cardNumber: number) => `${SAMPLE_PHONE_NUMBER_PREFIX}${String(cardNumber).padStart(3, '0')}`;
 
-/** Ads in every state the portal shows, so a developer sees each badge, tab and warning at once. */
+/**
+ * Ads in every state the portal shows, so a developer sees each badge, tab and warning at once (Station A). Only
+ * "Summer service offer" has the shared jingle; every other ad has its own notes, so on a fresh database it is the
+ * one recording two stations share.
+ */
 const SAMPLE_ADS: SampleAd[] = [
   { title: 'Summer service offer', clientName: 'Brand A', changedHoursAgo: 2, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(1), campaign: { status: 'ACTIVE', startsInDays: -10, endsInDays: 20, windows: ALL_DAY_EVERY_DAY } },
-  { title: 'Harvest festival', clientName: 'Brand B', changedHoursAgo: 5, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(2), campaign: { status: 'ACTIVE', startsInDays: -20, endsInDays: 1, windows: ALL_DAY_EVERY_DAY } },
-  { title: 'Weekend sale', clientName: 'Brand B', changedHoursAgo: 26, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(3), campaign: { status: 'ACTIVE', startsInDays: 3, endsInDays: 28, windows: [{ days: [6, 7], from: '10:00', to: '14:00' }] } },
-  { title: 'New menu launch', clientName: 'Brand A', changedHoursAgo: 30, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(4), campaign: { status: 'DRAFT', startsInDays: -2, endsInDays: 20, windows: [{ days: [1, 2, 3, 4, 5], from: '07:00', to: '09:00' }, { days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
-  { title: 'Back to school offer', clientName: 'Brand A', changedHoursAgo: 50, uploadState: 'checked', phoneNumberOnButtons: null },
-  { title: 'Festive greetings', clientName: 'Brand B', changedHoursAgo: 72, uploadState: 'refused', phoneNumberOnButtons: null },
-  { title: 'Spring promo', clientName: 'Brand A', changedHoursAgo: 24 * 14, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(5), campaign: { status: 'ENDED', startsInDays: -45, endsInDays: -15, windows: [{ days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] } },
+  { title: 'Harvest festival', clientName: 'Brand B', changedHoursAgo: 5, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(2), campaign: { status: 'ACTIVE', startsInDays: -20, endsInDays: 1, windows: ALL_DAY_EVERY_DAY }, jingleNotes: [392.0, 493.88, 587.33, 493.88, 659.25, 587.33, 493.88, 392.0] },
+  { title: 'Weekend sale', clientName: 'Brand B', changedHoursAgo: 26, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(3), campaign: { status: 'ACTIVE', startsInDays: 3, endsInDays: 28, windows: [{ days: [6, 7], from: '10:00', to: '14:00' }] }, jingleNotes: [440.0, 554.37, 659.25, 554.37, 739.99, 659.25, 554.37, 440.0] },
+  { title: 'New menu launch', clientName: 'Brand A', changedHoursAgo: 30, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(4), campaign: { status: 'DRAFT', startsInDays: -2, endsInDays: 20, windows: [{ days: [1, 2, 3, 4, 5], from: '07:00', to: '09:00' }, { days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] }, jingleNotes: [349.23, 440.0, 523.25, 440.0, 587.33, 523.25, 440.0, 349.23] },
+  { title: 'Back to school offer', clientName: 'Brand A', changedHoursAgo: 50, uploadState: 'checked', phoneNumberOnButtons: null, jingleNotes: [293.66, 369.99, 440.0, 369.99, 493.88, 440.0, 369.99, 293.66] },
+  { title: 'Festive greetings', clientName: 'Brand B', changedHoursAgo: 72, uploadState: 'refused', phoneNumberOnButtons: null, jingleNotes: [261.63, 329.63, 392.0, 329.63, 440.0, 392.0, 329.63, 261.63] },
+  { title: 'Spring promo', clientName: 'Brand A', changedHoursAgo: 24 * 14, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(5), campaign: { status: 'ENDED', startsInDays: -45, endsInDays: -15, windows: [{ days: [1, 2, 3, 4, 5], from: '17:00', to: '19:00' }] }, jingleNotes: [329.63, 415.3, 493.88, 415.3, 554.37, 493.88, 415.3, 329.63] },
 ];
+
+/**
+ * Station B's sample ad (P4 design §5.15): Brand A's "Summer service offer" with the shared jingle, so it shares
+ * Station A's recording, and an all-day schedule left as a draft, so a walkthrough publishes it in the portal and
+ * watches the listener's "Which station?" appear.
+ */
+export const SECOND_STATION_SAMPLE_ADS: readonly SampleAd[] = [
+  { title: 'Summer service offer', clientName: 'Brand A', changedHoursAgo: 1, uploadState: 'checked', phoneNumberOnButtons: samplePhoneNumber(6), campaign: { status: 'DRAFT', startsInDays: -1, endsInDays: 29, windows: ALL_DAY_EVERY_DAY } },
+];
+
+/** The usual cards at Station A: Brand A's and Brand B's, each with its own number. */
+export const SAMPLE_DEFAULT_CARDS: readonly SampleDefaultCard[] = [
+  { clientName: 'Brand A', phoneNumberOnButtons: samplePhoneNumber(7) },
+  { clientName: 'Brand B', phoneNumberOnButtons: samplePhoneNumber(8) },
+];
+
+/** The usual card at Station B: Brand A's. */
+export const SECOND_STATION_SAMPLE_DEFAULT_CARDS: readonly SampleDefaultCard[] = [{ clientName: 'Brand A', phoneNumberOnButtons: samplePhoneNumber(9) }];
 
 function buttonsFor(clientName: string, phoneNumber: string): ActionCard {
   return ActionCard.parse({
@@ -70,6 +100,17 @@ function buttonsFor(clientName: string, phoneNumber: string): ActionCard {
   });
 }
 
+/** A client's usual buttons: call its office or see it online, unlike any campaign's own buttons. */
+function usualButtonsFor(clientName: string, phoneNumber: string): ActionCard {
+  return ActionCard.parse({
+    schema_version: 1,
+    layout: 'VERTICAL_STACK',
+    actions: [
+      { type: 'CALL', id: randomUUID(), label: `Call ${clientName}'s office`, style: 'PRIMARY', phone_number_e164: phoneNumber },
+      { type: 'LINK', id: randomUUID(), label: `${clientName} online`, style: 'OUTLINE', url: `https://example.com/${clientName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` },
+    ],
+  });
+}
 
 /**
  * The audit rows the API would have written as each sample ad was made, so an ad's history reads like a
@@ -115,6 +156,7 @@ export async function seedSampleAds(
   stationId: string,
   storage: SampleStorage,
   ownerId: string,
+  samples: readonly SampleAd[] = SAMPLE_ADS,
 ): Promise<number> {
   const clientIds = new Map<string, string>(
     (await client.query(`SELECT id, name FROM app.clients WHERE station_id = $1`, [stationId])).rows.map((row) => [row.name as string, row.id as string]),
@@ -127,10 +169,9 @@ export async function seedSampleAds(
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
-  const jingle = createSampleJingleWav();
   let createdCount = 0;
   try {
-    for (const sample of SAMPLE_ADS) {
+    for (const sample of samples) {
       const clientId = clientIds.get(sample.clientName);
       if (!clientId) continue;
       const existing = await client.query(`SELECT 1 FROM app.ads WHERE station_id = $1 AND title = $2`, [stationId, sample.title]);
@@ -139,6 +180,7 @@ export async function seedSampleAds(
       const adId = randomUUID();
       const objectKey = `ad-uploads/${stationId}/${adId}/sample`;
       const isChecked = sample.uploadState === 'checked';
+      const jingle = createSampleJingleWav(sample.jingleNotes);
       if (isChecked) {
         await storageClient.send(new PutObjectCommand({ Bucket: storage.bucket, Key: objectKey, Body: jingle, ContentType: 'audio/wav' }));
       }
@@ -158,7 +200,7 @@ export async function seedSampleAds(
           adId, stationId, clientId, sample.title, isChecked ? 'PROCESSING' : 'FAILED',
           isChecked ? objectKey : null, isChecked ? 'audio/wav' : null, isChecked ? jingle.length : null,
           isChecked ? `${sample.title.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.wav` : null,
-          isChecked ? new Date() : null, isChecked ? null : 'not_the_declared_audio_format', cardId, sample.changedHoursAgo,
+          isChecked ? new Date(Date.now() - sample.changedHoursAgo * 3_600_000) : null, isChecked ? null : 'not_the_declared_audio_format', cardId, sample.changedHoursAgo,
         ],
       );
       if (sample.campaign) {
@@ -190,6 +232,40 @@ export async function seedSampleAds(
 }
 
 export const SAMPLE_AD_TITLES = SAMPLE_ADS.map((sample) => sample.title);
+
+/**
+ * Gives each named client of the station its usual card (P4 design §5.15; P4-FALLBACK-04), as the portal route
+ * would: a card version of that client, the client pointing at it, and the audit row with the card ids only. A
+ * client that already has a usual card keeps it, so running it again changes nothing. Returns how many it set.
+ */
+export async function seedDefaultCards(client: pg.Client, stationId: string, ownerId: string, defaultCards: readonly SampleDefaultCard[]): Promise<number> {
+  let setCount = 0;
+  for (const defaultCard of defaultCards) {
+    const owner = (
+      await client.query(`SELECT id, default_action_card_id FROM app.clients WHERE station_id = $1 AND name = $2`, [stationId, defaultCard.clientName])
+    ).rows[0] as { id: string; default_action_card_id: string | null } | undefined;
+    if (!owner || owner.default_action_card_id) continue;
+    const cardId = randomUUID();
+    await client.query('BEGIN');
+    try {
+      await client.query(`INSERT INTO app.action_cards (id, station_id, client_id, schema_version, content) VALUES ($1, $2, $3, 1, $4::jsonb)`, [
+        cardId, stationId, owner.id, JSON.stringify(usualButtonsFor(defaultCard.clientName, defaultCard.phoneNumberOnButtons)),
+      ]);
+      await client.query(`UPDATE app.clients SET default_action_card_id = $2 WHERE id = $1`, [owner.id, cardId]);
+      await client.query(
+        `INSERT INTO app.audit_events (station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id)
+         VALUES ($1, $2, 'client_default_card_changed', 'client', $3, $4, 'development-seed')`,
+        [stationId, ownerId, owner.id, JSON.stringify({ previousActionCardId: null, actionCardId: cardId })],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    }
+    setCount += 1;
+  }
+  return setCount;
+}
 
 /**
  * Development data seeded before the safe numbers still has sample cards with realistic numbers. Card

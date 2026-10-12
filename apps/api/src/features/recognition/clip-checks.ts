@@ -19,13 +19,12 @@ export function assertClipSignature(audio: Buffer, codec: RecognitionCodec): voi
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 const FUTURE_ALLOWANCE_MILLISECONDS = 2 * 60 * 1000;
 const DEFERRED_AFTER_MILLISECONDS = 120 * 1000;
-// The skew column is an integer; a phone clock off by more than this is stored as unknown.
-const LARGEST_STORED_SKEW_MILLISECONDS = 2_000_000_000;
 
 export interface CorrectedCaptureTime {
   /** When the clip was heard, on the server's clock. */
   effectiveCapturedAt: Date;
-  clockSkewMilliseconds: number | null;
+  /** How far the phone's clock was off: the receipt time minus its "sent at". Always stored, exactly (a bigint column). */
+  clockSkewMilliseconds: number;
   /** Held back on the phone, or arrived long after it was heard. */
   isDeferred: boolean;
 }
@@ -49,7 +48,7 @@ export function correctCaptureTime(times: { capturedAt: Date; sentAt: Date; rece
   }
   return {
     effectiveCapturedAt,
-    clockSkewMilliseconds: Math.abs(skew) <= LARGEST_STORED_SKEW_MILLISECONDS ? skew : null,
+    clockSkewMilliseconds: skew,
     isDeferred: times.isDeferredByApp || age > DEFERRED_AFTER_MILLISECONDS,
   };
 }

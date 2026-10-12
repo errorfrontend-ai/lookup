@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asLookupApi, databaseSetupClient, lookupApiClient } from './support/database-clients.js';
+import { StationResolutionTestData } from './support/station-resolution-test-data.js';
 
 /**
  * Station isolation is enforced by Postgres itself, not only by API code. These tests talk to
@@ -93,5 +94,85 @@ describe('row-level security between stations', () => {
     await expect(
       asStationA((client) => client.query('DELETE FROM app.recognition_events WHERE station_id = $1', [ids.stationA])),
     ).rejects.toThrow(/permission denied/);
+  });
+});
+
+/**
+ * Phase 4 (P4-DATABASE-01): what is stored about a recognition several stations were weighed for stays with
+ * each station. A station sees only its own candidate row, the recognition only once the listener chose it,
+ * and only its own taps and tap counters, whatever the API asks.
+ */
+describe('row-level security between stations: candidates, choices, taps and counters', () => {
+  let setupClient: pg.Client;
+  let apiClient: pg.Client;
+  let testData: StationResolutionTestData;
+  const { candidate } = StationResolutionTestData;
+
+  beforeAll(async () => {
+    setupClient = databaseSetupClient();
+    apiClient = lookupApiClient();
+    await setupClient.connect();
+    await apiClient.connect();
+    testData = new StationResolutionTestData(setupClient);
+  });
+  afterAll(async () => {
+    await testData.removeAll();
+    await apiClient.end();
+    await setupClient.end();
+  });
+
+  /** A recognition answered with a chooser of stations A and B, and what each station's own context reads of it. */
+  async function chooserOfTwoStations() {
+    const recording = await testData.createRecording();
+    const stationA = await testData.airAd({ recording });
+    const stationB = await testData.airAd({ recording });
+    const installId = await testData.createInstall();
+    const claimed = await testData.claim(apiClient, installId);
+    await testData.finish(apiClient, claimed, {
+      outcome: 'CHOOSE_STATION',
+      resolution: 'UNRESOLVED',
+      recording,
+      candidates: [candidate(stationA, { displayPosition: 1 }), candidate(stationB, { displayPosition: 2 })],
+    });
+    const seenBy = (stationId: string) =>
+      asLookupApi(apiClient, { stationId }, async (client) => ({
+        candidates: (await client.query('SELECT station_id, is_chosen FROM app.recognition_candidates WHERE recognition_id = $1', [claimed.recognition_id])).rows,
+        recognitions: (await client.query('SELECT id, station_id, resolution FROM app.recognition_events WHERE id = $1', [claimed.recognition_id])).rows,
+      }));
+    return { stationA, stationB, installId, claimed, seenBy };
+  }
+
+  it('P4-RESOLUTION-13: each station sees only its own candidate row of a recognition both were weighed for, and not the recognition while nobody chose', async () => {
+    const { stationA, stationB, seenBy } = await chooserOfTwoStations();
+    expect(await seenBy(stationA.stationId)).toEqual({ candidates: [{ station_id: stationA.stationId, is_chosen: false }], recognitions: [] });
+    expect(await seenBy(stationB.stationId)).toEqual({ candidates: [{ station_id: stationB.stationId, is_chosen: false }], recognitions: [] });
+  });
+
+  it('P4-CHOICE-06: after the listener chose station A, A sees the recognition as its own, and B sees only its own candidate row, unchosen', async () => {
+    const { stationA, stationB, installId, claimed, seenBy } = await chooserOfTwoStations();
+    const choice = await apiClient.query('SELECT recognition.record_station_choice($1, $2, $3) AS answer', [claimed.recognition_id, installId, stationA.stationId]);
+    expect(choice.rows[0].answer).toBe('CHOSEN');
+    expect(await seenBy(stationA.stationId)).toEqual({
+      candidates: [{ station_id: stationA.stationId, is_chosen: true }],
+      recognitions: [{ id: claimed.recognition_id, station_id: stationA.stationId, resolution: 'LISTENER_CHOICE' }],
+    });
+    expect(await seenBy(stationB.stationId)).toEqual({ candidates: [{ station_id: stationB.stationId, is_chosen: false }], recognitions: [] });
+  });
+
+  it('P4-ENGAGEMENTS-11: a station sees only its own taps and tap counters', async () => {
+    const { stationA, stationB, installId, claimed } = await chooserOfTwoStations();
+    const callButton = (stationA.campaignCard?.actions[0] as { id: string }).id;
+    const tapped = await apiClient.query('SELECT recognition.record_engagement($1, $2, $3, $4, $5, now(), now(), 0, now(), $6, NULL) AS answer', [
+      randomUUID(), claimed.recognition_id, installId, stationA.stationId, callButton, 'request-isolation',
+    ]);
+    expect(tapped.rows[0].answer).toBe('RECORDED');
+    const seenBy = (stationId: string) =>
+      asLookupApi(apiClient, { stationId }, async (client) => ({
+        taps: (await client.query('SELECT station_id FROM app.engagement_events WHERE recognition_id = $1', [claimed.recognition_id])).rows,
+        counters: (await client.query('SELECT campaign_id FROM app.campaign_counters WHERE campaign_id = ANY($1)', [[stationA.campaignId, stationB.campaignId]])).rows,
+      }));
+    expect(await seenBy(stationA.stationId)).toEqual({ taps: [{ station_id: stationA.stationId }], counters: [{ campaign_id: stationA.campaignId }] });
+    expect(await seenBy(stationB.stationId)).toEqual({ taps: [], counters: [] });
+    expect(await asLookupApi(apiClient, {}, async (client) => (await client.query('SELECT count(*)::integer AS visible FROM app.engagement_events WHERE recognition_id = $1', [claimed.recognition_id])).rows[0].visible)).toBe(0);
   });
 });

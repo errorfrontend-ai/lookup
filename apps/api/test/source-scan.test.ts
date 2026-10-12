@@ -40,6 +40,7 @@ const RELEASED_MIGRATION_DIGESTS: Record<string, string> = {
   '1791300000000-DatabaseHardening.ts': '885fe8747059a6dc325960dded1563d4099bb0fc49d649364cd5fa951761a711',
   '1791400000000-AdHistoryIndexes.ts': 'b99a0d25333d8b520a4bc60b374a0f49750160c8e2b912c681b132af4bf95857',
   '1791500000000-EngineHookup.ts': 'd3ef959bea88ef4891dacd49d6ea387804b2a6052c3e467fc49a227b8027c3a5',
+  '1791600000000-StationResolution.ts': '6667c9ac4058f2d3f7d7f2dc6cac038a419200b1152e4caf68886f4d0f87f9bb',
 };
 
 const apiFiles = readSourceFiles('apps/api/src');
