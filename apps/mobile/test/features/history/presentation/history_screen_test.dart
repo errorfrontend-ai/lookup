@@ -374,6 +374,13 @@ void main() {
       expect(find.text('Clip from today, 14:32'), findsOneWidget);
       expect(find.text("Will identify when you're back online"), findsOneWidget);
       expect(find.text('Pending'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(WaitingClipRow),
+          matching: find.byIcon(Icons.signal_cellular_off_outlined),
+        ),
+        findsOneWidget,
+      );
       expect(find.byType(HistoryEmptyState), findsNothing);
       expect(find.text('EARLIER'), findsNothing, reason: 'no saved entry yet');
       final row = tester.getSemantics(find.byType(WaitingClipRow));

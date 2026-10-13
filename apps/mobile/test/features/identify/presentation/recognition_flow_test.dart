@@ -1183,6 +1183,22 @@ void main() {
     });
 
     test(
+      'T48: leaving Saved offline goes Home, and the clip stays queued (P6-OFFLINE-23, -28)',
+      () {
+        runFlowTest((harness) {
+          identifyAndAnswer(
+            harness,
+            () => harness.adapter.failWithDioType(DioExceptionType.connectionError),
+          );
+          expect(harness.state, isA<SavedOfflineState>());
+          harness.tap((flow) => flow.backToHome());
+          expect(harness.state, const IdleState());
+          _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.noConnection);
+        });
+      },
+    );
+
+    test(
       'a sixth clip saved with no signal deletes the oldest waiting one, and says so (P6-D6)',
       () {
         runFlowTest((harness) {

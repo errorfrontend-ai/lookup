@@ -426,4 +426,162 @@ void main() {
       });
     });
   });
+
+  group(
+    'the acknowledgement rules for a saved clip (contract R9; P6-OFFLINE-10, -16 to -18, P6-OUTBOX-07)',
+    () {
+      test(
+        'a clip that got no answer goes again with the same key, capture time and recording, still deferred, '
+        'with the send time of the new attempt (P6-OUTBOX-07)',
+        () {
+          runSenderTest(random: ScriptedRandom(integers: [0], doubles: [0]), (harness) {
+            final capturedAt = DateTime.utc(2026, 10, 8, 10);
+            harness.queueClip(
+              _keyOne,
+              capturedAt: capturedAt,
+              audioBytes: [0, 0, 0, 24, 102, 116, 121, 112, 7],
+            );
+            harness.adapter.failWithDioType(DioExceptionType.connectionError);
+            harness.answerWithResponseFixture('valid/no-match');
+            harness.startRun(OutboxRunReason.wakeUp);
+            harness.followWakeUps();
+
+            final sends = [
+              for (final request in harness.recognizeRequests) ReceivedMultipartForm.of(request),
+            ];
+            expect(sends, hasLength(2));
+            for (final send in sends) {
+              expect(send.fieldValues['idempotency_key'], _keyOne);
+              expect(send.fieldValues['captured_at'], '2026-10-08T10:00:00.000Z');
+              expect(send.fieldValues['is_deferred'], 'true');
+              expect(send.fileParts.single.bytes, [0, 0, 0, 24, 102, 116, 121, 112, 7]);
+            }
+            expect(sends.first.fieldValues['sent_at'], '2026-10-08T12:00:00.000Z');
+            expect(
+              sends.last.fieldValues['sent_at'],
+              '2026-10-08T12:00:15.000Z',
+              reason: 'after the 15 s backoff',
+            );
+            expect(
+              harness.recognizeRequests.first.header('X-Request-Id'),
+              isNot(harness.recognizeRequests.last.header('X-Request-Id')),
+              reason: 'a new request id per attempt',
+            );
+          });
+        },
+      );
+
+      test('one clip is in flight at a time, oldest first (P6-OFFLINE-10, -11)', () {
+        runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+          for (final (minutes, key) in [
+            (10, _keyOne),
+            (5, _keyTwo),
+            (0, '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c23'),
+          ]) {
+            harness.queueClip(
+              key,
+              capturedAt: DateTime.utc(2026, 10, 8, 10).add(Duration(minutes: minutes)),
+            );
+          }
+          final content =
+              ContractFixtures.readFile('recognition/recognize-response/valid/no-match.json')!
+                  as Map<String, Object?>;
+          var inFlight = 0;
+          var mostInFlight = 0;
+          for (var answer = 0; answer < 3; answer++) {
+            harness.adapter.answerWith((request, cancelFuture) async {
+              inFlight++;
+              mostInFlight = inFlight > mostInFlight ? inFlight : mostInFlight;
+              await Future<void>.delayed(const Duration(seconds: 3));
+              inFlight--;
+              return ResponseBody.fromString(
+                jsonEncode(content['response']),
+                200,
+                headers: {
+                  Headers.contentTypeHeader: [Headers.jsonContentType],
+                },
+              );
+            });
+          }
+          harness.startRun(OutboxRunReason.wakeUp);
+          harness.wait(const Duration(seconds: 30));
+
+          expect(mostInFlight, 1);
+          expect(
+            harness.recognizeRequests.map(
+              (request) => ReceivedMultipartForm.of(request).fieldValues['captured_at'],
+            ),
+            ['2026-10-08T10:00:00.000Z', '2026-10-08T10:05:00.000Z', '2026-10-08T10:10:00.000Z'],
+          );
+        });
+      });
+
+      test('409: the clip is kept and sent again later with the same key (P6-OFFLINE-16)', () {
+        runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+          harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+          harness.answerWithEnvelopeFixture('recognition-in-progress', retryAfter: '3');
+          harness.answerWithResponseFixture('valid/no-match');
+          harness.startRun(OutboxRunReason.wakeUp);
+          expect(harness.items.single.idempotencyKey, _keyOne);
+          expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isTrue);
+          harness.followWakeUps();
+
+          expect(
+            harness.recognizeRequests.map(
+              (request) => ReceivedMultipartForm.of(request).fieldValues['idempotency_key'],
+            ),
+            [_keyOne, _keyOne],
+          );
+          expect(harness.items, isEmpty);
+        });
+      });
+
+      test(
+        '429: the clip is kept, the clips wait as asked, and it goes again after (P6-OFFLINE-17)',
+        () {
+          runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+            harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+            harness.answerWithEnvelopeFixture('rate-limited', retryAfter: '90');
+            harness.answerWithResponseFixture('valid/no-match');
+            harness.startRun(OutboxRunReason.wakeUp);
+            expect(harness.items, hasLength(1));
+            expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isTrue);
+            expect(
+              harness.index.groupPausedUntil[OutboxItemGroup.clips],
+              harness.clock.now().add(const Duration(seconds: 90)),
+            );
+            harness.followWakeUps();
+            expect(harness.recognizeRequests, hasLength(2));
+            expect(harness.items, isEmpty);
+          });
+        },
+      );
+
+      test('503 with Retry-After 120: the clip is kept, and nothing is sent before 120 seconds '
+          '(P6-OFFLINE-18)', () {
+        runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+          harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+          harness.answerWithEnvelopeFixture('recognition-busy', retryAfter: '120');
+          harness.answerWithResponseFixture('valid/no-match');
+          harness.startRun(OutboxRunReason.wakeUp);
+          final pausedAt = harness.clock.now();
+          expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isTrue);
+
+          // Every way a run starts, short of the wait's end, sends nothing.
+          harness.wait(const Duration(seconds: 60));
+          harness.startRun(OutboxRunReason.wakeUp);
+          harness.startRun(OutboxRunReason.networkBack);
+          harness.wait(const Duration(seconds: 59));
+          expect(harness.recognizeRequests, hasLength(1));
+
+          harness.followWakeUps();
+          expect(harness.recognizeRequests, hasLength(2));
+          expect(
+            harness.clock.now().difference(pausedAt),
+            greaterThanOrEqualTo(const Duration(seconds: 120)),
+          );
+        });
+      });
+    },
+  );
 }

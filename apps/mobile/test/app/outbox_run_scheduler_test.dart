@@ -5,8 +5,12 @@ import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
 import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
+import 'package:lookup_listener/core/files/owned_lock_file.dart';
+import 'package:lookup_listener/core/identifiers/random_uuid.dart';
+import 'package:lookup_listener/core/outbox/outbox_store.dart';
 
 import '../core/outbox/outbox_sender_harness.dart';
+import '../support/recording_client_error_reporter.dart';
 
 /// Moves the app through the lifecycle, one allowed step at a time, to [target].
 void _moveAppTo(OutboxSenderHarness harness, AppLifecycleState target) {
@@ -206,4 +210,47 @@ void main() {
       });
     });
   });
+
+  test(
+    'a saved clip waiting when the app comes back to the foreground is sent, after the drawn wait '
+    '(P6-OFFLINE-07)',
+    () {
+      runSenderTest(random: ScriptedRandom(integers: [30]), (harness) {
+        startScheduler(harness);
+        _moveAppTo(harness, AppLifecycleState.hidden);
+        // Left by another engine (the background job's), so this engine hears of it only on resume.
+        unawaited(
+          OutboxStore(
+            locateFolder: () async => harness.folder,
+            lockOwner: const LockFileOwner(
+              processId: 4242,
+              engineId: '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e',
+            ),
+            lockTakeOver: LocalLockTakeOver.everyEngineAttached(),
+            clock: harness.clock,
+            randomUuid: RandomUuid(),
+            clientErrorReporter: RecordingClientErrorReporter(),
+          ).queueDeferredClip(
+            idempotencyKey: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c21',
+            capturedAt: harness.clock.now().subtract(const Duration(minutes: 3)),
+            clipDurationMilliseconds: 8000,
+            codec: 'aac',
+            stationHintId: null,
+            audioBytes: const [0, 0, 0, 24, 102, 116, 121, 112],
+            savedReason: DeferredClipSavedReason.noConnection,
+          ),
+        );
+        harness.wait(const Duration(minutes: 5));
+        expect(harness.recognizeRequests, isEmpty);
+
+        harness.answerWithResponseFixture('valid/no-match');
+        _moveAppTo(harness, AppLifecycleState.resumed);
+        harness.wait(const Duration(seconds: 29));
+        expect(harness.recognizeRequests, isEmpty, reason: 'the drawn wait first');
+        harness.wait(const Duration(seconds: 1));
+        expect(harness.recognizeRequests, hasLength(1));
+        expect(harness.items, isEmpty);
+      });
+    },
+  );
 }
