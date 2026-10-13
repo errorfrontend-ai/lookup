@@ -21,8 +21,9 @@ from http.client import RemoteDisconnected
 from typing import Any
 
 from fake_listener_api import (DEFAULT_SCENARIOS, FIXTURES, PHONE_CHECK_ANSWERS, PHONE_CHECK_LIFETIME_SECONDS,
-                               RECENT_REGISTRATIONS_KEPT, ROUTES, SCENARIOS, compare_listener_app_versions, make_server,
-                               new_recognition_id, read_fixture)
+                               RECENT_REGISTRATIONS_KEPT, RECOGNITION_REPORT_REASONS, ROUTES, SCENARIOS,
+                               SLOW_ANSWER_SECONDS, compare_listener_app_versions, make_server, new_recognition_id,
+                               read_fixture)
 
 CLIP = b'\x00\x00\x00\x20ftypM4A ' + bytes(4_000)
 JSON = {'Content-Type': 'application/json'}
@@ -76,7 +77,9 @@ def phone_numbers_in(value: Any) -> list[str]:
 class FakeListenerApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.clock = FakeClock()
-        self.server = make_server('127.0.0.1', 0, None, self.clock)
+        # How long each slow answer waited: recorded, never really waited.
+        self.waits: list[float] = []
+        self.server = make_server('127.0.0.1', 0, None, self.clock, self.waits.append)
         self.port = self.server.server_port
         self.base = f'http://127.0.0.1:{self.port}'
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -155,6 +158,19 @@ class FakeListenerApiTest(unittest.TestCase):
             headers['Authorization'] = f'Bearer {token}'
         encoded = body if isinstance(body, bytes) else json.dumps(body).encode()
         return self.send(f'/api/v1/recognitions/{recognition_id}/choice', encoded, headers)
+
+    def report(self, token: str | None, recognition_id: str, body: Any, content_type: str = 'application/json',
+               request_id: str | None = None) -> tuple[int, dict[str, str], Any]:
+        """"Report this" as the app's outbox sends it: JSON, its own request id, the install token."""
+        headers = {'Content-Type': content_type, 'X-Request-Id': request_id or str(uuid.uuid4())}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+        encoded = body if isinstance(body, bytes) else json.dumps(body).encode()
+        return self.send(f'/api/v1/recognitions/{recognition_id}/report', encoded, headers)
+
+    def use_public_origin(self, public_origin: str | None) -> None:
+        """As if started with --public-origin."""
+        self.server.RequestHandlerClass.state.public_origin = public_origin
 
     def list_stations(self, token: str | None, headers: dict[str, str] | None = None,
                       request_id: str | None = None) -> tuple[int, dict[str, str], Any]:
@@ -360,16 +376,17 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertEqual(SCENARIOS['match']['label'], 'Match')
 
     def test_a_queued_answer_joins_its_own_route_queue_and_the_state_shows_it(self) -> None:
-        self.queue('busy', 'choice-busy', 'no-match', 'stations-unavailable')
+        self.queue('busy', 'choice-busy', 'no-match', 'stations-unavailable', 'report-busy')
         self.assertEqual(self.state()['queued'], {'recognize': ['busy', 'no-match'], 'choice': ['choice-busy'],
-                                                  'stations': ['stations-unavailable']})
+                                                  'stations': ['stations-unavailable'], 'report': ['report-busy']})
         token = self.registered_token()   # a registration takes nothing from any queue
         self.assertEqual(self.state()['queued']['recognize'], ['busy', 'no-match'])
         self.assertEqual(self.recognize(token)[0], 503)
         self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'],
-                                                  'stations': ['stations-unavailable']})
+                                                  'stations': ['stations-unavailable'], 'report': ['report-busy']})
         self.assertEqual(self.list_stations(token)[0], 503)   # the list takes only from its own queue
-        self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'], 'stations': []})
+        self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'], 'stations': [],
+                                                  'report': ['report-busy']})
 
     # ---- the control page and its checks (P6-D30, P6-D50) -----------------------------------------
 
@@ -1064,6 +1081,185 @@ class FakeListenerApiTest(unittest.TestCase):
         for words in ('Minimum app version', 'id="minimum-app-version"', 'Set the minimum', 'Turn the gate off',
                       'Next answer: Busy (shed)', 'Next answer: Too many saved clips', 'Next answer: Match on Station B'):
             self.assertIn(words, text)
+
+    # ---- "Report this", a slow answer and pictures (P6 design piece 4) ----------------------------------------
+
+    def test_a_report_of_a_shown_station_is_accepted_and_the_first_report_wins(self) -> None:
+        token = self.registered_token()
+        match = self.recognize(token)[2]
+        station = match['result']['station']['id']
+        first_request_id = str(uuid.uuid4())
+        status, headers, body = self.report(token, match['recognition_id'], {'station_id': station, 'reason': 'LOOKS_LIKE_A_SCAM'},
+                                            request_id=first_request_id)
+        self.assertEqual((status, headers['X-Request-Id'], headers['Cache-Control'], body), (204, first_request_id, 'no-store', b''))
+        # Sent again by the outbox, even with another reason: 204, and the first stays.
+        self.assertEqual(self.report(token, match['recognition_id'], {'station_id': station, 'reason': 'SOMETHING_ELSE'})[0], 204)
+        self.assertEqual(self.state()['reports'], [{'recognition_id': match['recognition_id'], 'station_id': station,
+                                                    'reason': 'LOOKS_LIKE_A_SCAM', 'request_id': first_request_id}])
+        outcomes = [request['outcome'] for request in self.state()['recent_requests'] if request['path'].endswith('/report')]
+        self.assertEqual(outcomes, ['report-recorded: reported', 'report-recorded: already reported'])
+        self.assertEqual(self.state()['refused'], 0)
+
+    def test_the_shared_report_fixtures_valid_accepted_and_invalid_refused(self) -> None:
+        token = self.registered_token()
+        folder = FIXTURES / 'recognition' / 'recognition-report-input'
+        invalid = sorted((folder / 'invalid').glob('*.json'))
+        self.assertGreaterEqual(len(invalid), 2)
+        match = self.recognize(token)[2]
+        for path in invalid:
+            with self.subTest(path.name):
+                self.assertEqual(self.report(token, match['recognition_id'], json.loads(path.read_text(encoding='utf-8'))['body'])[0], 400)
+        self.assertEqual(self.state()['reports'], [])
+        for path in sorted((folder / 'valid').glob('*.json')):
+            with self.subTest(path.name):
+                self.assertEqual(self.report(token, self.recognize(token)[2]['recognition_id'],
+                                             json.loads(path.read_text(encoding='utf-8'))['body'])[0], 204)
+
+    def test_a_report_the_real_api_would_refuse_or_the_app_never_sends_is_refused(self) -> None:
+        token = self.registered_token()
+        other_token = self.registered_token()
+        match = self.recognize(token)[2]
+        others_match = self.recognize(other_token)[2]
+        station = match['result']['station']['id']
+        not_shown = read_fixture('recognition/recognize-response/valid/match-campaign-station-b.json')['response']['result']['station']['id']
+        self.queue('no-match')
+        no_match = self.recognize(token)[2]
+        never_answered = '01a11b46-ffba-7c3d-8f10-2b3c4d5e6f99'
+        reason = 'LOOKS_LIKE_A_SCAM'
+        mistakes = {
+            'no token': lambda: self.report(None, match['recognition_id'], {'station_id': station, 'reason': reason}),
+            'an id in upper case': lambda: self.report(token, match['recognition_id'].upper(), {'station_id': station, 'reason': reason}),
+            'an id that is not version 7': lambda: self.report(token, str(uuid.uuid4()), {'station_id': station, 'reason': reason}),
+            'an id the stand-in never answered': lambda: self.report(token, never_answered, {'station_id': station, 'reason': reason}),
+            "another install's result": lambda: self.report(token, others_match['recognition_id'], {'station_id': station, 'reason': reason}),
+            'a station the answer did not show': lambda: self.report(token, match['recognition_id'], {'station_id': not_shown, 'reason': reason}),
+            'a "No match", which shows no station': lambda: self.report(token, no_match['recognition_id'], {'station_id': station, 'reason': reason}),
+            'a reason in words': lambda: self.report(token, match['recognition_id'], {'station_id': station, 'reason': 'It looks like a scam'}),
+            'no reason': lambda: self.report(token, match['recognition_id'], {'station_id': station}),
+            'the station by name': lambda: self.report(token, match['recognition_id'], {'station_id': 'Station A', 'reason': reason}),
+            'a body that is not JSON': lambda: self.report(token, match['recognition_id'], b'reason=x'),
+            'a body sent as a form': lambda: self.report(token, match['recognition_id'], {'station_id': station, 'reason': reason},
+                                                         content_type='application/x-www-form-urlencoded'),
+            'no request id': lambda: self.report(token, match['recognition_id'], {'station_id': station, 'reason': reason},
+                                                 request_id='not-a-uuid'),
+        }
+        for description, send in mistakes.items():
+            with self.subTest(description):
+                self.assertEqual(send()[0], 400)
+        self.assertEqual(self.state()['refused'], len(mistakes))
+        self.assertEqual(self.state()['reports'], [])
+        # A well-formed token the stand-in did not issue is the real guard's 401, so the app registers again.
+        status, _, body = self.report('made.up.token', match['recognition_id'], {'station_id': station, 'reason': reason})
+        self.assertEqual((status, body['error']['code']), (401, 'INSTALL_TOKEN_INVALID'))
+        self.assertEqual(self.report(token, match['recognition_id'], {'station_id': station, 'reason': reason})[0], 204)
+
+    def test_a_report_on_a_chooser_names_the_chosen_station_or_gets_station_already_chosen(self) -> None:
+        token = self.registered_token()
+        chooser = self.chooser(token)
+        station_a, station_b = (candidate['station']['id'] for candidate in chooser['candidates'])
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_b})[0], 204)
+        request_id = str(uuid.uuid4())
+        status, _, refused = self.report(token, chooser['recognition_id'], {'station_id': station_a, 'reason': 'SOMETHING_ELSE'},
+                                         request_id=request_id)
+        envelope = read_fixture('errors/envelopes/station-already-chosen.json')
+        self.assertEqual((status, refused), (envelope['http_status'], {'error': {**envelope['body']['error'], 'request_id': request_id}}))
+        self.assertEqual(self.state()['reports'], [])
+        self.assertEqual(self.report(token, chooser['recognition_id'], {'station_id': station_b, 'reason': 'SOMETHING_ELSE'})[0], 204)
+        self.assertEqual([report['station_id'] for report in self.state()['reports']], [station_b])
+
+    def test_report_scenarios_say_busy_or_lose_the_answer(self) -> None:
+        token = self.registered_token()
+        match = self.recognize(token)[2]
+        body = {'station_id': match['result']['station']['id'], 'reason': 'NUMBER_OR_LINK_DOES_NOT_WORK'}
+        self.queue('report-busy', 'report-answer-lost')
+        status, headers, answer = self.report(token, match['recognition_id'], body)
+        self.assertEqual((status, answer['error']['code'], headers['Retry-After']), (503, 'SERVICE_UNAVAILABLE', '6'))
+        self.assertEqual(self.state()['reports'], [])
+        # Kept, but the answer never comes: the outbox sends it again and gets 204, still one report.
+        with self.assertRaises(NO_ANSWER):
+            self.report(token, match['recognition_id'], body)
+        self.assertEqual(len(self.state()['reports']), 1)
+        self.assertEqual(self.report(token, match['recognition_id'], body)[0], 204)
+        self.assertEqual(len(self.state()['reports']), 1)
+
+    def test_no_signal_drops_a_report_and_the_update_gate_answers_it_426(self) -> None:
+        token = self.registered_token()
+        match = self.recognize(token)[2]
+        body = {'station_id': match['result']['station']['id'], 'reason': 'LOOKS_LIKE_A_SCAM'}
+        self.queue('report-busy')
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': True})[0], 200)
+        with self.assertRaises(NO_ANSWER):
+            self.report(token, match['recognition_id'], body)
+        self.assertEqual((self.state()['reports'], self.state()['queued']['report']), ([], ['report-busy']))
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': False})[0], 200)
+        self.assertEqual(self.control('/__fake/minimum-app-version', {'minimum_app_version': '9.0.0'})[0], 200)
+        status, _, answer = self.report(token, match['recognition_id'], body)
+        self.assertEqual((status, answer['error']['code']), (426, 'APP_UPDATE_REQUIRED'))
+        self.assertEqual((self.state()['reports'], self.state()['queued']['report']), ([], ['report-busy']))
+
+    def test_the_reasons_are_the_contracts_four(self) -> None:
+        source = (FIXTURES.parent / 'src' / 'recognition' / 'recognition-report-schemas.ts').read_text(encoding='utf-8')
+        listed = re.search(r'RECOGNITION_REPORT_REASONS = \[(.*?)\] as const', source).group(1)
+        self.assertEqual(RECOGNITION_REPORT_REASONS, tuple(re.findall(r"'([A-Z_]+)'", listed)))
+
+    def test_match_after_a_wait_holds_its_answer_past_the_apps_five_seconds(self) -> None:
+        token = self.registered_token()
+        self.queue('match-after-a-wait')
+        status, _, body = self.recognize(token)
+        self.assertEqual((status, body['status']), (200, 'MATCH'))
+        self.assertEqual(self.waits, [SLOW_ANSWER_SECONDS])
+        self.assertGreater(SLOW_ANSWER_SECONDS, 5)
+        self.assertEqual(self.recognize(token)[0], 200)
+        self.assertEqual(self.waits, [SLOW_ANSWER_SECONDS], 'only the queued answer waits')
+
+    def test_pictures_without_a_public_origin_keep_the_fixtures_addresses(self) -> None:
+        token = self.registered_token()
+        self.queue('match-with-pictures')
+        result = self.recognize(token)[2]['result']
+        fixture = read_fixture('recognition/recognize-response/valid/match-with-images.json')['response']['result']
+        self.assertEqual(result['card']['header_image'], fixture['card']['header_image'])
+        self.assertEqual(result['station']['logo'], fixture['station']['logo'])
+
+    def test_with_a_public_origin_the_pictures_are_drawn_and_served_by_the_stand_in(self) -> None:
+        self.use_public_origin('https://walkthrough.example.com')
+        token = self.registered_token()
+        self.queue('match-with-pictures')
+        result = self.recognize(token)[2]['result']
+        banner, logo = result['card']['header_image'], result['station']['logo']
+        self.assertEqual(banner['address'], 'https://walkthrough.example.com/fake-pictures/720x360.png')
+        self.assertEqual(logo['address'], 'https://walkthrough.example.com/fake-pictures/96x96.png')
+        for picture in (banner, logo):
+            with self.subTest(picture['address']):
+                path = picture['address'].removeprefix('https://walkthrough.example.com')
+                status, headers, encoded = self.get(path)
+                self.assertEqual((status, headers['Content-Type']), (200, 'image/png'))
+                self.assertEqual(encoded[:8], b'\x89PNG\r\n\x1a\n')
+                self.assertEqual(int.from_bytes(encoded[16:20], 'big'), picture['width_pixels'])
+                self.assertEqual(int.from_bytes(encoded[20:24], 'big'), picture['height_pixels'])
+                self.assertEqual(len(encoded), picture['size_bytes'])
+        self.assertEqual(self.state()['pictures_served'], ['720x360', '96x96'])
+        self.assertEqual(self.get('/fake-pictures/4000x4000.png')[0], 404)
+        # "No signal" cuts pictures off too, as a phone with no signal loads none.
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': True})[0], 200)
+        with self.assertRaises(NO_ANSWER):
+            self.get('/fake-pictures/96x96.png')
+        self.assertEqual(self.state()['pictures_served'], ['720x360', '96x96'])
+
+    def test_a_public_origin_must_be_https_with_no_path(self) -> None:
+        for refused in ('http://walkthrough.example.com', 'https://walkthrough.example.com/', 'https://walkthrough.example.com/api',
+                        'walkthrough.example.com'):
+            with self.subTest(refused), self.assertRaises(ValueError):
+                make_server('127.0.0.1', 0, None, public_origin=refused)
+
+    def test_the_control_page_offers_the_report_answers_and_counts_reports_and_pictures(self) -> None:
+        page = self.get('/__fake/panel')[2].decode('utf-8')
+        self.assertIn('Next answer to &quot;Report this&quot;', page)
+        for label in ('Next answer: Report accepted<', 'Next answer: Report: busy<', 'Next answer: Report kept, answer lost<',
+                      f'Next answer: Match, after {SLOW_ANSWER_SECONDS} seconds<', 'Next answer: Match with a banner and logo<'):
+            self.assertIn(label, page)
+        self.assertIn("'Reports: ' + state.reports.length", page)
+        self.assertIn("'Pictures loaded: ' + state.pictures_served.length", page)
+
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

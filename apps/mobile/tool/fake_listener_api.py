@@ -5,7 +5,7 @@ machine). It is strict about every request, exactly as the contract in packages/
 answers only with the shared fixtures, so a passing emulator run means the app's requests were right
 and the fake cannot drift from the contract.
 
-    python tool/fake_listener_api.py [--port 3999] [--save-audio-to clip.m4a]
+    python tool/fake_listener_api.py [--port 3999] [--save-audio-to clip.m4a] [--public-origin https://…]
 
 The emulator reaches it as http://10.0.2.2:3999/api/v1. Open the control page in the PC's browser:
 
@@ -40,23 +40,35 @@ Listener routes (contract §1 and §4), each with its own queue of answers:
                                                     same answer again for a key it already answered ("replay")
     POST /api/v1/recognitions/{id}/choice           the station chosen in a "Which station?" answer it gave this
                                                     install: 204, the first choice wins (P4 design §5.5)
+    POST /api/v1/recognitions/{id}/report           "Report this" for an answer it gave this install, naming a station
+                                                    that answer showed and one of the contract's four reasons: 204, the
+                                                    first report wins and a repeat gets 204 too (P6 design §2.14)
     GET  /api/v1/stations                           the "My station" list with ETag "fake-stations-1", kept a day;
                                                     304 when the app sends that ETag back (P4 design §5.6)
     POST /api/v1/client-errors                      a crash report, with no token
+
+Pictures (P6 design §3.16): "Match with a banner and logo" answers with the shared fixture whose card has a banner
+and a station logo. Started with --public-origin, the https address the phone reaches the stand-in by (an ngrok
+tunnel), their addresses become drawn pictures it serves itself, so the app can load them; without it they keep the
+fixture's addresses, which never load.
+    GET  /fake-pictures/{width}x{height}.png        a drawn picture of that size, with no token; cut off by "No signal"
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import functools
 import html
 import json
 import re
 import math
 import secrets
+import struct
 import threading
 import time
 import uuid
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -103,10 +115,21 @@ BUSY_RETRY_AFTER_SECONDS = 6
 RECOGNIZE_ROUTE = 'recognize'
 CHOICE_ROUTE = 'choice'
 STATIONS_ROUTE = 'stations'
+REPORT_ROUTE = 'report'
 
 RECOGNIZE_PATH = '/api/v1/recognize'
 STATIONS_PATH = '/api/v1/stations'
 CHOICE_PATH = re.compile(r'^/api/v1/recognitions/([^/?#]*)/choice$')
+REPORT_PATH = re.compile(r'^/api/v1/recognitions/([^/?#]*)/report$')
+# The contract's RECOGNITION_REPORT_REASONS (packages/contracts/src/recognition/recognition-report-schemas.ts).
+RECOGNITION_REPORT_REASONS = ('WRONG_OR_MISLEADING_BUTTONS', 'NUMBER_OR_LINK_DOES_NOT_WORK', 'LOOKS_LIKE_A_SCAM',
+                              'SOMETHING_ELSE')
+# Drawn pictures: their address, and the largest side drawn, so no request can ask for a huge one.
+PICTURE_PATH = re.compile(r'^/fake-pictures/([0-9]{1,4})x([0-9]{1,4})\.png$')
+LARGEST_PICTURE_SIDE = 1600
+PUBLIC_ORIGIN = re.compile(r'^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$')
+# How long "Match, after a wait" holds its answer: past the app's 5 seconds before "Still working" (P6 design §2.5).
+SLOW_ANSWER_SECONDS = 9
 
 # The "My station" list: one fixed ETag, and the one listener answer that may be kept (contract §1.4).
 STATION_LIST_FIXTURE = 'recognition/listener-station-list/valid/two-stations.json'
@@ -178,6 +201,12 @@ SCENARIOS: dict[str, dict[str, Any]] = {
                       'envelope': 'errors/envelopes/invalid-audio.json'},
     'unreadable': {'route': RECOGNIZE_ROUTE, 'label': 'An answer the app cannot read', 'unreadable': True},
     'drop': {'route': RECOGNIZE_ROUTE, 'label': 'Connection dropped after the clip', 'drop': True},
+    # A slow identify (P6 design §2.5): the answer comes after SLOW_ANSWER_SECONDS, so the app says "Still working".
+    'match-after-a-wait': {'route': RECOGNIZE_ROUTE, 'label': f'Match, after {SLOW_ANSWER_SECONDS} seconds',
+                           'response': f'{RESPONSES}/match-campaign.json', 'wait_seconds': SLOW_ANSWER_SECONDS},
+    # A card with a banner and a station logo (P6 design §3.16): drawn pictures with --public-origin.
+    'match-with-pictures': {'route': RECOGNIZE_ROUTE, 'label': 'Match with a banner and logo',
+                            'response': f'{RESPONSES}/match-with-images.json', 'pictures': True},
     # A station choice (contract §1.3). Every choice is checked first: a "Which station?" answer this install was
     # given, and one of its stations; anything else is refused, so the run fails.
     'choice-recorded': {'route': CHOICE_ROUTE, 'label': 'Choice accepted'},
@@ -186,6 +215,12 @@ SCENARIOS: dict[str, dict[str, Any]] = {
                     'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
     'choice-not-a-candidate': {'route': CHOICE_ROUTE, 'label': 'Choice: not one of the stations shown',
                                'envelope': 'errors/envelopes/station-not-a-candidate.json'},
+    # "Report this" (P6 design §2.14). Every report is checked first: an answer this install was given, a station it
+    # showed and one of the four reasons; anything else is refused, so the run fails.
+    'report-recorded': {'route': REPORT_ROUTE, 'label': 'Report accepted'},
+    'report-answer-lost': {'route': REPORT_ROUTE, 'label': 'Report kept, answer lost', 'drop': True},
+    'report-busy': {'route': REPORT_ROUTE, 'label': 'Report: busy', 'envelope': 'errors/envelopes/service-unavailable.json',
+                    'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
     # The "My station" list (contract §1.4).
     'stations-list': {'route': STATIONS_ROUTE, 'label': 'The station list'},
     'stations-unavailable': {'route': STATIONS_ROUTE, 'label': 'Station list: unavailable',
@@ -195,17 +230,20 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 
 # What each route answers when its queue is empty, and the heading of its buttons on the control page.
 DEFAULT_SCENARIOS: dict[str, str] = {RECOGNIZE_ROUTE: 'match', CHOICE_ROUTE: 'choice-recorded',
-                                     STATIONS_ROUTE: 'stations-list'}
+                                     STATIONS_ROUTE: 'stations-list', REPORT_ROUTE: 'report-recorded'}
 ROUTES = tuple(DEFAULT_SCENARIOS)
 ROUTE_HEADINGS: dict[str, str] = {
     RECOGNIZE_ROUTE: 'Next answer to "Tap to identify"',
     CHOICE_ROUTE: 'Next answer to a station choice',
     STATIONS_ROUTE: 'Next answer to the "My station" list',
+    REPORT_ROUTE: 'Next answer to "Report this"',
 }
 ROUTE_DEFAULT_WORDS: dict[str, str] = {
     RECOGNIZE_ROUTE: 'with none queued, the app gets "Match".',
     CHOICE_ROUTE: 'with none queued, a choice is accepted; the first choice of a recording wins.',
     STATIONS_ROUTE: 'with none queued, the app gets Station A and Station B, or "not changed" when it already has them.',
+    REPORT_ROUTE: 'with none queued, a report is accepted; the first report of a recording wins, and a repeat is '
+                  'accepted too.',
 }
 
 # The headers a tunnel or proxy adds: a control request that carries one came from outside this machine (P6-D30).
@@ -252,11 +290,16 @@ def install_label(install_id: str) -> str:
 
 
 class FakeState:
-    def __init__(self, save_audio_to: Path | None, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, save_audio_to: Path | None, clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep, public_origin: str | None = None) -> None:
         self.lock = threading.Lock()
         self.save_audio_to = save_audio_to
         # Seconds, for how long the phone check's number is kept; a test passes its own clock.
         self.clock = clock
+        # How a slow answer waits; a test passes its own, so it never really waits.
+        self.sleep = sleep
+        # The https address the phone reaches the stand-in by, for the drawn pictures' addresses; None without one.
+        self.public_origin = public_origin
         self.reset()
 
     def reset(self) -> None:
@@ -276,6 +319,8 @@ class FakeState:
             self.answered_recognitions: dict[str, dict[str, Any]] = {}
             # The first choice of each recognition, in the order they came: ids only.
             self.choices: list[dict[str, str]] = []
+            # The first report of each recognition, in the order they came: ids and the reason.
+            self.reports: list[dict[str, str]] = []
             # The update gate: None (off) or a minimum version; and each install's registered version.
             self.minimum_app_version: str | None = None
             self.install_app_versions: dict[str, str] = {}
@@ -308,6 +353,21 @@ class FakeState:
                 self.choices.append({'recognition_id': recognition_id, 'station_id': station_id, 'request_id': request_id})
                 return 'chosen'
             return 'already chosen' if first['station_id'] == station_id else 'another station was chosen first'
+
+    def chosen_station_of(self, recognition_id: str) -> str | None:
+        with self.lock:
+            return next((choice['station_id'] for choice in self.choices if choice['recognition_id'] == recognition_id),
+                        None)
+
+    def record_report(self, recognition_id: str, station_id: str, reason: str, request_id: str) -> str:
+        """The first report of a recognition wins, as on the real API: 'reported', or 'already reported' for a repeat,
+        whatever its reason."""
+        with self.lock:
+            if any(report['recognition_id'] == recognition_id for report in self.reports):
+                return 'already reported'
+            self.reports.append({'recognition_id': recognition_id, 'station_id': station_id, 'reason': reason,
+                                 'request_id': request_id})
+            return 'reported'
 
     def queue(self, names: list[str]) -> None:
         with self.lock:
@@ -397,6 +457,9 @@ class FakeState:
                 ],
                 # One per recognition, the first: what the real API would hold however often the app sent it.
                 'choices': [dict(choice) for choice in self.choices],
+                'reports': [dict(report) for report in self.reports],
+                # Every drawn picture the app loaded, by its size: none while pictures are held back.
+                'pictures_served': [request['picture'] for request in requests if 'picture' in request],
                 # Every station-list request the fake answered (200, 304 or an error), for the 24-hour cache check.
                 'station_list_requests': sum(1 for request in requests
                                              if request.get('path') == STATIONS_PATH and 'scenario' in request),
@@ -426,7 +489,9 @@ def outcome_of(request: dict[str, Any]) -> str:
         return 'token not issued here: answered 401'
     if request.get('update_required'):
         return 'below the minimum app version: answered 426'
-    for key in ('choice', 'station_list'):
+    if 'picture' in request:
+        return f"picture {request['picture']}"
+    for key in ('choice', 'report', 'station_list'):
         if key in request:
             return f"{request.get('scenario')}: {request[key]}"
     for key in ('scenario', 'registration', 'client_error_kind'):
@@ -497,6 +562,47 @@ def station_names_from_fixtures() -> dict[str, str]:
     for station in read_fixture(STATION_LIST_FIXTURE)['response']['stations']:
         names.setdefault(station['id'], station['name'])
     return names
+
+
+@functools.lru_cache(maxsize=8)
+def draw_picture(width: int, height: int) -> bytes:
+    """A PNG of [width] by [height] pixels: warm diagonal stripes with a white ring in the middle, plain to see on the
+    phone. Standard library only."""
+    centre_x, centre_y, radius = width / 2, height / 2, min(width, height) * 0.3
+    ring = max(2.0, radius * 0.12)
+    stripe = max(8, width // 24)
+    rows = []
+    for y in range(height):
+        row = bytearray(b'\x00')   # each row starts with its filter type: none
+        for x in range(width):
+            if abs(math.hypot(x - centre_x, y - centre_y) - radius) < ring:
+                row += b'\xff\xff\xff'
+            elif ((x + y) // stripe) % 2:
+                row += b'\xc8\x46\x1e'
+            else:
+                row += b'\xf0\xa0\x3c'
+        rows.append(bytes(row))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+
+    header = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)   # 8 bits, RGB, no interlace
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) + chunk(b'IDAT', zlib.compress(b''.join(rows), 9))
+            + chunk(b'IEND', b''))
+
+
+def with_drawn_pictures(value: Any, public_origin: str) -> Any:
+    """[value] with every picture of the contract's shape ({address, width_pixels, height_pixels, size_bytes}) pointing
+    at a drawn picture of its size under [public_origin], with that picture's real size."""
+    if isinstance(value, list):
+        return [with_drawn_pictures(item, public_origin) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if set(value) == {'address', 'width_pixels', 'height_pixels', 'size_bytes'}:
+        width, height = value['width_pixels'], value['height_pixels']
+        return {**value, 'address': f'{public_origin}/fake-pictures/{width}x{height}.png',
+                'size_bytes': len(draw_picture(width, height))}
+    return {key: with_drawn_pictures(item, public_origin) for key, item in value.items()}
 
 
 def read_fixture(relative_path: str) -> dict[str, Any]:
@@ -803,7 +909,11 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if self.path.startswith('/__fake/'):
             self.handle_control_get()
             return
-        if self.path.startswith('/api/v1/') and self.drops_while_offline():
+        if (self.path.startswith('/api/v1/') or self.path.startswith('/fake-pictures/')) and self.drops_while_offline():
+            return
+        picture_path = PICTURE_PATH.match(self.path)
+        if picture_path is not None:
+            self.answer_picture(int(picture_path.group(1)), int(picture_path.group(2)))
             return
         if self.path == STATIONS_PATH:
             request_id = self.headers.get('X-Request-Id')
@@ -825,12 +935,15 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         try:
             check_uuid(request_id, 'X-Request-Id')
             choice_path = CHOICE_PATH.match(self.path)
+            report_path = REPORT_PATH.match(self.path)
             if self.path == '/api/v1/installs':
                 self.handle_install(request_id)
             elif self.path == RECOGNIZE_PATH:
                 self.handle_recognize(request_id)
             elif choice_path is not None:
                 self.handle_choice(request_id, choice_path.group(1))
+            elif report_path is not None:
+                self.handle_report(request_id, report_path.group(1))
             elif self.path == '/api/v1/client-errors':
                 self.handle_client_error(request_id)
             else:
@@ -917,6 +1030,9 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         response['recognition_id'] = new_recognition_id()
         self.state.remember_answer(install_id, fields['idempotency_key'], response)
         self.record({**sent, 'scenario': scenario, 'recognition_id': response['recognition_id']})
+        wait_seconds = SCENARIOS[scenario].get('wait_seconds')
+        if wait_seconds:
+            self.state.sleep(wait_seconds)
         self.answer_recognition(response, request_id, install_id)
 
     def fixture_answer(self, plan: dict[str, Any], fields: dict[str, str]) -> dict[str, Any] | None:
@@ -934,6 +1050,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         response = read_fixture(plan['response'])['response']
         if 'extra_actions_from' in plan:
             add_actions(response['result']['card'], read_fixture(plan['extra_actions_from'])['card']['actions'])
+        if plan.get('pictures') and self.state.public_origin:
+            response = with_drawn_pictures(response, self.state.public_origin)
         return response
 
     def answer_recognition(self, response: dict[str, Any], request_id: str, install_id: str) -> None:
@@ -988,6 +1106,76 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             self.close_unanswered()   # kept, but the app never hears so: its outbox sends it again
         else:
             self.answer_no_content(request_id)
+
+    def handle_report(self, request_id: str, recognition_id: str) -> None:
+        """"Report this" (recognition-report-schemas.ts; P6 design §2.14). Refused, so the run fails, unless it names an
+        answer this install was given, by its lower-case version 7 id, and exactly {"station_id": a station that answer
+        showed, "reason": one of the four}. The first report wins; a repeat is answered 204 like the first, even with
+        another reason. A station other than the one chosen for a "Which station?" answer gets 422
+        STATION_ALREADY_CHOSEN, as on the real API."""
+        token = self.bearer_token()
+        with self.state.lock:
+            install_id = self.state.issued_tokens.get(token)
+        body = self.read_body(MAXIMUM_JSON_BODY_BYTES)
+        if install_id is None:
+            self.answer_token_not_issued(request_id)
+            return
+        if self.answers_update_required(install_id, request_id):
+            return
+        if not RECOGNITION_ID.match(recognition_id):
+            raise RequestRefused('the recognition id in the path is not a lower-case UUID version 7')
+        if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+            raise RequestRefused('a report must be sent as application/json')
+        report = json.loads(body)
+        if not isinstance(report, dict) or set(report) != {'station_id', 'reason'}:
+            raise RequestRefused('a report body must be exactly {"station_id": "<uuid>", "reason": "<reason>"}')
+        check_uuid(report['station_id'], 'station_id')
+        if report['reason'] not in RECOGNITION_REPORT_REASONS:
+            raise RequestRefused("the reason is not one of the contract's four")
+        station_id = report['station_id'].lower()
+        answered = self.state.answered_recognition(recognition_id)
+        if answered is None:
+            raise RequestRefused('the recognition is not an answer the stand-in gave')
+        if answered['install_id'] != install_id:
+            raise RequestRefused('the recognition was answered to another install')
+        if station_id not in answered['station_ids']:
+            raise RequestRefused('the station is not one of the stations that answer showed')
+        scenario = self.state.next_scenario(REPORT_ROUTE)
+        plan = SCENARIOS[scenario]
+        details = {'request_id': request_id, 'recognition_id': recognition_id, 'station_id': station_id,
+                   'reason': report['reason']}
+        if 'envelope' in plan:
+            self.record({**details, 'scenario': scenario})
+            self.answer_envelope(plan, request_id)
+            return
+        chosen = self.state.chosen_station_of(recognition_id)
+        if chosen is not None and chosen != station_id:
+            self.record({**details, 'scenario': scenario, 'report': 'another station was chosen'})
+            self.answer_envelope({'envelope': 'errors/envelopes/station-already-chosen.json'}, request_id)
+            return
+        outcome = self.state.record_report(recognition_id, station_id, report['reason'], request_id)
+        self.record({**details, 'scenario': scenario, 'report': outcome})
+        if plan.get('drop'):
+            self.close_unanswered()   # kept, but the app never hears so: its outbox sends it again
+        else:
+            self.answer_no_content(request_id)
+
+    def answer_picture(self, width: int, height: int) -> None:
+        """A drawn picture, as a CDN would serve the banner or a logo: no token, kept an hour."""
+        if not (1 <= width <= LARGEST_PICTURE_SIDE and 1 <= height <= LARGEST_PICTURE_SIDE):
+            self.record({'refused': f'a picture of {width}x{height}'})
+            self.send_response(404)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        encoded = draw_picture(width, height)
+        self.record({'picture': f'{width}x{height}', 'picture_bytes': len(encoded)})
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/png')
+        self.send_header('Content-Length', str(len(encoded)))
+        self.send_header('Cache-Control', 'public, max-age=3600')
+        self.end_headers()
+        self.wfile.write(encoded)
 
     def handle_stations(self, request_id: str) -> None:
         """The "My station" list (contract §1.4): the shared fixture's two stations with a fixed ETag, kept for a day,
@@ -1247,6 +1435,8 @@ def render_panel(nonce: str, port: int) -> str:
     <p id="counts"></p>
     <p id="choices"></p>
     <p id="station-list-requests"></p>
+    <p id="reports"></p>
+    <p id="pictures"></p>
     <div class="table-scroll">
       <table>
         <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">Outcome</th>
@@ -1338,6 +1528,9 @@ def render_panel(nonce: str, port: int) -> str:
       document.getElementById('choices').textContent = 'Choices: ' + state.choices.length
         + (state.choices.length ? ' — ' + state.choices.map((choice) => stationName(choice.station_id)).join(', ') : '');
       document.getElementById('station-list-requests').textContent = 'Station list requests: ' + state.station_list_requests;
+      document.getElementById('reports').textContent = 'Reports: ' + state.reports.length
+        + (state.reports.length ? ' — ' + state.reports.map((report) => report.reason).join(', ') : '');
+      document.getElementById('pictures').textContent = 'Pictures loaded: ' + state.pictures_served.length;
       const body = document.getElementById('recent');
       body.replaceChildren();
       for (const request of state.recent_requests.slice().reverse()) {{
@@ -1391,8 +1584,12 @@ def render_panel(nonce: str, port: int) -> str:
 
 
 def make_server(host: str, port: int, save_audio_to: Path | None,
-                clock: Callable[[], float] = time.monotonic) -> ThreadingHTTPServer:
-    handler = type('BoundFakeListenerApi', (FakeListenerApi,), {'state': FakeState(save_audio_to, clock)})
+                clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+                public_origin: str | None = None) -> ThreadingHTTPServer:
+    if public_origin is not None and not PUBLIC_ORIGIN.match(public_origin):
+        raise ValueError('the public origin must be https://<host>[:port], with no path: the app loads https pictures only')
+    state = FakeState(save_audio_to, clock, sleep, public_origin)
+    handler = type('BoundFakeListenerApi', (FakeListenerApi,), {'state': state})
     return ThreadingHTTPServer((host, port), handler)
 
 
@@ -1401,8 +1598,14 @@ def main() -> None:
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=3999)
     parser.add_argument('--save-audio-to', type=Path)
+    parser.add_argument('--public-origin', help='the https address the phone reaches this stand-in by (an ngrok '
+                                                'tunnel), for the drawn pictures of "Match with a banner and logo"')
     arguments = parser.parse_args()
-    server = make_server(arguments.host, arguments.port, arguments.save_audio_to)
+    try:
+        server = make_server(arguments.host, arguments.port, arguments.save_audio_to,
+                             public_origin=arguments.public_origin)
+    except ValueError as refused:
+        parser.error(str(refused))
     print(f'fake Look Up API on http://{arguments.host}:{server.server_port}/api/v1', flush=True)
     print(f'control page: http://127.0.0.1:{server.server_port}/__fake/panel', flush=True)
     try:
