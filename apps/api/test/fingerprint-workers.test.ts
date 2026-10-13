@@ -4,7 +4,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { INGEST_QUEUE_NAME, RecognizeJobResult, RecognizeResponse } from '@lookup/contracts';
+import { INGEST_QUEUE_NAME, RECOGNIZE_QUEUE_NAME, RecognizeJobResult, RecognizeResponse } from '@lookup/contracts';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import type pg from 'pg';
@@ -12,6 +12,7 @@ import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { planRefingerprinting, queueRefingerprintJobs } from '../scripts/refingerprint-recordings.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
+import { DEFERRED_JOB_PRIORITY } from '../src/features/recognition/recognition.service.js';
 import { RecognizeQueue, RecognizeWaitTimedOut } from '../src/infrastructure/job-queues/recognize-queue.js';
 import { workerHeartbeatKey } from '../src/infrastructure/job-queues/worker-heartbeat-key.js';
 import { ObjectStorage } from '../src/infrastructure/object-storage/object-storage.js';
@@ -21,7 +22,7 @@ import { CALL_CARD, recognize, registerInstall } from './support/listener-test-k
 import { waitForLogWrites } from './support/log-capture.js';
 import { cookieHeader, cookiesSetBy, PORTAL_ORIGIN, type PortalTestUser, PortalTestUsers } from './support/portal-test-users.js';
 import { type PythonWorker, runFingerprinterModule, startPythonWorker } from './support/python-workers.js';
-import { createTestApplication, type TestApplication } from './support/test-application.js';
+import { createTestApplication, removeTestQueueKeys, type TestApplication } from './support/test-application.js';
 
 /**
  * Step 3 end to end: the real Python workers (services/fingerprinter/workers) on the compose Valkey and
@@ -272,6 +273,32 @@ describe('the fingerprint workers, end to end', () => {
     for (const jobId of jobIds) expect(handledJobIds.filter((handled) => handled === jobId)).toHaveLength(1);
     await extraWorkers.pop()?.stop();
   }, 180_000);
+
+  it('P4-DEFERRED-07 with the real worker: a deferred job added first and a live job added after are taken live first by a Python worker started afterwards', async () => {
+    // A queue of its own, so the worker already running takes nothing from it.
+    const separatePrefix = `${queuePrefix()}-priority`;
+    const connection = new Redis(process.env.KEY_VALUE_STORE_URL as string, { maxRetriesPerRequest: null });
+    const queue = new Queue(RECOGNIZE_QUEUE_NAME, { connection, prefix: separatePrefix });
+    let lateWorker: PythonWorker | undefined;
+    try {
+      const clip = audio('clip.m4a').toString('base64');
+      const job = (requestId: string) => ({ request_id: requestId, audio_base64: clip, codec: 'aac', deadline_epoch_milliseconds: Date.now() + 120_000, fingerprint_version: FINGERPRINT_VERSION });
+      const deferredJobId = randomUUID();
+      const liveJobId = randomUUID();
+      const options = { attempts: 1, removeOnComplete: true, removeOnFail: true };
+      await queue.add(RECOGNIZE_QUEUE_NAME, job('deferred-first'), { ...options, jobId: deferredJobId, priority: DEFERRED_JOB_PRIORITY });
+      await queue.add(RECOGNIZE_QUEUE_NAME, job('live-second'), { ...options, jobId: liveJobId });
+      lateWorker = await startPythonWorker('recognize', { queueKeyPrefix: separatePrefix, concurrency: 1 });
+      const finishedOrder = () => (lateWorker as PythonWorker).logLines.filter((line) => line.message === 'job finished').map((line) => line.job_id);
+      for (let waited = 0; waited < 600 && finishedOrder().length < 2; waited += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(finishedOrder()).toEqual([liveJobId, deferredJobId]);
+    } finally {
+      await lateWorker?.stop();
+      await queue.close();
+      await removeTestQueueKeys(connection, separatePrefix);
+      await connection.quit();
+    }
+  }, 120_000);
 
   it('a failed download is tried again after a delay and the ad still becomes READY, while clips keep being answered', async () => {
     const secondAd = audio('second-ad.wav');

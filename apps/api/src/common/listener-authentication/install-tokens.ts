@@ -7,6 +7,12 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 const ISSUER = 'lookup-api';
 const AUDIENCE = 'lookup-listener-app';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BEARER_INSTALL_TOKEN = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/;
+
+/** The token of an `Authorization: Bearer <token>` header shaped like a JWT; null for anything else. */
+export function readBearerInstallToken(authorizationHeader: string | undefined): string | null {
+  return BEARER_INSTALL_TOKEN.exec(authorizationHeader ?? '')?.[1] ?? null;
+}
 
 /**
  * Listener app installs are anonymous: the app makes its own random id and the server keeps only a

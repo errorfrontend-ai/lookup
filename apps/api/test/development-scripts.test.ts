@@ -8,6 +8,7 @@ import {
   setCampaignStatus,
   setStationStatus,
   showRecognitions,
+  showReports,
   WalkthroughToolProblem,
 } from '../scripts/development-walkthrough-tools.js';
 import { databaseSetupClient, lookupApiClient } from './support/database-clients.js';
@@ -232,5 +233,44 @@ describe('the development walkthrough tools', () => {
     const cardWords = cards.flatMap((card) => card?.actions.map((action) => action.label) ?? []);
     for (const forbidden of [installId, key, chosen.recognition_id, '+447700900', 'example.com', ...cardWords]) expect(shown, forbidden).not.toContain(forbidden);
     expect(shown).not.toMatch(/eyJ[A-Za-z0-9_-]+\./);
+  });
+
+  it('show-reports lists the latest reports with the time, the station, the reason in the sheet’s words and the start of the phone’s hash only', async () => {
+    const installId = await testData.createInstall();
+    const otherInstallId = await testData.createInstall();
+    const recording = await testData.createRecording();
+    const station = await airAt(recording, 'Reported', { station: { frequencyLabel: '98.1 FM', city: 'Lusaka' } });
+    const candidate = StationResolutionTestData.candidate;
+    const hashOf = (install: string) => `${install.replace(/-/g, '').slice(0, 20)}AB`;
+    const reportOn = async (install: string, reason: string, secondsAgo: number) => {
+      const claimed = await testData.claim(apiClient, install, { receivedAt: new Date(Date.now() - secondsAgo * 1_000) });
+      await testData.finish(apiClient, claimed, {
+        outcome: 'MATCH',
+        resolution: 'SINGLE_OWNER',
+        recording,
+        shown: { stationId: station.stationId, campaignId: station.campaignId, cardId: station.campaignCardId as string },
+        candidates: [candidate(station)],
+      });
+      const answer = await apiClient.query('SELECT recognition.record_recognition_report($1, $2, $3, $4, $5, now(), $6) AS answer', [
+        claimed.recognition_id, install, hashOf(install), station.stationId, reason, `request-${randomUUID()}`,
+      ]);
+      expect(answer.rows[0].answer).toBe('RECORDED');
+      return claimed;
+    };
+    const first = await reportOn(installId, 'LOOKS_LIKE_A_SCAM', 30);
+    await reportOn(installId, 'NUMBER_OR_LINK_DOES_NOT_WORK', 20);
+    await reportOn(otherInstallId, 'WRONG_OR_MISLEADING_BUTTONS', 10);
+
+    const shown = await showReports(setupClient, { count: 10, timeZone: 'Africa/Lusaka', stationIds: [station.stationId] });
+    const time = String.raw`(?:\d{1,2} [A-Z][a-z]{2} )?\d{2}:\d{2}:\d{2}`;
+    const where = `${stationNamed('Reported')} \\(98\\.1 FM · Lusaka\\)`;
+    expect(shown.split('\n')).toEqual([
+      'The latest 3 reports, newest first (times in Africa/Lusaka):',
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "The buttons are wrong or misleading" — phone ${hashOf(otherInstallId).slice(0, 6)}$`)),
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "A number or link doesn't work" — phone ${hashOf(installId).slice(0, 6)}$`)),
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "It looks like a scam" — phone ${hashOf(installId).slice(0, 6)}$`)),
+    ]);
+    for (const forbidden of [installId, otherInstallId, hashOf(installId), first.recognition_id, '+447700900', 'example.com']) expect(shown, forbidden).not.toContain(forbidden);
+    expect(await showReports(setupClient, { stationIds: [randomUUID()] })).toBe('No reports yet.');
   });
 });

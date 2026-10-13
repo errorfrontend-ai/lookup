@@ -154,7 +154,7 @@ describe('listener app installs', () => {
     expect(lastStatus).toBe(429);
   });
 
-  it('only health, sign-in, refresh, sign-out, client errors and the listener app’s routes (installs, recognize, a station choice, the station list) are open without signing in, and none lists ads', async () => {
+  it('only health, sign-in, refresh, sign-out, client errors and the listener app’s routes (installs, recognize, a station choice, a report, the station list) are open without signing in, and none lists ads', async () => {
     const discovery = testApplication.application.get(DiscoveryService);
     const scanner = new MetadataScanner();
     const openRoutes: string[] = [];
@@ -180,6 +180,7 @@ describe('listener app installs', () => {
       '/health',
       '/installs',
       '/recognitions/:recognitionId/choice',
+      '/recognitions/:recognitionId/report',
       '/recognize',
       '/stations',
     ]);

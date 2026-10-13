@@ -146,6 +146,17 @@ export class RecognitionRecords {
   }
 
   /**
+   * How many attempts a key this install already holds has had, or null for a key it does not hold (unknown, or
+   * another install's). Read when a recognize request's fields arrive, to choose its allowance (P4-D14).
+   */
+  async countAttempts(listenerInstallId: string, idempotencyKey: string): Promise<number | null> {
+    const rows = (await this.stationScopedTransaction.run((database) =>
+      database.query('SELECT recognition.count_recognition_attempts($1, $2) AS attempt_count', [listenerInstallId, idempotencyKey]),
+    )) as Array<{ attempt_count: number | null }>;
+    return rows[0]?.attempt_count ?? null;
+  }
+
+  /**
    * The listener's answer to a chooser, recorded under a lock on the recognition: the first choice wins, the same
    * station again changes nothing, and an unknown id, another install's recognition or one that is not a chooser
    * are all NOT_FOUND. No counter moves.

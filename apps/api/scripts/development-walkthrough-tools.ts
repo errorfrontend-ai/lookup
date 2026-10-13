@@ -7,9 +7,11 @@
  *   npm run development:set-station-status -- "Station B" SUSPENDED        (or ACTIVE)
  *   npm run development:set-campaign-status -- "Station B" "Summer service offer" PAUSED   (or ACTIVE, ENDED)
  *   npm run development:reset-sample-schedule -- "Station A" "Summer service offer"
+ *   npm run development:show-reports
  *
  * Each refuses to run unless the setup database is on this machine and NODE_ENV is not production. None prints an
- * install id, a token, a phone number or anything else from a card: stations, clients and ads by name only.
+ * install id, a token, a phone number or anything else from a card: stations, clients and ads by name only. A report's
+ * phone is shown only by the first 6 characters of its keyed hash, enough to see two reports came from one phone.
  */
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
@@ -252,14 +254,17 @@ const NOT_ANSWERED: Record<string, string> = {
   AMBIGUOUS: 'No match: the engine could not tell which recording it was',
 };
 
+/** A moment as the walkthrough reads it: the time of day, with the day in front when it is not today (in `timeZone`). */
+function clockText(moment: Date, timeZone: string, now: Date): string {
+  const day = (when: Date) => new Intl.DateTimeFormat('en-GB', { timeZone, day: 'numeric', month: 'short' }).format(when);
+  const time = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(moment);
+  return day(moment) === day(now) ? time : `${day(moment)} ${time}`;
+}
+
 /** One recognition in plain words: when it arrived, when it was heard, and what the listener was shown and why. */
 export function describeRecognition(recognition: RecognitionSummary, options: { timeZone: string; now?: Date }): string[] {
   const now = options.now ?? new Date();
-  const day = (moment: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: options.timeZone, day: 'numeric', month: 'short' }).format(moment);
-  const clock = (moment: Date) => {
-    const time = new Intl.DateTimeFormat('en-GB', { timeZone: options.timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(moment);
-    return day(moment) === day(now) ? time : `${day(moment)} ${time}`;
-  };
+  const clock = (moment: Date) => clockText(moment, options.timeZone, now);
   const waitedMinutes = Math.round((recognition.received_at.getTime() - recognition.captured_at.getTime()) / 60_000);
   const sent = recognition.is_deferred
     ? `sent later (${waitedMinutes < 60 ? `${waitedMinutes} min` : `${Math.floor(waitedMinutes / 60)} h ${waitedMinutes % 60} min`} after)`
@@ -300,6 +305,59 @@ export async function showRecognitions(database: Database, options: { count?: nu
   return [`The latest ${recognitions.length === 1 ? 'recognition' : `${recognitions.length} recognitions`}, newest first (times in ${timeZone}):`, ...recognitions.flatMap((recognition) => describeRecognition(recognition, { timeZone }))].join('\n');
 }
 
+// ---- show-reports ------------------------------------------------------------------------------------------
+
+/** What show-reports reads about one "Report this": when, which station, which reason, and the phone's keyed hash. */
+export interface ReportSummary {
+  received_at: Date;
+  reason: string;
+  station_name: string;
+  station_frequency_label: string;
+  station_city: string | null;
+  listener_install_hash: string;
+}
+
+/** The reasons in the words the listener chose them by (P6 design §2.14). */
+export const REPORT_REASON_WORDS: Record<string, string> = {
+  WRONG_OR_MISLEADING_BUTTONS: 'The buttons are wrong or misleading',
+  NUMBER_OR_LINK_DOES_NOT_WORK: "A number or link doesn't work",
+  LOOKS_LIKE_A_SCAM: 'It looks like a scam',
+  SOMETHING_ELSE: 'Something else',
+};
+
+/** The characters of the install hash shown: enough to tell one phone's reports apart from many phones'. */
+export const SHOWN_INSTALL_HASH_CHARACTERS = 6;
+
+/** The latest reports, newest first (of the given stations only, when named: the tests' own). */
+export async function readLatestReports(database: Database, options: { count?: number; stationIds?: readonly string[] } = {}): Promise<ReportSummary[]> {
+  const result = await database.query(
+    `SELECT report.received_at, report.reason, station.name AS station_name, station.frequency_label AS station_frequency_label,
+            station.city AS station_city, report.listener_install_hash
+       FROM app.recognition_reports AS report
+       JOIN app.stations AS station ON station.id = report.station_id
+      WHERE $2::uuid[] IS NULL OR report.station_id = ANY($2::uuid[])
+      ORDER BY report.received_at DESC, report.id DESC
+      LIMIT $1`,
+    [options.count ?? 5, options.stationIds ? [...options.stationIds] : null],
+  );
+  return result.rows as ReportSummary[];
+}
+
+/** One report in plain words: when it came, the station, the reason, and the phone by the start of its hash. */
+export function describeReport(report: ReportSummary, options: { timeZone: string; now?: Date }): string {
+  const reason = REPORT_REASON_WORDS[report.reason] ?? 'Something else';
+  const phone = report.listener_install_hash.slice(0, SHOWN_INSTALL_HASH_CHARACTERS);
+  return `${clockText(report.received_at, options.timeZone, options.now ?? new Date())}  ${stationLabel({ name: report.station_name, frequency_label: report.station_frequency_label, city: report.station_city })}: "${reason}" — phone ${phone}`;
+}
+
+/** The latest reports in plain words, newest first. */
+export async function showReports(database: Database, options: { count?: number; timeZone?: string; stationIds?: readonly string[] } = {}): Promise<string> {
+  const reports = await readLatestReports(database, options);
+  if (reports.length === 0) return 'No reports yet.';
+  const timeZone = options.timeZone ?? 'Africa/Lusaka';
+  return [`The latest ${reports.length === 1 ? 'report' : `${reports.length} reports`}, newest first (times in ${timeZone}):`, ...reports.map((report) => describeReport(report, { timeZone }))].join('\n');
+}
+
 // ---- the command line --------------------------------------------------------------------------------------
 
 const USAGE = [
@@ -308,6 +366,7 @@ const USAGE = [
   '  npm run development:set-station-status -- "<station>" ACTIVE|SUSPENDED',
   '  npm run development:set-campaign-status -- "<station>" "<ad title>" ACTIVE|PAUSED|ENDED',
   '  npm run development:reset-sample-schedule -- "<station>" "<ad title>"',
+  '  npm run development:show-reports',
 ].join('\n');
 
 /** Each tool: how many values it takes after its name, and what it does with them. */
@@ -319,6 +378,7 @@ const TOOLS: Record<string, { valueCount: number; run: (database: Database, valu
     run: (database, [stationName, adTitle, status]) => setCampaignStatus(database, stationName as string, adTitle as string, (status as string).toUpperCase()),
   },
   'reset-sample-schedule': { valueCount: 2, run: (database, [stationName, adTitle]) => resetSampleSchedule(database, stationName as string, adTitle as string) },
+  'show-reports': { valueCount: 0, run: (database) => showReports(database) },
 };
 
 /**

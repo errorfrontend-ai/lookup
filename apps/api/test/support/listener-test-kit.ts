@@ -74,10 +74,14 @@ export function sendRecognizeInChunks(
 ): Promise<{ status: number; body: string; bytesWrittenBeforeAnswer: number }> {
   const { port } = server.address() as AddressInfo;
   const boundary = `----lookup-test-${randomUUID()}`;
+  const ownAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
   return new Promise((resolve, reject) => {
     let bytesWritten = 0;
     let answered = false;
     const request = http.request({
+      // A keep-alive connection of its own, as a phone's client keeps one, destroyed with its agent once the answer
+      // came: a body cut short must never leave a pooled socket that the next request reuses.
+      agent: ownAgent,
       host: '127.0.0.1',
       port,
       method: 'POST',
@@ -96,6 +100,7 @@ export function sendRecognizeInChunks(
       response.on('data', (part: Buffer) => (body += part.toString('utf8')));
       response.on('end', () => {
         request.destroy();
+        ownAgent.destroy();
         resolve({ status: response.statusCode ?? 0, body, bytesWrittenBeforeAnswer });
       });
     });
@@ -122,17 +127,23 @@ export function sendRecognizeInChunks(
 
 /**
  * Starts a recognize request and stops sending part-way through the clip, as a phone losing its signal
- * would (or a sender holding connections open). Resolves with the server's answer and when it came.
+ * would (or a sender holding connections open). With `fields`, the text fields go first, as the app sends
+ * them, so the server takes its place in flight and counts the request before the stall; without, the
+ * audio part comes first. Resolves with the server's answer and when it came.
  */
 export function sendRecognizeAndStall(
   server: http.Server,
-  options: { installToken: string },
-): Promise<{ status: number; body: string; answeredAfterMilliseconds: number }> {
+  options: { installToken: string; fields?: Record<string, string> },
+): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders; answeredAfterMilliseconds: number }> {
   const { port } = server.address() as AddressInfo;
   const boundary = `----lookup-test-${randomUUID()}`;
   const startedAt = Date.now();
+  const ownAgent = new http.Agent({ keepAlive: true, maxSockets: 1 });
   return new Promise((resolve, reject) => {
     const request = http.request({
+      // A keep-alive connection of its own, as a phone's client keeps one, destroyed with its agent once the answer
+      // came: a body cut short must never leave a pooled socket that the next request reuses.
+      agent: ownAgent,
       host: '127.0.0.1',
       port,
       method: 'POST',
@@ -149,10 +160,14 @@ export function sendRecognizeAndStall(
       response.on('data', (part: Buffer) => (body += part.toString('utf8')));
       response.on('end', () => {
         request.destroy();
-        resolve({ status: response.statusCode ?? 0, body, answeredAfterMilliseconds: Date.now() - startedAt });
+        ownAgent.destroy();
+        resolve({ status: response.statusCode ?? 0, body, headers: response.headers, answeredAfterMilliseconds: Date.now() - startedAt });
       });
     });
     request.on('error', reject);
+    for (const [name, value] of Object.entries(options.fields ?? {})) {
+      request.write(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
+    }
     request.write(`--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="clip.m4a"\r\nContent-Type: audio/mp4\r\n\r\n`);
     // A first part of the clip, then nothing more.
     request.write(aacClipBytes(4096));
@@ -168,7 +183,8 @@ export type FakeWorkerAnswer = RecognizeJobResult | { fail: string } | { hang: t
  * worker heartbeat present while it runs. The real worker is tested in fingerprint-workers.test.ts.
  */
 export class FakeRecognizeWorker {
-  readonly receivedJobs: Array<{ id: string; data: RecognizeJobData; options: Record<string, unknown> }> = [];
+  /** Every job taken, in the order taken; `addedAt` is when the API added it (BullMQ's job timestamp). */
+  readonly receivedJobs: Array<{ id: string; data: RecognizeJobData; options: Record<string, unknown>; addedAt: number }> = [];
   answer: (data: RecognizeJobData) => FakeWorkerAnswer = () => noMatch();
   private readonly hungJobs: Array<() => void> = [];
   private readonly connection: Redis;
@@ -177,14 +193,15 @@ export class FakeRecognizeWorker {
   private readonly heartbeatKey: string;
   private heartbeat: NodeJS.Timeout | undefined;
 
-  constructor(keyValueStoreUrl: string, readonly queueKeyPrefix: string) {
+  /** `concurrency` 1 takes jobs strictly one at a time, in the order the queue hands them out. */
+  constructor(keyValueStoreUrl: string, readonly queueKeyPrefix: string, options: { concurrency?: number } = {}) {
     this.connection = new Redis(keyValueStoreUrl, { maxRetriesPerRequest: null });
     this.heartbeatConnection = new Redis(keyValueStoreUrl);
     this.heartbeatKey = workerHeartbeatKey(queueKeyPrefix, RECOGNIZE_QUEUE_NAME);
     this.worker = new Worker(
       RECOGNIZE_QUEUE_NAME,
       async (job) => {
-        this.receivedJobs.push({ id: String(job.id), data: job.data as RecognizeJobData, options: job.opts as Record<string, unknown> });
+        this.receivedJobs.push({ id: String(job.id), data: job.data as RecognizeJobData, options: job.opts as Record<string, unknown>, addedAt: job.timestamp });
         const answer = this.answer(job.data as RecognizeJobData);
         if ('hang' in answer) return new Promise<RecognizeJobResult>((resolve) => this.hungJobs.push(() => resolve(noMatch())));
         if ('fail' in answer) throw new Error(answer.fail);
@@ -194,7 +211,7 @@ export class FakeRecognizeWorker {
         }
         return answer;
       },
-      { connection: this.connection, prefix: queueKeyPrefix, concurrency: 4 },
+      { connection: this.connection, prefix: queueKeyPrefix, concurrency: options.concurrency ?? 4 },
     );
     this.worker.on('error', () => undefined);
   }

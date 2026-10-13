@@ -18,6 +18,7 @@ import { HealthModule } from './features/health/health.module.js';
 import { ListenerInstallsModule } from './features/listener-installs/listener-installs.module.js';
 import { ListenerStationsModule } from './features/listener-stations/listener-stations.module.js';
 import { RecognitionModule } from './features/recognition/recognition.module.js';
+import { RecognitionReportsModule } from './features/recognition-reports/recognition-reports.module.js';
 import { StationOverviewModule } from './features/station-overview/station-overview.module.js';
 import { StationsModule } from './features/stations/stations.module.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
@@ -55,10 +56,11 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     CampaignsModule,
     StationOverviewModule,
     ClientErrorsModule,
-    // The listener app (Step 3; the "My station" list from P4).
+    // The listener app (Step 3; the "My station" list and "Report this" from P4).
     ListenerInstallsModule,
     RecognitionModule,
     ListenerStationsModule,
+    RecognitionReportsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

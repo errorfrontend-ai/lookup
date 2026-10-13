@@ -26,6 +26,7 @@
     "development:set-station-status": "tsx scripts/development-walkthrough-tools.ts set-station-status",
     "development:set-campaign-status": "tsx scripts/development-walkthrough-tools.ts set-campaign-status",
     "development:reset-sample-schedule": "tsx scripts/development-walkthrough-tools.ts reset-sample-schedule",
+    "development:show-reports": "tsx scripts/development-walkthrough-tools.ts show-reports",
     "prefingerprints:refingerprint": "npm run build:contracts",
     "fingerprints:refingerprint": "tsx scripts/refingerprint-recordings.ts",
     "test": "vitest run"

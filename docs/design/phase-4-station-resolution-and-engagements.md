@@ -2351,3 +2351,38 @@ Q15, and the default-card note of A7) and Q14 (its Q16); Q7 matches its Q13.
 - **Download approved:** `workmanager` 0.10.10 with its Android libraries (3,174,229 bytes, at most 3,262,830), for sending saved clips with the app closed. It is downloaded when the P6 design's piece 3 starts, not before.
 - **The ngrok token pasted in chat on 10 October 2026 is not rotated yet.** The tunnel stays off, and no phone walkthrough (set-up B) starts, until the user confirms it is rotated and has added the new token in their own terminal.
 - **The ngrok token (11 October 2026, later the same day):** the user chose to keep using the token pasted in chat on 10 October, "as long as it's working", instead of rotating it first. Set-up B may start with it; the traffic policy and the rule that the portal is never tunnelled still apply.
+
+## Piece 4, server half: record (13 October 2026)
+
+**Built** (§5.2, §5.3, §5.7, §5.9, §5.11, §5.12): the recognize route now reads its text fields before any audio; when
+they arrive it takes a place in flight (with the deferred share) and counts the request against the live, deferred or
+replay allowance; deferred sends get their own queue depth, breaker, priority, 5-second wait and a new random
+`Retry-After` of 60–300 seconds on every 503; the update gate (426) and the hashed `actor` in `InstallTokenGuard`;
+re-registration counted per install (A3); `occurredAt` logged on crash reports; "Report this"
+(`features/recognition-reports/`); the daily idempotency-key clean-up; `development:show-reports`; ten new settings,
+validated at start-up with their rules against each other.
+
+**Tests:** eight new files (`recognize-deferred`, `recognize-request-order`, `recognize-queue-priority`,
+`recognition-breakers`, `listener-app-version-gate`, `listener-install-reregistration`, `recognition-reports-route`,
+`recognition-idempotency-key-clean-up`), and additions to `startup-checks`, `log-privacy`, `client-errors`,
+`fingerprint-workers` (the priority with the real Python worker), `development-scripts`, `listener-installs` and
+`recognize-route`. Full API suite: 936 tests, all passing. Mutation checks: 18 rules broken on purpose, each caught by its test.
+29 P4 items ticked with evidence (P4 now 53 of 132); the gate part 1 record waits for the app half (the P6 design's
+pieces 3 and 4).
+
+**Readings and deviations, for the gate:**
+- **P4-DEFERRED-08** is proven through the route (a deferred job's deadline is 5,000 ms after BullMQ's own timestamp
+  of the job, priority 10), not by a unit test: the route test is the stronger proof and needs no extra seam.
+- **"Twenty deferred sends time out, then a live send gets 200"** (§6.4) is covered by `recognition-breakers.test.ts`
+  with ten deferred timeouts (the breaker opens at five): the live breaker stays closed with no failure counted, and a
+  live clip goes through. Twenty would add a minute and a half to the suite and prove nothing more.
+- **The configured values are shown to be the ones used** (P4-DEFERRED-10) by running the deferred tests with a
+  deferred allowance of 4 an hour, 4 places and 2 deferred places, besides the start-up checks of every setting.
+- **A clip refused from its fields** is not read further, as before; a test proves the phone's kept-alive connection
+  answers its next request at once on the same socket, so nothing needs draining. (A change that drained the rest of
+  the body was tried and removed: no test needed it.)
+- **The test kit's raw senders** (`sendRecognizeInChunks`, `sendRecognizeAndStall`) now use a keep-alive agent of their
+  own, destroyed with the request: a body cut short left a pooled socket that the next raw request reused, and the
+  server read that request as the rest of the old body.
+- **Not yet built, by design:** the stand-in's new switches and the walkthroughs come with the app half; taps and
+  reports in `show-recognitions` come with piece 5.

@@ -37,6 +37,8 @@ export class ClientErrorsController {
           location: report.location ? scrubPersonalData(pathOnly(report.location)) : undefined,
           relatedRequestId: report.relatedRequestId,
           appVersion: report.appVersion,
+          // When it happened on the phone: a report queued while offline arrives later (P4 design §5.14).
+          occurredAt: report.occurredAt,
         },
       },
       'client error reported',

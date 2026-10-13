@@ -63,8 +63,10 @@ describe('POST /api/v1/recognize', () => {
 
   beforeAll(async () => {
     process.env.RECOGNITION_QUEUE_DEPTH_LIMIT = '3';
+    process.env.RECOGNITION_DEFERRED_QUEUE_DEPTH_LIMIT = '2';
     process.env.RECOGNITIONS_PER_CLIENT_ADDRESS_PER_MINUTE = '30';
     process.env.RECOGNITIONS_IN_FLIGHT_LIMIT = '4';
+    process.env.RECOGNITIONS_DEFERRED_IN_FLIGHT_LIMIT = '2';
     process.env.RECOGNIZE_BODY_READ_MILLISECONDS = '1500';
     testApplication = await createTestApplication();
     server = testApplication.application.getHttpServer() as http.Server;
@@ -583,7 +585,8 @@ describe('POST /api/v1/recognize', () => {
     });
 
     it('reads the queue depth and the heartbeat in the background about once a second, however many clips arrive', async () => {
-      const depthReads = vi.spyOn((recognizeQueue as unknown as { queue: Queue }).queue, 'getWaitingCount');
+      // The depth counts live (waiting) and deferred (prioritised) clips in one read (P4 design §5.3).
+      const depthReads = vi.spyOn((recognizeQueue as unknown as { queue: Queue }).queue, 'getJobCounts');
       const heartbeatReads = vi.spyOn(testApplication.application.get(KEY_VALUE_STORE) as Redis, 'exists');
       try {
         const startedAt = Date.now();

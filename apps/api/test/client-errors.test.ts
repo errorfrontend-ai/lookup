@@ -44,6 +44,19 @@ describe('client error reports', () => {
     expect(logLine?.clientError).toMatchObject({ source: 'portal', kind: 'uncaught', location: '/stations/abc/ads' });
   });
 
+  it('P4 design §5.14: a report the app queued while offline keeps the time it happened, logged beside the time it arrived; a time that is not one is refused', async () => {
+    const relatedRequestId = randomUUID();
+    const occurredAt = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    const response = await report({ source: 'listener-app', kind: 'reported', message: 'The answer could not be read', relatedRequestId, appVersion: '0.2.0', occurredAt });
+    expect(response.status).toBe(202);
+    await waitForLogWrites();
+    const logLine = testApplication.logs.find((line) => line.msg === 'client error reported' && (line.clientError as { relatedRequestId?: string })?.relatedRequestId === relatedRequestId);
+    expect(logLine?.clientError).toMatchObject({ source: 'listener-app', occurredAt });
+    expect(typeof logLine?.time).toBe('number');
+    expect(logLine?.time as number).toBeGreaterThan(new Date(occurredAt).getTime() + 4 * 3_600_000);
+    expect((await report({ source: 'listener-app', kind: 'reported', message: 'x', occurredAt: 'yesterday' })).status).toBe(400);
+  });
+
   it('refuses unknown fields and oversized text', async () => {
     expect((await report({ source: 'portal', kind: 'uncaught', message: 'x', cookies: 'a=b' })).status).toBe(400);
     expect((await report({ source: 'portal', kind: 'uncaught', message: 'x'.repeat(501) })).status).toBe(400);

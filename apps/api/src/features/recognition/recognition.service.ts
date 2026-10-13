@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import type { RecognizeJobData, RecognizeJobResult, RecognizeRequestFields, RecognizeResponse } from '@lookup/contracts';
+import { type RecognizeJobData, type RecognizeJobResult, RecognizeRequestFields, type RecognizeResponse } from '@lookup/contracts';
 import type { Response } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { PinoLogger } from 'nestjs-pino';
@@ -10,6 +10,7 @@ import { uuidVersion7 } from '../../common/identifiers/uuid-version-7.js';
 import { LISTENER_INSTALL_ID } from '../../common/listener-authentication/install-token.guard.js';
 import type { RateLimitRule } from '../../common/rate-limiting/rate-limit-rule.js';
 import { RateLimiter } from '../../common/rate-limiting/rate-limiter.js';
+import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.js';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { RecognizeJobFailed, RecognizeQueue, RecognizeWaitTimedOut } from '../../infrastructure/job-queues/recognize-queue.js';
 import { assertClipSignature, correctCaptureTime } from './clip-checks.js';
@@ -21,8 +22,46 @@ import { resolveStation } from './resolve-station.js';
 export const BUSY_RETRY_AFTER_SECONDS = 10;
 export const TIMEOUT_RETRY_AFTER_SECONDS = 5;
 const IN_PROGRESS_RETRY_AFTER_SECONDS = 3;
+/** A key this install already holds is exempt from the live and deferred allowances until its fifth attempt (P4-D14). */
+export const ATTEMPTS_EXEMPT_FROM_THE_ALLOWANCES = 5;
+/** BullMQ priority of a deferred job: prioritised jobs wait behind every plain waiting (live) job (P4 design §5.3). */
+export const DEFERRED_JOB_PRIORITY = 10;
 
-type AdmissionRefusal = 'no_worker_heartbeat' | 'queue_too_deep' | 'breaker_open';
+/**
+ * Live (the listener is waiting) or deferred (the outbox sends a clip saved earlier), chosen by the `is_deferred` field
+ * as sent, never by the computed flag: it picks the allowance, the place in flight, the queue depth, the breaker, the
+ * Retry-After, the priority and the wait (P4 design §5.3, P4-D14).
+ */
+export type SendKind = 'live' | 'deferred';
+
+type AdmissionRefusal = 'no_worker_heartbeat' | 'queue_too_deep' | 'breaker_open' | 'deferred_breaker_open';
+
+/** The fields RecognizeRequestFields requires; a request missing one of them is read to the end before it is judged. */
+const REQUIRED_FIELD_NAMES = Object.entries(RecognizeRequestFields.shape)
+  .filter(([, schema]) => !schema.safeParse(undefined).success)
+  .map(([name]) => name);
+
+/**
+ * The place a recognize request holds on this instance while its clip is read and worked on (P4 design §5.2): taken
+ * when its text fields arrive, released once when the request ends, whatever happened.
+ */
+export class PlacesInFlight {
+  private releaseHeld: (() => void) | null = null;
+
+  get isHeld(): boolean {
+    return this.releaseHeld !== null;
+  }
+
+  hold(release: () => void): void {
+    this.releaseHeld = release;
+  }
+
+  release(): void {
+    const release = this.releaseHeld;
+    this.releaseHeld = null;
+    release?.();
+  }
+}
 
 /** Records the attempt's outcome; the hint, the latency and the fingerprint version are added for every outcome. */
 type FinishAttempt = (finished: Omit<FinishedRecognition, 'latencyMilliseconds' | 'fingerprintVersion' | 'hintedStationId'>) => Promise<void>;
@@ -37,11 +76,16 @@ type FinishAttempt = (finished: Omit<FinishedRecognition, 'latencyMilliseconds' 
  */
 @Injectable()
 export class RecognitionService {
-  private readonly breaker: CircuitBreaker<[string, RecognizeJobData], RecognizeJobResult>;
+  private readonly liveBreaker: CircuitBreaker<[string, RecognizeJobData], RecognizeJobResult>;
+  private readonly deferredBreaker: CircuitBreaker<[string, RecognizeJobData], RecognizeJobResult>;
   private readonly perMinuteRule: RateLimitRule;
   private readonly perDayRule: RateLimitRule;
+  private readonly deferredPerHourRule: RateLimitRule;
+  private readonly replaysPerHourRule: RateLimitRule;
   private readonly perAddressRule: RateLimitRule;
+  private readonly fieldsPipe = new ZodValidationPipe(RecognizeRequestFields);
   private recognitionsInFlight = 0;
+  private deferredRecognitionsInFlight = 0;
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -54,14 +98,34 @@ export class RecognitionService {
     this.logger.setContext('recognition');
     this.perMinuteRule = { counterName: 'recognitions-per-install-minute', maximumRequests: config.RECOGNITIONS_PER_INSTALL_PER_MINUTE, windowSeconds: 60 };
     this.perDayRule = { counterName: 'recognitions-per-install-day', maximumRequests: config.RECOGNITIONS_PER_INSTALL_PER_DAY, windowSeconds: 24 * 60 * 60 };
+    this.deferredPerHourRule = {
+      counterName: 'deferred-recognitions-per-install-hour',
+      maximumRequests: config.RECOGNITIONS_DEFERRED_PER_INSTALL_PER_HOUR,
+      windowSeconds: 60 * 60,
+    };
+    this.replaysPerHourRule = {
+      counterName: 'recognition-replays-per-install-hour',
+      maximumRequests: config.RECOGNITION_REPLAYS_PER_INSTALL_PER_HOUR,
+      windowSeconds: 60 * 60,
+    };
     this.perAddressRule = { counterName: 'recognitions-per-address', maximumRequests: config.RECOGNITIONS_PER_CLIENT_ADDRESS_PER_MINUTE, windowSeconds: 60 };
-    // The add-and-wait runs inside the breaker, so timeouts and worker failures count against it (S3-ADMISSION-08).
-    this.breaker = createRecognitionBreaker((jobId: string, data: RecognizeJobData) =>
+    // The add-and-wait runs inside a breaker, so timeouts and worker failures count against it (S3-ADMISSION-08).
+    // Deferred sends have their own (P4-D15): they wait at a lower priority and time out by design under load, which
+    // must never refuse live clips.
+    this.liveBreaker = createRecognitionBreaker((jobId: string, data: RecognizeJobData) =>
       recognizeQueue.addAndWait(jobId, data, config.RECOGNITION_WAIT_MILLISECONDS),
     );
-    this.breaker.on('open', () => this.logger.warn('the recognition breaker opened: clips are refused as busy until a trial succeeds'));
-    this.breaker.on('halfOpen', () => this.logger.info('the recognition breaker is letting one trial clip through'));
-    this.breaker.on('close', () => this.logger.info('the recognition breaker closed'));
+    this.deferredBreaker = createRecognitionBreaker((jobId: string, data: RecognizeJobData) =>
+      recognizeQueue.addAndWait(jobId, data, config.RECOGNITION_DEFERRED_WAIT_MILLISECONDS, { priority: DEFERRED_JOB_PRIORITY }),
+    );
+    for (const [breaker, sendKind] of [
+      [this.liveBreaker, 'live'],
+      [this.deferredBreaker, 'deferred'],
+    ] as const) {
+      breaker.on('open', () => this.logger.warn({ sendKind }, `the ${sendKind} recognition breaker opened: clips are refused as busy until a trial succeeds`));
+      breaker.on('halfOpen', () => this.logger.info({ sendKind }, `the ${sendKind} recognition breaker is letting one trial clip through`));
+      breaker.on('close', () => this.logger.info({ sendKind }, `the ${sendKind} recognition breaker closed`));
+    }
   }
 
   /** Recognitions in progress on this instance, reading their clips included. */
@@ -69,44 +133,102 @@ export class RecognitionService {
     return this.recognitionsInFlight;
   }
 
-  /** The circuit breaker, for tests of its own behaviour. */
+  /** Of those, the ones sent from the outbox (is_deferred "true"). */
+  get deferredInFlightCount(): number {
+    return this.deferredRecognitionsInFlight;
+  }
+
+  /** The live circuit breaker, for tests of its own behaviour. */
   get circuitBreaker(): CircuitBreaker<[string, RecognizeJobData], RecognizeJobResult> {
-    return this.breaker;
+    return this.liveBreaker;
+  }
+
+  /** The deferred sends' circuit breaker, for tests of its own behaviour. */
+  get deferredCircuitBreaker(): CircuitBreaker<[string, RecognizeJobData], RecognizeJobResult> {
+    return this.deferredBreaker;
   }
 
   /**
-   * Before the body is read: per install (S3-RATELIMIT-01), and per address too, because installs cost
-   * nothing to make, so one sender with many installs must not fill the queue for everyone.
+   * Before the body is read: per address, because installs cost nothing to make, so one sender with many installs
+   * must not fill the queue for everyone. The per-install allowance waits for the text fields (admitBeforeAudio).
    */
-  async countAgainstLimits(clientAddress: string, response: Response): Promise<void> {
-    const listenerInstallId = this.requestContext.get<string>(LISTENER_INSTALL_ID);
-    await this.rateLimiter.countRequest(this.perMinuteRule, listenerInstallId, response);
-    await this.rateLimiter.countRequest(this.perDayRule, listenerInstallId, response);
+  async countAgainstAddressLimit(clientAddress: string, response: Response): Promise<void> {
     await this.rateLimiter.countRequest(this.perAddressRule, clientAddress, response);
   }
 
+  /** A place for one request, held from when its fields arrive until it ends. */
+  newPlacesInFlight(): PlacesInFlight {
+    return new PlacesInFlight();
+  }
+
   /**
-   * One more recognition in progress on this instance, reading its clip included; refused at once past
-   * the limit, so the clips held in memory stay bounded. The caller must call the returned release.
+   * When the text fields have arrived and before any audio is read (P4 design §5.2, step 7): a place in flight
+   * (503 past the limit, never counted against the listener), then one request against the allowance the fields
+   * name: the replay allowance for a key this install already holds with fewer than 5 attempts, otherwise the
+   * deferred or the live one (429). Fields that are all present but invalid count as live and are refused here
+   * (400); a missing field counts as live, and the request is judged once the whole body has arrived.
    */
-  startRecognition(response: Response): () => void {
-    if (this.recognitionsInFlight >= this.config.RECOGNITIONS_IN_FLIGHT_LIMIT) {
-      this.logger.warn({ requestId: this.requestContext.getId(), cause: 'too_many_in_flight' }, 'recognition refused: busy');
-      response.setHeader('Retry-After', String(BUSY_RETRY_AFTER_SECONDS));
-      throw new AppError('RECOGNITION_BUSY', { internalDetail: 'admission refused: too_many_in_flight' });
+  async admitBeforeAudio(fieldsBeforeAudio: Readonly<Record<string, string>>, places: PlacesInFlight, response: Response): Promise<void> {
+    const parsed = RecognizeRequestFields.safeParse(fieldsBeforeAudio);
+    const sendKind: SendKind = parsed.success && parsed.data.is_deferred ? 'deferred' : 'live';
+    this.takePlace(places, sendKind, response);
+    if (parsed.success) {
+      const listenerInstallId = this.requestContext.get<string>(LISTENER_INSTALL_ID);
+      const attemptCount = await this.records.countAttempts(listenerInstallId, parsed.data.idempotency_key);
+      if (attemptCount !== null && attemptCount < ATTEMPTS_EXEMPT_FROM_THE_ALLOWANCES) {
+        await this.rateLimiter.countRequest(this.replaysPerHourRule, listenerInstallId, response);
+      } else if (sendKind === 'deferred') {
+        await this.rateLimiter.countRequest(this.deferredPerHourRule, listenerInstallId, response);
+      } else {
+        await this.countAgainstLiveAllowance(response);
+      }
+      return;
+    }
+    await this.countAgainstLiveAllowance(response);
+    if (REQUIRED_FIELD_NAMES.every((name) => Object.hasOwn(fieldsBeforeAudio, name))) this.fieldsPipe.transform(fieldsBeforeAudio);
+  }
+
+  /** One request against the live per-install allowance: 6 a minute and 60 a day (S3-RATELIMIT-01). */
+  async countAgainstLiveAllowance(response: Response): Promise<void> {
+    const listenerInstallId = this.requestContext.get<string>(LISTENER_INSTALL_ID);
+    await this.rateLimiter.countRequest(this.perMinuteRule, listenerInstallId, response);
+    await this.rateLimiter.countRequest(this.perDayRule, listenerInstallId, response);
+  }
+
+  /**
+   * One of this instance's places, refused at once past the limit so the clips held in memory stay bounded; a
+   * deferred send must also find one of the deferred places, so live clips always find the rest (P4-D15).
+   */
+  private takePlace(places: PlacesInFlight, sendKind: SendKind, response: Response): void {
+    if (places.isHeld) return;
+    const hasNoDeferredPlace = sendKind === 'deferred' && this.deferredRecognitionsInFlight >= this.config.RECOGNITIONS_DEFERRED_IN_FLIGHT_LIMIT;
+    if (this.recognitionsInFlight >= this.config.RECOGNITIONS_IN_FLIGHT_LIMIT || hasNoDeferredPlace) {
+      const cause = hasNoDeferredPlace ? 'too_many_deferred_in_flight' : 'too_many_in_flight';
+      this.logger.warn({ requestId: this.requestContext.getId(), cause, sendKind }, 'recognition refused: busy');
+      response.setHeader('Retry-After', String(this.retryAfterSeconds(sendKind, BUSY_RETRY_AFTER_SECONDS)));
+      throw new AppError('RECOGNITION_BUSY', { internalDetail: `admission refused: ${cause}` });
     }
     this.recognitionsInFlight += 1;
-    let isReleased = false;
-    return () => {
-      if (isReleased) return;
-      isReleased = true;
+    if (sendKind === 'deferred') this.deferredRecognitionsInFlight += 1;
+    places.hold(() => {
       this.recognitionsInFlight -= 1;
-    };
+      if (sendKind === 'deferred') this.deferredRecognitionsInFlight -= 1;
+    });
+  }
+
+  /**
+   * The Retry-After of a 503: the live value, or for a deferred send a new random whole number of seconds in the
+   * configured range on every answer, so a crowd of phones whose tower has just come back spreads out (P4-DEFERRED-06).
+   */
+  private retryAfterSeconds(sendKind: SendKind, liveSeconds: number): number {
+    if (sendKind === 'live') return liveSeconds;
+    return randomInt(this.config.RECOGNITION_DEFERRED_RETRY_AFTER_MINIMUM_SECONDS, this.config.RECOGNITION_DEFERRED_RETRY_AFTER_MAXIMUM_SECONDS + 1);
   }
 
   async recognize(fields: RecognizeRequestFields, audio: Buffer, receivedAt: Date, response: Response): Promise<RecognizeResponse> {
     const listenerInstallId = this.requestContext.get<string>(LISTENER_INSTALL_ID);
     const requestId = this.requestContext.getId();
+    const sendKind: SendKind = fields.is_deferred ? 'deferred' : 'live';
     assertClipSignature(audio, fields.codec);
     const time = correctCaptureTime({
       capturedAt: new Date(fields.captured_at),
@@ -149,7 +271,7 @@ export class RecognitionService {
       }
     };
     try {
-      return await this.answerClaimedRecognition(fields, audio, claim, requestId, hasStationHint, finish, response);
+      return await this.answerClaimedRecognition(fields, audio, claim, requestId, hasStationHint, finish, response, sendKind);
     } catch (error) {
       // Whatever went wrong, the attempt is finished, so it is never left PENDING (S3-RECORDING-08);
       // a repeat of the same key then starts a new attempt at once.
@@ -170,30 +292,32 @@ export class RecognitionService {
     hasStationHint: boolean,
     finish: FinishAttempt,
     response: Response,
+    sendKind: SendKind,
   ): Promise<RecognizeResponse> {
-    const refusal = this.admissionRefusal();
+    const refusal = this.admissionRefusal(sendKind);
     if (refusal) {
-      this.logger.warn({ requestId, cause: refusal }, 'recognition refused: busy');
+      this.logger.warn({ requestId, cause: refusal, sendKind }, 'recognition refused: busy');
       await finish({ outcome: 'BUSY', fallbackReason: refusal });
-      response.setHeader('Retry-After', String(BUSY_RETRY_AFTER_SECONDS));
+      response.setHeader('Retry-After', String(this.retryAfterSeconds(sendKind, BUSY_RETRY_AFTER_SECONDS)));
       throw new AppError('RECOGNITION_BUSY', { internalDetail: `admission refused: ${refusal}` });
     }
 
     let workerResult: RecognizeJobResult;
+    const waitMilliseconds = sendKind === 'deferred' ? this.config.RECOGNITION_DEFERRED_WAIT_MILLISECONDS : this.config.RECOGNITION_WAIT_MILLISECONDS;
     try {
-      workerResult = await this.breaker.fire(randomUUID(), {
+      workerResult = await (sendKind === 'deferred' ? this.deferredBreaker : this.liveBreaker).fire(randomUUID(), {
         request_id: requestId,
         audio_base64: audio.toString('base64'),
         codec: fields.codec,
-        deadline_epoch_milliseconds: Date.now() + this.config.RECOGNITION_WAIT_MILLISECONDS,
+        deadline_epoch_milliseconds: Date.now() + waitMilliseconds,
         fingerprint_version: this.config.FINGERPRINT_VERSION,
       });
     } catch (error) {
-      throw await this.answerWorkerFailure(error, finish, response);
+      throw await this.answerWorkerFailure(error, finish, response, sendKind);
     }
     if (workerResult.status === 'EXPIRED') {
       await finish({ outcome: 'TIMEOUT', fallbackReason: 'worker_dropped_the_job' });
-      response.setHeader('Retry-After', String(TIMEOUT_RETRY_AFTER_SECONDS));
+      response.setHeader('Retry-After', String(this.retryAfterSeconds(sendKind, TIMEOUT_RETRY_AFTER_SECONDS)));
       throw new AppError('RECOGNITION_TIMEOUT', { internalDetail: 'the worker reported the job expired' });
     }
 
@@ -253,11 +377,18 @@ export class RecognitionService {
     this.logger.info(facts, facts.isReplay ? 'recognition answered again (replay)' : 'recognition answered');
   }
 
-  private admissionRefusal(): AdmissionRefusal | null {
-    if (this.breaker.opened) return 'breaker_open';
+  /**
+   * Whether to try at all (P4 design §5.3): live clips look only at the live breaker; deferred sends are refused while
+   * either breaker is open, since a live failure means the workers are in trouble for everyone. Deferred sends are
+   * refused at a lower queue depth, so they are shed first.
+   */
+  private admissionRefusal(sendKind: SendKind): AdmissionRefusal | null {
+    if (this.liveBreaker.opened) return 'breaker_open';
+    if (sendKind === 'deferred' && this.deferredBreaker.opened) return 'deferred_breaker_open';
     const { isWorkerAlive, waitingJobCount } = this.recognizeQueue.admissionState();
     if (!isWorkerAlive) return 'no_worker_heartbeat';
-    if (waitingJobCount >= this.config.RECOGNITION_QUEUE_DEPTH_LIMIT) return 'queue_too_deep';
+    const depthLimit = sendKind === 'deferred' ? this.config.RECOGNITION_DEFERRED_QUEUE_DEPTH_LIMIT : this.config.RECOGNITION_QUEUE_DEPTH_LIMIT;
+    if (waitingJobCount >= depthLimit) return 'queue_too_deep';
     return null;
   }
 
@@ -266,6 +397,7 @@ export class RecognitionService {
     error: unknown,
     finish: FinishAttempt,
     response: Response,
+    sendKind: SendKind,
   ): Promise<AppError> {
     if (error instanceof RecognizeJobFailed && error.code === 'INVALID_AUDIO') {
       await finish({ outcome: 'INVALID_AUDIO', fallbackReason: 'invalid_audio' });
@@ -273,7 +405,7 @@ export class RecognitionService {
     }
     if (error instanceof RecognizeWaitTimedOut) {
       await finish({ outcome: 'TIMEOUT' });
-      response.setHeader('Retry-After', String(TIMEOUT_RETRY_AFTER_SECONDS));
+      response.setHeader('Retry-After', String(this.retryAfterSeconds(sendKind, TIMEOUT_RETRY_AFTER_SECONDS)));
       return new AppError('RECOGNITION_TIMEOUT', { internalDetail: error.message, cause: error });
     }
     if (error instanceof RecognizeJobFailed && error.code === 'ENGINE_FAILED') {
@@ -282,9 +414,9 @@ export class RecognitionService {
     }
     // The breaker opened, the queue could not be reached, the lookup timed out, or the worker runs other fingerprints.
     const cause = error instanceof RecognizeJobFailed ? error.code.toLowerCase() : (error as { code?: string }).code === 'EOPENBREAKER' ? 'breaker_open' : 'queue_unreachable';
-    this.logger.warn({ requestId: this.requestContext.getId(), cause }, 'recognition refused: busy');
+    this.logger.warn({ requestId: this.requestContext.getId(), cause, sendKind }, 'recognition refused: busy');
     await finish({ outcome: 'BUSY', fallbackReason: cause });
-    response.setHeader('Retry-After', String(BUSY_RETRY_AFTER_SECONDS));
+    response.setHeader('Retry-After', String(this.retryAfterSeconds(sendKind, BUSY_RETRY_AFTER_SECONDS)));
     return new AppError('RECOGNITION_BUSY', { internalDetail: `recognition failed: ${cause}`, cause: error });
   }
 

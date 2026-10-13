@@ -34,6 +34,7 @@ export class RecognizeWaitTimedOut extends Error {
 }
 
 export interface RecognizeAdmissionState {
+  /** Clips waiting for a worker: live ones (the plain waiting list) and deferred ones (the prioritised set). */
   waitingJobCount: number;
   isWorkerAlive: boolean;
 }
@@ -101,7 +102,8 @@ export class RecognizeQueue implements OnModuleInit, OnApplicationShutdown {
   /** Reads the depth and the heartbeat now. Called every second; tests call it to skip the wait. */
   async refreshAdmission(): Promise<void> {
     try {
-      const [waitingJobCount, heartbeatCount] = await Promise.all([this.queue.getWaitingCount(), this.keyValueStore.exists(this.heartbeatKey)]);
+      const [jobCounts, heartbeatCount] = await Promise.all([this.queue.getJobCounts('waiting', 'prioritized'), this.keyValueStore.exists(this.heartbeatKey)]);
+      const waitingJobCount = (jobCounts.waiting ?? 0) + (jobCounts.prioritized ?? 0);
       this.admission = { waitingJobCount, isWorkerAlive: heartbeatCount === 1 };
       if (!this.wasStoreReachable) this.logger.info('the recognize queue can be read again');
       this.wasStoreReachable = true;
@@ -112,8 +114,12 @@ export class RecognizeQueue implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  /** Adds one clip (tried once, removed as soon as it is done) and waits at most `waitMilliseconds` for its answer. */
-  addAndWait(jobId: string, data: RecognizeJobData, waitMilliseconds: number): Promise<RecognizeJobResult> {
+  /**
+   * Adds one clip (tried once, removed as soon as it is done) and waits at most `waitMilliseconds` for its answer. A
+   * `priority` puts the job in BullMQ's prioritised set, which workers take only once no plain waiting job is left:
+   * deferred clips use it, so a live clip is always taken first (P4 design §5.3).
+   */
+  addAndWait(jobId: string, data: RecognizeJobData, waitMilliseconds: number, options: { priority?: number } = {}): Promise<RecognizeJobResult> {
     return new Promise<RecognizeJobResult>((resolve, reject) => {
       // QueueEvents also emits each event under the job's own name; its types list only the shared names.
       const jobEvents = this.events as unknown as NodeJS.EventEmitter;
@@ -143,7 +149,7 @@ export class RecognizeQueue implements OnModuleInit, OnApplicationShutdown {
       jobEvents.on(`failed:${jobId}`, onFailed);
 
       this.queue
-        .add(RECOGNIZE_QUEUE_NAME, data, { jobId, attempts: 1, removeOnComplete: true, removeOnFail: true })
+        .add(RECOGNIZE_QUEUE_NAME, data, { jobId, attempts: 1, removeOnComplete: true, removeOnFail: true, ...(options.priority ? { priority: options.priority } : {}) })
         .catch((error: unknown) => {
           stopListening();
           reject(error);

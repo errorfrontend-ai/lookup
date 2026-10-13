@@ -1,15 +1,20 @@
 import type pg from 'pg';
 import supertest from 'supertest';
 import { QueryFailedError } from 'typeorm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../src/common/errors/app-error.js';
+import { InstallTokens } from '../src/common/listener-authentication/install-tokens.js';
 import { DerivedKeys } from '../src/common/security/derived-keys.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
+import { RecognitionReports } from '../src/features/recognition-reports/recognition-reports.js';
+import { RecognizeQueue } from '../src/infrastructure/job-queues/recognize-queue.js';
 import { serializeErrorForLog } from '../src/infrastructure/logging/serialize-error-for-log.js';
 import { FailureRoutesModule, PERSONAL_VALUES_SENT_TO_THE_DATABASE } from './support/failure-routes.module.js';
 import { databaseSetupClient } from './support/database-clients.js';
+import { FakeRecognizeWorker, match, randomClientAddress, recognize, registerInstall } from './support/listener-test-kit.js';
 import { waitForLogWrites } from './support/log-capture.js';
 import { cookieHeader, cookiesSetBy, PORTAL_ORIGIN, PortalTestUsers } from './support/portal-test-users.js';
+import { StationResolutionTestData } from './support/station-resolution-test-data.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
 
 const { email, phoneNumber, passwordHash } = PERSONAL_VALUES_SENT_TO_THE_DATABASE;
@@ -138,6 +143,69 @@ describe('logged errors never carry personal values', () => {
     const loggedForThisUser = JSON.stringify(testApplication.logs.lines.filter((line) => line.actor === expectedActor));
     expect(loggedForThisUser).not.toContain(user.userId);
     expect(loggedForThisUser).not.toContain(user.email);
+  });
+
+  it('ALL-LOGGING-01, -03, P4 design §5.13: every line of a listener request, its error lines included, carries the keyed hash of the install as actor, and none holds the install, its token, the hint, a card or a body', async () => {
+    const testData = new StationResolutionTestData(setupClient);
+    const worker = new FakeRecognizeWorker(process.env.KEY_VALUE_STORE_URL as string, process.env.QUEUE_KEY_PREFIX as string);
+    const installRows: string[] = [];
+    try {
+      await worker.startHeartbeat();
+      await testApplication.application.get(RecognizeQueue).refreshAdmission();
+      const recording = await testData.createRecording();
+      const stationA = await testData.airAd({ recording, gracePeriodMinutes: 0, station: { name: 'Log privacy A', timeZone: 'UTC' } });
+      const stationB = await testData.airAd({ recording, gracePeriodMinutes: 0, station: { name: 'Log privacy B', timeZone: 'UTC' } });
+      const install = await registerInstall(client);
+      const hash = testApplication.application.get(InstallTokens).hashInstallId(install.installId);
+      const rowId = (await setupClient.query('SELECT id FROM app.listener_installs WHERE install_id_hash = $1', [hash])).rows[0].id as string;
+      installRows.push(rowId);
+      const expectedActor = testApplication.application.get(DerivedKeys).hashIdentifier(rowId);
+      const bearer = (request: supertest.Test) => request.set('X-Forwarded-For', randomClientAddress()).set('Authorization', `Bearer ${install.installToken}`);
+
+      // A hint for a station that is not on air: ignored, never logged. Then a chooser, a choice, a report, the list, and a failure.
+      worker.answer = () => match(recording.assetNumber);
+      const unknownHint = '0192a6c4-5555-4000-8000-00000000abcd';
+      const chooser = await recognize(client, { installToken: install.installToken, fields: { station_hint: unknownHint } });
+      expect(chooser.body.status).toBe('CHOOSE_STATION');
+      const recognitionId = chooser.body.recognition_id as string;
+      const choice = await bearer(client().post(`/api/v1/recognitions/${recognitionId}/choice`)).send({ station_id: stationB.stationId });
+      const report = await bearer(client().post(`/api/v1/recognitions/${recognitionId}/report`)).send({ station_id: stationB.stationId, reason: 'LOOKS_LIKE_A_SCAM' });
+      const stations = await bearer(client().get('/api/v1/stations'));
+      const refused = await bearer(client().post(`/api/v1/recognitions/${recognitionId}/choice`)).send({ station_id: stationA.stationId });
+      const failure = vi.spyOn(testApplication.application.get(RecognitionReports), 'record').mockRejectedValueOnce(new TypeError("Cannot read properties of undefined (reading 'answer')"));
+      const failed = await bearer(client().post(`/api/v1/recognitions/${recognitionId}/report`)).send({ station_id: stationB.stationId, reason: 'SOMETHING_ELSE' });
+      failure.mockRestore();
+      expect([chooser.status, choice.status, report.status, stations.status, refused.status, failed.status]).toEqual([200, 204, 204, 200, 422, 500]);
+      await waitForLogWrites();
+
+      const responses = { chooser, choice, report, stations, refused, failed };
+      const requestIds = new Set(Object.values(responses).map((response) => response.headers['x-request-id'] as string));
+      const lines = testApplication.logs.lines.filter(
+        (line) => requestIds.has(line.requestId as string) || requestIds.has((line.req as { id?: string } | undefined)?.id as string),
+      );
+      for (const [name, response] of Object.entries(responses)) {
+        const ofThisRequest = lines.filter((line) => line.requestId === response.headers['x-request-id'] || (line.req as { id?: string } | undefined)?.id === response.headers['x-request-id']);
+        expect(ofThisRequest.length, name).toBeGreaterThan(0);
+        for (const line of ofThisRequest) expect(line.actor, `${name}: ${String(line.msg)}`).toBe(expectedActor);
+      }
+      const errorLine = lines.find((line) => line.level === 50 && line.requestId === failed.headers['x-request-id']);
+      expect((errorLine?.err as { stack?: string } | undefined)?.stack).toContain('TypeError');
+
+      const written = JSON.stringify(lines);
+      const card = stationB.campaignCard?.actions ?? [];
+      for (const secret of [install.installId, rowId, install.installToken, unknownHint, '+447700900', 'LOOKS_LIKE_A_SCAM', 'Hi, I heard your ad', 'example.com/offer', ...card.map((action) => action.label)]) {
+        expect(written, secret).not.toContain(secret);
+      }
+    } finally {
+      await worker.close();
+      const ofTheseInstalls = 'SELECT id FROM app.recognition_events WHERE listener_install_id = ANY($1)';
+      await setupClient.query(`DELETE FROM app.recognition_reports WHERE recognition_id IN (${ofTheseInstalls})`, [installRows]);
+      await setupClient.query(`DELETE FROM app.recognition_candidates WHERE recognition_id IN (${ofTheseInstalls})`, [installRows]);
+      await setupClient.query('DELETE FROM app.recognition_idempotency_keys WHERE listener_install_id = ANY($1)', [installRows]);
+      await setupClient.query('DELETE FROM app.recognition_events WHERE listener_install_id = ANY($1)', [installRows]);
+      await setupClient.query('DELETE FROM app.listener_installs WHERE id = ANY($1)', [installRows]);
+      await testData.removeAll();
+    }
   });
 });
 

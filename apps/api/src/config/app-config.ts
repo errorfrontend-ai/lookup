@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isListenerAppVersion } from '@lookup/contracts';
 
 /** How the database connection is protected: `require` encrypts it; `verify-full` also checks the server's certificate. */
 export const DATABASE_TLS_MODES = ['disable', 'require', 'verify-full'] as const;
@@ -93,6 +94,33 @@ const AppConfigSchema = z
     RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(60),
     /** "My station" list requests per install per hour: the app keeps the list for 24 hours, so a few are plenty. */
     STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(20),
+
+    // ---- clips sent later, the update gate and re-registration (P4 design §5.2, §5.3, §5.7, §5.11) -------
+    /**
+     * The oldest listener app version still served; an install registered below it gets 426 APP_UPDATE_REQUIRED on
+     * every install-token route. "0.0.0" switches the gate off.
+     */
+    LISTENER_MINIMUM_APP_VERSION: z
+      .string()
+      .default('0.0.0')
+      .refine(isListenerAppVersion, 'must be a version such as 1.2.3'),
+    /** Clips the outbox sends later (is_deferred "true"), per install per hour: their own allowance, apart from live clips. */
+    RECOGNITIONS_DEFERRED_PER_INSTALL_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(10),
+    /** Waiting clips past which a deferred send is refused (503); below the live limit, so deferred sends are shed first. */
+    RECOGNITION_DEFERRED_QUEUE_DEPTH_LIMIT: z.coerce.number().int().min(1).max(100_000).default(20),
+    /** How long a deferred send waits for its worker (and its job's deadline). */
+    RECOGNITION_DEFERRED_WAIT_MILLISECONDS: z.coerce.number().int().min(500).max(10_000).default(5_000),
+    /** A deferred send refused with 503 is told to come back after a random whole number of seconds in this range. */
+    RECOGNITION_DEFERRED_RETRY_AFTER_MINIMUM_SECONDS: z.coerce.number().int().min(1).max(3_600).default(60),
+    RECOGNITION_DEFERRED_RETRY_AFTER_MAXIMUM_SECONDS: z.coerce.number().int().min(1).max(3_600).default(300),
+    /** The places in flight a deferred send may take, inside RECOGNITIONS_IN_FLIGHT_LIMIT, so live clips always keep some. */
+    RECOGNITIONS_DEFERRED_IN_FLIGHT_LIMIT: z.coerce.number().int().min(1).max(9_999).default(16),
+    /** Sends of an idempotency key the server already holds, per install per hour: resends after a lost answer, a 409 or a 503. */
+    RECOGNITION_REPLAYS_PER_INSTALL_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(60),
+    /** How often expired idempotency keys are deleted; 0 switches the job off (tests). */
+    RECOGNITION_IDEMPOTENCY_KEY_CLEAN_UP_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(7 * 86_400).default(86_400),
+    /** Registrations of an install that carry its own valid token (after an app update), per install per day. */
+    LISTENER_REREGISTRATIONS_PER_INSTALL_PER_DAY: z.coerce.number().int().min(1).max(1_000).default(5),
     /** Signs install tokens. 32+ random bytes, base64url. Changing it makes every app register again. */
     LISTENER_INSTALL_TOKEN_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
     /** Keys the hash of an app's install id, so the raw id is never stored. 32+ random bytes, base64url. */
@@ -113,6 +141,18 @@ const AppConfigSchema = z
     }
     if (config.LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE < 10 * config.RECOGNITIONS_PER_INSTALL_PER_MINUTE) {
       context.addIssue({ code: 'custom', path: ['LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE'], message: "must be at least ten installs' worth" });
+    }
+    if (config.RECOGNITION_DEFERRED_QUEUE_DEPTH_LIMIT > config.RECOGNITION_QUEUE_DEPTH_LIMIT) {
+      context.addIssue({ code: 'custom', path: ['RECOGNITION_DEFERRED_QUEUE_DEPTH_LIMIT'], message: 'must not be above the live queue depth limit' });
+    }
+    if (config.RECOGNITION_DEFERRED_WAIT_MILLISECONDS < config.RECOGNITION_WAIT_MILLISECONDS) {
+      context.addIssue({ code: 'custom', path: ['RECOGNITION_DEFERRED_WAIT_MILLISECONDS'], message: 'must be at least the live wait' });
+    }
+    if (config.RECOGNITION_DEFERRED_RETRY_AFTER_MAXIMUM_SECONDS < config.RECOGNITION_DEFERRED_RETRY_AFTER_MINIMUM_SECONDS) {
+      context.addIssue({ code: 'custom', path: ['RECOGNITION_DEFERRED_RETRY_AFTER_MAXIMUM_SECONDS'], message: 'must be at least the minimum' });
+    }
+    if (config.RECOGNITIONS_DEFERRED_IN_FLIGHT_LIMIT >= config.RECOGNITIONS_IN_FLIGHT_LIMIT) {
+      context.addIssue({ code: 'custom', path: ['RECOGNITIONS_DEFERRED_IN_FLIGHT_LIMIT'], message: 'must leave live clips at least one place' });
     }
     if (config.NODE_ENV !== 'production') return;
     if (config.DATABASE_TLS_MODE === 'disable') {
