@@ -63,6 +63,8 @@ class HistoryStore {
   final Clock _clock;
   final ClientErrorReporter _clientErrorReporter;
 
+  /// The History folder, once made or while it is being made; null before that, and again after
+  /// an attempt that failed.
   Future<_HistoryFolder>? _folder;
 
   /// The last call this engine started, which the next one waits for.
@@ -179,19 +181,35 @@ class HistoryStore {
     );
   }
 
-  Future<_HistoryFolder> _openFolder() => _folder ??= _locateFolder().then((directory) {
-    directory.createSync(recursive: true);
-    return _HistoryFolder(
-      directory: directory,
-      indexFile: File('${directory.path}/index.json'),
-      indexLock: OwnedLockFile(
-        file: File('${directory.path}/index.lock'),
-        owner: _lockOwner,
-        isEngineAttached: _isEngineAttached,
-        clock: _clock,
-      ),
+  /// The History folder, made the first time it is needed and kept, so every call shares one lock
+  /// file. A folder that could not be made (the storage full at start-up) is not kept: the next
+  /// call tries again, rather than every save failing until the app restarts.
+  Future<_HistoryFolder> _openFolder() {
+    final opened = _folder;
+    if (opened != null) return opened;
+    final opening = _locateFolder().then((directory) {
+      directory.createSync(recursive: true);
+      return _HistoryFolder(
+        directory: directory,
+        indexFile: File('${directory.path}/index.json'),
+        indexLock: OwnedLockFile(
+          file: File('${directory.path}/index.lock'),
+          owner: _lockOwner,
+          isEngineAttached: _isEngineAttached,
+          clock: _clock,
+        ),
+      );
+    });
+    _folder = opening;
+    // Runs before the caller hears of the failure, so its next call already tries again.
+    opening.then<void>(
+      (_) {},
+      onError: (Object error) {
+        if (identical(_folder, opening)) _folder = null;
+      },
     );
-  });
+    return opening;
+  }
 
   Future<T> _oneAtATime<T>(Future<T> Function() call) {
     final result = _lastCall.then((_) => call());

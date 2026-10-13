@@ -321,6 +321,30 @@ void main() {
     });
   });
 
+  test('a folder that could not be made (the storage full at start-up) is tried again at the next '
+      'save, not only after a restart', () async {
+    final historyFolder = Directory('${folder.path}/history');
+    // A file where the folder should be: making the folder fails, as it does with no room left.
+    final inTheWay = File(historyFolder.path)..writeAsStringSync('');
+    final history = HistoryRepository(
+      store: HistoryStore(
+        locateFolder: () async => historyFolder,
+        lockOwner: _owner,
+        isEngineAttached: (engineId) => engineId == _owner.engineId,
+        clock: clock,
+        clientErrorReporter: reporter,
+      ),
+      answerReader: const HistoryAnswerReader(),
+      clientErrorReporter: reporter,
+      clock: clock,
+    );
+    await expectLater(save(history, 'valid/match-campaign'), throwsA(isA<FileSystemException>()));
+
+    inTheWay.deleteSync();
+    await save(history, 'valid/match-campaign');
+    expect(HistoryFixtures.readIndexEntries(historyFolder), hasLength(1));
+  });
+
   test('a write waits for a live engine\'s lock, and fails after 10 seconds without taking it', () {
     fakeAsync((fakeAsync) {
       // Another engine of this process, still attached, holds the lock (P6-D36).
