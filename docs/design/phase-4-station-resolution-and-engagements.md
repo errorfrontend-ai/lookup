@@ -1791,6 +1791,27 @@ the new jingle answer with the right ad, and unindexed audio answers "No match".
 identifies answered with the right ad and 5 of 5 unindexed songs "No match" (ADR-001, "Over the air on the real
 stack").
 
+**Steps 2 to 6 (12 and 13 October 2026), on the user's phone through the real stack.** All passed; each phone
+answer below is the one `development:show-recognitions` recorded. By the user's choice, I set the schedules in the
+development database for steps 2 and 3 (one slot every day, keeping the 10-minute grace) instead of the user editing
+them in the portal, so the times were not tied to quarter hours.
+- Step 2: with the slot ended at 19:03, a clip heard at 20:09:36 got Brand A's usual buttons ("Call Brand A's
+  office", "Brand A online") with the note "These are Brand A's usual contact details."; with the slot moved to end
+  at 20:09, a clip heard at 20:13:41 got the campaign's buttons. The grace "None" case was not run separately: a slot
+  that ended over an hour earlier tests the same outside-the-grace path.
+- Step 3: with the slot starting at 07:54, a clip heard at 07:48:03 got the campaign's buttons (also seen on 12
+  October: 20:31:40 against a slot starting at 20:32). `development:reset-sample-schedule` then put the two all-day
+  slots back.
+- Step 4: the user published Station B's "Summer service offer" in the portal (an identify before pressing Publish
+  still got Station A's buttons, as it should). Two clips heard at 08:06:34 and 08:06:52 got "This needs a newer Look
+  Up" on the phone, recorded as `Asked "Which station?": 1. Station A (98.1 FM · Lusaka) 2. Station B (104.3 FM ·
+  Kitwe)`, "Not chosen yet".
+- Step 5: with Station B suspended, a clip heard at 08:11:21 got Station A's buttons, "Decided by: only one station can
+  answer". Station B's portal showed "This station is suspended. Listeners can't see its ads." Station B was set back
+  to ACTIVE.
+- Step 6: with Station B's campaign paused (the portal showed "Paused"), a clip heard at 08:15:11 got Station A's
+  buttons, "only one station can answer". The campaign was set back to ACTIVE, so both stations are live for Piece 3.
+
 ### Piece 3 — The chooser's choice and the "My station" list
 
 **Built (server):** the choice route (§5.5), the station list (§5.6), the listener-route matcher and
