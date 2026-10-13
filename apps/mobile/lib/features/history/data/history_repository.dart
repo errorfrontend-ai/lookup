@@ -6,6 +6,8 @@ import 'package:lookup_listener/features/history/data/history_store.dart';
 import 'package:lookup_listener/features/history/domain/history_entry.dart';
 import 'package:lookup_listener/features/history/domain/history_limits.dart';
 import 'package:lookup_listener/features/history/domain/history_view.dart';
+import 'package:lookup_listener/features/history/domain/history_waiting_clip.dart';
+import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 import 'package:lookup_listener/features/history/domain/stored_answer_reader.dart';
 
 /// History (P6 design §2.9, §3.14): the results the listener saw, kept on the phone so their
@@ -19,60 +21,151 @@ import 'package:lookup_listener/features/history/domain/stored_answer_reader.dar
 /// - At most 50 entries and none older than 30 days by the phone's capture time
 ///   ([HistoryLimits]); the oldest go first. Checked on every write, and at start
 ///   ([removeExpiredEntries]); an expired entry is never shown.
-/// - [clear] empties it ("Clear history", Q7). Clips waiting to be sent join History, and so this,
-///   with the outbox's clips in piece 3.
-/// - [watchView] gives the view again after every write, so "Saved to History" and the History tab
-///   follow a save at once (P6-HISTORY-14).
+/// - From piece 3 it also keeps what a clip saved with no signal came to (§3.11): a result, a chooser
+///   waiting for the listener's choice ([saveAwaitingChoice]), or a clip that will never be
+///   identified ([saveNotIdentified]); and its view holds the clips still waiting in the outbox,
+///   read through [readWaitingClips], hiding any whose outcome already has an entry.
+/// - [clear] empties it ("Clear history", Q7).
+/// - [watchView] gives the view again after every write, and after every change of the waiting
+///   clips, so "Saved to History" and the History tab follow at once (P6-HISTORY-14).
 class HistoryRepository {
   /// [clock] is for tests; the app uses the real one.
+  ///
+  /// [readWaitingClips] gives the clips waiting in the outbox, and [waitingClipsChanged] fires when
+  /// they may have changed; without them History shows no waiting clips.
   HistoryRepository({
     required HistoryStore store,
     required StoredAnswerReader answerReader,
     required ClientErrorReporter clientErrorReporter,
     Clock? clock,
+    Future<List<HistoryWaitingClip>> Function()? readWaitingClips,
+    Stream<void>? waitingClipsChanged,
   }) : _store = store,
        _answerReader = answerReader,
        _clientErrorReporter = clientErrorReporter,
-       _clock = clock ?? Clock();
+       _clock = clock ?? Clock(),
+       _readWaitingClips = readWaitingClips,
+       _waitingClipsChanged = waitingClipsChanged;
 
   final HistoryStore _store;
   final StoredAnswerReader _answerReader;
   final ClientErrorReporter _clientErrorReporter;
   final Clock _clock;
+  final Future<List<HistoryWaitingClip>> Function()? _readWaitingClips;
+  final Stream<void>? _waitingClipsChanged;
 
   final StreamController<void> _changes = StreamController<void>.broadcast(sync: true);
 
   /// Keeps the result [answer] shows: the API's 200 answer for [recognitionId] exactly as it came
   /// (a `MATCH`, or a `CHOOSE_STATION` with the [chosenStationId] the listener tapped), recorded by
   /// the phone at [capturedAtOnPhone]. A result already kept for [recognitionId] is replaced and
-  /// keeps its first capture time. Throws [HistoryAnswerUnreadable] when the answer does not read
-  /// as a result, so nothing is kept that could not be shown, and the store's own exceptions when
-  /// it cannot write.
+  /// keeps its first capture time, and the saved clip it came from. Throws
+  /// [HistoryAnswerUnreadable] when the answer does not read as a result, so nothing is kept that
+  /// could not be shown, and the store's own exceptions when it cannot write.
+  ///
+  /// For a saved clip's `MATCH`, [deferredIdempotencyKey] is the clip's key and [wasNotified] says
+  /// a notification will open it (§3.15: only such an entry may be opened by a launch id).
   Future<void> saveResult({
     required String recognitionId,
     required Object? answer,
     required DateTime capturedAtOnPhone,
     String? chosenStationId,
+    String? deferredIdempotencyKey,
+    bool wasNotified = false,
   }) async {
     final result = _answerReader.readResult(answer, chosenStationId: chosenStationId);
     if (result == null || result.recognitionId != recognitionId) {
       throw const HistoryAnswerUnreadable();
     }
-    final now = _clock.now().toUtc();
-    await _store.modify((entries) {
-      final earlier = entries.where((entry) => entry.entryId == recognitionId).firstOrNull;
-      final saved = StoredHistoryEntry(
+    await _save(
+      (earlier, now) => StoredHistoryEntry(
         entryId: recognitionId,
         kind: StoredHistoryEntry.resultKind,
         capturedAtOnPhone: earlier?.capturedAtOnPhone ?? capturedAtOnPhone.toUtc(),
         savedAt: now,
         answer: answer,
         chosenStationId: chosenStationId,
-      );
+        wasDeferred: earlier?.wasDeferred ?? deferredIdempotencyKey != null,
+        deferredIdempotencyKey: earlier?.deferredIdempotencyKey ?? deferredIdempotencyKey,
+        wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+      ),
+      entryId: recognitionId,
+    );
+  }
+
+  /// Keeps a saved clip's `CHOOSE_STATION` answer, waiting for the listener's choice (§3.11, T51).
+  /// Throws [HistoryAnswerUnreadable] when the answer does not read as a chooser. A choice already
+  /// made for this recognition is never undone by a replay.
+  Future<void> saveAwaitingChoice({
+    required String recognitionId,
+    required Object? answer,
+    required DateTime capturedAtOnPhone,
+    required String deferredIdempotencyKey,
+    required bool wasNotified,
+  }) async {
+    final candidates = _answerReader.readCandidates(answer);
+    if (candidates == null ||
+        candidates.any((candidate) => candidate.recognitionId != recognitionId)) {
+      throw const HistoryAnswerUnreadable();
+    }
+    await _save(
+      (earlier, now) => earlier?.kind == StoredHistoryEntry.resultKind
+          ? earlier!
+          : StoredHistoryEntry(
+              entryId: recognitionId,
+              kind: StoredHistoryEntry.awaitingChoiceKind,
+              capturedAtOnPhone: earlier?.capturedAtOnPhone ?? capturedAtOnPhone.toUtc(),
+              savedAt: now,
+              answer: answer,
+              wasDeferred: true,
+              deferredIdempotencyKey: deferredIdempotencyKey,
+              wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+            ),
+      entryId: recognitionId,
+    );
+  }
+
+  /// Keeps a saved clip that will never be identified, with why (§3.11): keyed by [entryId], the
+  /// recognition id when the server made one, otherwise the clip's own key.
+  Future<void> saveNotIdentified({
+    required String entryId,
+    required DateTime capturedAtOnPhone,
+    required DeferredClipNotIdentifiedReason reason,
+    required String deferredIdempotencyKey,
+    required bool wasNotified,
+  }) => _save(
+    (earlier, now) => StoredHistoryEntry(
+      entryId: entryId,
+      kind: StoredHistoryEntry.notIdentifiedKind,
+      capturedAtOnPhone: earlier?.capturedAtOnPhone ?? capturedAtOnPhone.toUtc(),
+      savedAt: now,
+      answer: null,
+      notIdentifiedReason: reason.storedName,
+      wasDeferred: true,
+      deferredIdempotencyKey: deferredIdempotencyKey,
+      wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+    ),
+    entryId: entryId,
+  );
+
+  /// Whether History holds an entry for [recognitionId] that a notification was posted for: the only
+  /// recognition a launch id may open (§3.15).
+  Future<bool> wasNotified(String recognitionId) async =>
+      (await _store.read()).any((entry) => entry.entryId == recognitionId && entry.wasNotified);
+
+  /// Writes the entry [build] makes (from the entry already kept under [entryId], if any), within
+  /// History's limits, and tells the view.
+  Future<void> _save(
+    StoredHistoryEntry Function(StoredHistoryEntry? earlier, DateTime now) build, {
+    required String entryId,
+  }) async {
+    final now = _clock.now().toUtc();
+    await _store.modify((entries) {
+      final earlier = entries.where((entry) => entry.entryId == entryId).firstOrNull;
       return _withinLimits([
-        saved,
+        build(earlier, now),
         for (final entry in entries)
-          if (entry.entryId != recognitionId) entry,
+          if (entry.entryId != entryId) entry,
       ], now: now);
     });
     _changes.add(null);
@@ -94,13 +187,18 @@ class HistoryRepository {
       }
     }
     if (unreadableEntryIds.isNotEmpty) unawaited(_dropUnreadable(unreadableEntryIds));
-    return HistoryView(entries);
+    final readWaitingClips = _readWaitingClips;
+    return HistoryView(
+      entries,
+      waitingClips: readWaitingClips == null ? const [] : await readWaitingClips(),
+    );
   }
 
   /// The view now, and again after every change made through this repository.
   Stream<HistoryView> watchView() {
     late final StreamController<HistoryView> views;
     StreamSubscription<void>? changes;
+    StreamSubscription<void>? waitingClipChanges;
     Future<void> emit() async {
       try {
         final view = await readView();
@@ -114,10 +212,12 @@ class HistoryRepository {
     views = StreamController<HistoryView>(
       onListen: () {
         changes = _changes.stream.listen((_) => unawaited(emit()));
+        waitingClipChanges = _waitingClipsChanged?.listen((_) => unawaited(emit()));
         unawaited(emit());
       },
       onCancel: () async {
         await changes?.cancel();
+        await waitingClipChanges?.cancel();
         await views.close();
       },
     );
@@ -143,14 +243,46 @@ class HistoryRepository {
   }
 
   HistoryEntry? _entryOf(StoredHistoryEntry stored) {
-    if (stored.kind != StoredHistoryEntry.resultKind) return null;
-    final result = _answerReader.readResult(stored.answer, chosenStationId: stored.chosenStationId);
-    if (result == null || result.recognitionId != stored.entryId) return null;
-    return HistoryResultEntry(
-      entryId: stored.entryId,
-      capturedAtOnPhone: stored.capturedAtOnPhone,
-      result: result,
-    );
+    switch (stored.kind) {
+      case StoredHistoryEntry.resultKind:
+        final result = _answerReader.readResult(
+          stored.answer,
+          chosenStationId: stored.chosenStationId,
+        );
+        if (result == null || result.recognitionId != stored.entryId) return null;
+        return HistoryResultEntry(
+          entryId: stored.entryId,
+          capturedAtOnPhone: stored.capturedAtOnPhone,
+          result: result,
+          deferredIdempotencyKey: stored.deferredIdempotencyKey,
+        );
+      case StoredHistoryEntry.awaitingChoiceKind:
+        final candidates = _answerReader.readCandidates(stored.answer);
+        final answer = stored.answer;
+        if (candidates == null ||
+            answer is! Map<String, Object?> ||
+            candidates.any((candidate) => candidate.recognitionId != stored.entryId)) {
+          return null;
+        }
+        return HistoryAwaitingChoiceEntry(
+          entryId: stored.entryId,
+          capturedAtOnPhone: stored.capturedAtOnPhone,
+          candidates: candidates,
+          answerBody: answer,
+          deferredIdempotencyKey: stored.deferredIdempotencyKey,
+        );
+      case StoredHistoryEntry.notIdentifiedKind:
+        final reason = DeferredClipNotIdentifiedReason.fromStoredName(stored.notIdentifiedReason);
+        if (reason == null) return null;
+        return HistoryNotIdentifiedEntry(
+          entryId: stored.entryId,
+          capturedAtOnPhone: stored.capturedAtOnPhone,
+          reason: reason,
+          deferredIdempotencyKey: stored.deferredIdempotencyKey,
+        );
+      default:
+        return null;
+    }
   }
 
   Future<void> _dropUnreadable(Set<String> entryIds) async {

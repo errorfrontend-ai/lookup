@@ -576,4 +576,113 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get configurationProblemOutboxBackoffFirstWaitOutsideDevelopment =>
       'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS must be 30 outside the development flavour.';
+
+  @override
+  String get okButton => 'OK';
+
+  @override
+  String get savedClipNotificationTitle => 'Look Up';
+
+  @override
+  String get savedClipNotificationText =>
+      'Your saved clip has been checked. Tap to see the result.';
+
+  @override
+  String get savedClipNotificationChannelName => 'Saved clip results';
+
+  @override
+  String get savedClipNotificationChannelDescription =>
+      'When a clip saved with no signal has been checked';
+
+  @override
+  String get savedOfflineHeadingNoConnection =>
+      'Saved — we\'ll identify it when you\'re back online';
+
+  @override
+  String get savedOfflineBodyNoConnection =>
+      'No signal right now. Your clip stays on this phone for up to 24 hours and is deleted as soon as it\'s sent.';
+
+  @override
+  String get savedOfflineHeadingBusy => 'Saved — we\'ll identify it when Look Up is less busy';
+
+  @override
+  String get savedOfflineBodyBusy =>
+      'Lots of people are listening right now. Your clip stays on this phone for up to 24 hours and is deleted as soon as it\'s sent.';
+
+  @override
+  String get savedOfflineHeadingTooManyTries => 'Saved — we\'ll identify it a little later';
+
+  @override
+  String get savedOfflineBodyTooManyTries =>
+      'You\'ve identified a lot in a short time. Your clip stays on this phone for up to 24 hours and is deleted as soon as it\'s sent.';
+
+  @override
+  String get savedOfflineOldestClipDeleted =>
+      'You had 5 clips waiting, so the oldest one was deleted.';
+
+  @override
+  String get savedOfflineNotificationsAllowed =>
+      'You\'ll get a notification with the result, including the station\'s buttons.';
+
+  @override
+  String get savedOfflineNotificationsNotAsked =>
+      'Allow notifications to hear when the result is ready.';
+
+  @override
+  String get savedOfflineAllowNotificationsButton => 'Allow notifications';
+
+  @override
+  String get savedOfflineNotificationsOff =>
+      'Notifications are off for Look Up, so the result will wait in History.';
+
+  @override
+  String get savedOfflineSeeInHistoryButton => 'See it in History';
+
+  @override
+  String get historyWaitingHeading => 'Waiting for signal';
+
+  @override
+  String historyClipFrom(String dayAndTime) {
+    return 'Clip from $dayAndTime';
+  }
+
+  @override
+  String get dayTodayInSentence => 'today';
+
+  @override
+  String get dayYesterdayInSentence => 'yesterday';
+
+  @override
+  String get historyWaitingForSignal => 'Will identify when you\'re back online';
+
+  @override
+  String get historyWaitingBusy => 'Look Up is busy — will try again soon';
+
+  @override
+  String get historyWaitingForUpdate => 'Waiting for a newer version of Look Up';
+
+  @override
+  String get historyPendingBadge => 'Pending';
+
+  @override
+  String get historyAwaitingChoiceDetail => 'Choose your station to see the buttons';
+
+  @override
+  String get historyNotRecognised => 'Not recognised';
+
+  @override
+  String get historyNotSentWithin24Hours => 'Not sent within 24 hours — deleted';
+
+  @override
+  String get historyCouldNotBeChecked => 'Couldn\'t be checked — deleted';
+
+  @override
+  String get permissionPromiseOfflineClip =>
+      'No signal? The clip waits on your phone and is deleted once it\'s sent — never kept longer than 24 hours.';
+
+  @override
+  String get errorPleaseUpdateHeading => 'Please update the app';
+
+  @override
+  String get errorPleaseUpdateExplanation => 'This version of Look Up is too old to identify ads.';
 }

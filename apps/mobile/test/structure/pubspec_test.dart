@@ -27,6 +27,7 @@ void main() {
     expect(PubspecChecks.pinnedDependencies['permission_handler'], '12.0.3');
     expect(PubspecChecks.pinnedDependencies['intl'], '0.20.2');
     expect(PubspecChecks.sdkDependencies, {'flutter', 'flutter_localizations'});
+    expect(PubspecChecks.inRepositoryDependencies, {'device_services': 'packages/device_services'});
   });
 
   test('gen-l10n runs on every pub get and build (P6-LOCALISATION-01)', () {
@@ -57,6 +58,7 @@ void main() {
     expect(
       scan.readPluginNames,
       containsAll([
+        'device_services',
         'permission_handler_android',
         'record_android',
         'shared_preferences_android',
@@ -114,6 +116,33 @@ void main() {
     test('a package the design does not list', () {
       expect(pinProblems('  path_provider: 2.1.6\n', '  path_provider: 2.1.6\n  uuid: 4.5.1\n'), [
         contains('uuid is not one of the pinned packages'),
+      ]);
+    });
+
+    test("the app's own plugin taken from anywhere but this repository", () {
+      expect(
+        pinProblems(
+          '  device_services:\n    path: packages/device_services\n',
+          '  device_services: 1.0.0\n',
+        ),
+        [contains('device_services must come from packages/device_services')],
+      );
+      expect(
+        pinProblems(
+          '    path: packages/device_services\n',
+          '    path: ../somewhere_else/device_services\n',
+        ),
+        [contains('device_services must come from packages/device_services')],
+      );
+    });
+
+    test("the app's own plugin resolved from elsewhere in the lock file", () {
+      final planted = SimpleYamlReader.read(
+        _planted(lockText, 'path: "packages/device_services"', 'path: "../device_services"'),
+      );
+
+      expect(PubspecChecks.problemsWithLock(planted), [
+        contains('does not take device_services from packages/device_services'),
       ]);
     });
 

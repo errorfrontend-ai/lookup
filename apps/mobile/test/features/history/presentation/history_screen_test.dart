@@ -13,6 +13,12 @@ import 'package:lookup_listener/features/settings/presentation/station_picker_ro
 import 'package:lookup_listener/l10n/app_localizations.dart';
 import 'package:lookup_listener/l10n/app_localizations_en.dart';
 import 'package:lookup_listener/l10n/fallback_localizations.dart';
+import 'package:lookup_listener/features/history/data/history_store.dart';
+import 'package:lookup_listener/features/history/domain/history_entry.dart';
+import 'package:lookup_listener/features/history/domain/history_waiting_clip.dart';
+import 'package:lookup_listener/features/history/presentation/history_outcome_row.dart';
+import 'package:lookup_listener/features/history/presentation/waiting_clip_row.dart';
+import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 
 import '../../../support/english_words.dart';
 import '../../../support/expect_no_technical_text.dart';
@@ -51,17 +57,24 @@ void main() {
     ),
   ];
 
+  final openedChoosers = <HistoryAwaitingChoiceEntry>[];
+
   Future<TabScreenHarness> show(
     WidgetTester tester, {
     List<StoredHistoryEntryData> results = const [],
+    List<StoredHistoryEntry> outcomes = const [],
+    List<HistoryWaitingClip> waitingClips = const [],
     PhoneScreen phoneScreen = PhoneScreen.standard,
     ThemeData? theme,
   }) async {
     opened.clear();
-    final harness = TabScreenHarness(now: now)..keepInHistory(results);
+    openedChoosers.clear();
+    final harness = TabScreenHarness(now: now)
+      ..keepInHistory(results, outcomes: outcomes)
+      ..waitingClips = waitingClips;
     await harness.pump(
       tester,
-      HistoryScreen(onOpenResult: opened.add),
+      HistoryScreen(onOpenResult: opened.add, onOpenSavedChooser: openedChoosers.add),
       phoneScreen: phoneScreen,
       theme: theme,
     );
@@ -298,7 +311,7 @@ void main() {
         ]);
       await harness.pump(
         tester,
-        HistoryScreen(onOpenResult: (_) {}),
+        HistoryScreen(onOpenResult: (_) {}, onOpenSavedChooser: (_) {}),
         locale: bemba,
         supportedLocales: const [bemba],
         localizationsDelegates: const [
@@ -315,6 +328,161 @@ void main() {
       expect(englishWords.historyHeading, 'History');
     },
   );
+
+  group('saved clips (P6 design §2.9; P6-HISTORY-04 to -06; T51)', () {
+    const clipKey = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c21';
+    final capturedAt = DateTime(2026, 10, 13, 14, 32);
+
+    HistoryWaitingClip waiting(HistoryWaitingClipStatus status, {String key = clipKey}) =>
+        HistoryWaitingClip(
+          idempotencyKey: key,
+          capturedAtOnPhone: capturedAt.toUtc(),
+          status: status,
+        );
+
+    StoredHistoryEntry notIdentified(
+      DeferredClipNotIdentifiedReason reason, {
+      required String id,
+    }) => StoredHistoryEntry(
+      entryId: id,
+      kind: StoredHistoryEntry.notIdentifiedKind,
+      capturedAtOnPhone: capturedAt.toUtc(),
+      savedAt: now.toUtc(),
+      answer: null,
+      notIdentifiedReason: reason.storedName,
+      wasDeferred: true,
+      deferredIdempotencyKey: id,
+    );
+
+    final awaitingChoice = StoredHistoryEntry(
+      entryId: HistoryFixtures.fixtureRecognitionId,
+      kind: StoredHistoryEntry.awaitingChoiceKind,
+      capturedAtOnPhone: capturedAt.toUtc(),
+      savedAt: now.toUtc(),
+      answer: HistoryFixtures.answer('valid/choose-station'),
+      wasDeferred: true,
+      deferredIdempotencyKey: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c29',
+      wasNotified: true,
+    );
+
+    testWidgets('a waiting clip is under "Waiting for signal": its capture time, why it waits, and '
+        '"Pending" in words, read as one item, not a button (P6-HISTORY-04, -05)', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await show(tester, waitingClips: [waiting(HistoryWaitingClipStatus.waitingForSignal)]);
+
+      expect(find.text('WAITING FOR SIGNAL'), findsOneWidget);
+      expect(find.text('Clip from today, 14:32'), findsOneWidget);
+      expect(find.text("Will identify when you're back online"), findsOneWidget);
+      expect(find.text('Pending'), findsOneWidget);
+      expect(find.byType(HistoryEmptyState), findsNothing);
+      expect(find.text('EARLIER'), findsNothing, reason: 'no saved entry yet');
+      final row = tester.getSemantics(find.byType(WaitingClipRow));
+      expect(row.label, "Clip from today, 14:32. Will identify when you're back online. Pending");
+      expect(row.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+      expect(tester.getSize(find.byType(WaitingClipRow)).height, greaterThanOrEqualTo(72));
+      semantics.dispose();
+    });
+
+    for (final (status, words) in [
+      (HistoryWaitingClipStatus.busy, 'Look Up is busy — will try again soon'),
+      (HistoryWaitingClipStatus.waitingForUpdate, 'Waiting for a newer version of Look Up'),
+    ]) {
+      testWidgets('${status.name}: "$words"', (tester) async {
+        await show(tester, waitingClips: [waiting(status)]);
+        expect(find.text(words), findsOneWidget);
+        expect(find.text('Pending'), findsOneWidget);
+      });
+    }
+
+    testWidgets('no waiting clip: no "Waiting for signal" section (P6-HISTORY-06)', (tester) async {
+      await show(tester, results: threeResults());
+      expect(find.text('WAITING FOR SIGNAL'), findsNothing);
+      expect(find.byType(WaitingClipRow), findsNothing);
+    });
+
+    testWidgets('a station still to choose: "Choose your station to see the buttons", a button '
+        'that opens the chooser from the saved candidates (T51)', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await show(tester, outcomes: [awaitingChoice]);
+
+      expect(find.text('Choose your station to see the buttons'), findsOneWidget);
+      expect(find.text('Clip from today, 14:32'), findsOneWidget);
+      final row = find.byType(HistoryOutcomeRow);
+      expect(tester.getSemantics(row).getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      await tester.tap(row);
+      expect(openedChoosers.single.entryId, HistoryFixtures.fixtureRecognitionId);
+      expect(openedChoosers.single.candidates, hasLength(2));
+      expect(opened, isEmpty);
+      semantics.dispose();
+    });
+
+    for (final (reason, words) in [
+      (DeferredClipNotIdentifiedReason.notRecognised, 'Not recognised'),
+      (DeferredClipNotIdentifiedReason.notSentWithin24Hours, 'Not sent within 24 hours — deleted'),
+      (DeferredClipNotIdentifiedReason.couldNotBeChecked, "Couldn't be checked — deleted"),
+    ]) {
+      testWidgets('not identified (${reason.name}): "$words", not a button', (tester) async {
+        final semantics = tester.ensureSemantics();
+        await show(tester, outcomes: [notIdentified(reason, id: clipKey)]);
+        expect(find.text(words), findsOneWidget);
+        final row = find.byType(HistoryOutcomeRow);
+        expect(tester.getSemantics(row).getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+        expect(tester.getSize(row).height, greaterThanOrEqualTo(72));
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('a clip whose outcome is kept is no longer shown waiting', (tester) async {
+      await show(
+        tester,
+        outcomes: [notIdentified(DeferredClipNotIdentifiedReason.notRecognised, id: clipKey)],
+        waitingClips: [waiting(HistoryWaitingClipStatus.waitingForSignal)],
+      );
+      expect(find.byType(WaitingClipRow), findsNothing);
+      expect(find.text('Not recognised'), findsOneWidget);
+    });
+
+    for (final phoneScreen in PhoneScreen.layoutChecks) {
+      testWidgets('waiting, chooser and not-identified rows fit on $phoneScreen', (tester) async {
+        await show(
+          tester,
+          results: threeResults(),
+          outcomes: [
+            awaitingChoice,
+            notIdentified(
+              DeferredClipNotIdentifiedReason.notSentWithin24Hours,
+              id: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c28',
+            ),
+          ],
+          waitingClips: [
+            waiting(HistoryWaitingClipStatus.waitingForUpdate),
+            waiting(HistoryWaitingClipStatus.busy, key: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c27'),
+          ],
+          phoneScreen: phoneScreen,
+        );
+        expect(tester.takeException(), isNull);
+        expectNoClippedText(tester);
+      });
+    }
+
+    for (final (name, theme) in [('light', LookUpTheme.light()), ('dark', LookUpTheme.dark())]) {
+      testWidgets('the new rows meet the tap target, label and contrast guidelines in the $name '
+          'theme', (tester) async {
+        await show(
+          tester,
+          outcomes: [
+            awaitingChoice,
+            notIdentified(DeferredClipNotIdentifiedReason.notRecognised, id: clipKey),
+          ],
+          waitingClips: [
+            waiting(HistoryWaitingClipStatus.busy, key: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c26'),
+          ],
+          theme: theme,
+        );
+        await expectMeetsTapGuidelines(tester);
+      });
+    }
+  });
 }
 
 /// A stand-in for `app_bem.arb`: the English words, offered for Bemba, as an ARB file with no

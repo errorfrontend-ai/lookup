@@ -25,6 +25,7 @@ import 'package:lookup_listener/features/settings/data/station_list_cache.dart';
 import 'package:lookup_listener/features/settings/data/station_list_repository.dart';
 import 'package:lookup_listener/l10n/fallback_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lookup_listener/features/history/domain/history_waiting_clip.dart';
 
 import '../features/result/support/fake_action_launcher.dart';
 import '../features/result/support/fake_clipboard_writer.dart';
@@ -62,6 +63,9 @@ final class TabScreenHarness {
   final FakeHttpClientAdapter adapter = FakeHttpClientAdapter();
   final RecordingClientErrorReporter reporter = RecordingClientErrorReporter();
 
+  /// The clips waiting in the outbox, as History reads them.
+  List<HistoryWaitingClip> waitingClips = const [];
+
   /// The app's support folder in this test, made on first use and deleted when the test ends.
   late final Directory supportFolder = () {
     final folder = Directory.systemTemp.createTempSync('tab_screen_support_');
@@ -82,13 +86,14 @@ final class TabScreenHarness {
         processId: 4242,
         engineId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
       ),
-      isEngineAttached: (_) => true,
+      lockTakeOver: LocalLockTakeOver.everyEngineAttached(),
       clock: clock,
       clientErrorReporter: reporter,
     ),
     answerReader: const HistoryAnswerReader(),
     clientErrorReporter: reporter,
     clock: clock,
+    readWaitingClips: () async => waitingClips,
   );
 
   late final StationListRepository stationList = () {
@@ -137,8 +142,12 @@ final class TabScreenHarness {
     );
   }
 
-  /// Puts these results in History before the screen is shown.
-  void keepInHistory(List<StoredHistoryEntryData> results) {
+  /// Puts these results in History before the screen is shown, with [outcomes] of saved clips
+  /// (a chooser to answer, or a clip not identified) as the store keeps them.
+  void keepInHistory(
+    List<StoredHistoryEntryData> results, {
+    List<StoredHistoryEntry> outcomes = const [],
+  }) {
     HistoryFixtures.writeIndex(historyFolder, [
       for (final result in results)
         HistoryFixtures.storedResult(
@@ -147,6 +156,7 @@ final class TabScreenHarness {
           fixture: result.fixture,
           chosenStationId: result.chosenStationId,
         ),
+      ...outcomes,
     ]);
   }
 

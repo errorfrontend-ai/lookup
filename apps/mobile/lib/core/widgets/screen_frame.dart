@@ -10,6 +10,8 @@ import '../theme/look_up_tokens.dart';
 /// false)`: on a tall phone the footer sits at the bottom, and when the text is large the whole
 /// screen scrolls instead of overflowing. Nothing has a fixed height around text.
 ///
+/// With [isFooterPinned], only the body scrolls: the header and the footer stay on screen.
+///
 /// The frame measures the body's natural height to decide whether to scroll, so the body must not
 /// use `LayoutBuilder` (which cannot report a natural height); read the width from
 /// `MediaQuery.sizeOf` instead.
@@ -23,6 +25,7 @@ class ScreenFrame extends StatelessWidget {
     this.isBodyAtBottom = false,
     this.bodyPadding,
     this.bodyTop,
+    this.isFooterPinned = false,
   });
 
   /// The screen's content between the header and the footer.
@@ -52,10 +55,39 @@ class ScreenFrame extends StatelessWidget {
   /// in the thumb zone. Like the body, it scrolls with the screen when the text is large.
   final Widget? bodyTop;
 
+  /// Keeps the header and the footer on screen while only the body scrolls between them, so the
+  /// screen's main action is in reach however long the body is: Permission's three promises put
+  /// "Allow microphone" below the fold of a 360 × 800 phone (P6 design §2.4). The footer takes at
+  /// most half the height; with very large text it scrolls within that half rather than leave the
+  /// body no room. A body taller than its room shows its scrollbar, so the listener can see that
+  /// more follows (the Saved screen's bell panel, under its buttons on a 360 × 800 phone).
+  final bool isFooterPinned;
+
   @override
   Widget build(BuildContext context) {
-    final spacing = context.lookUpTokens.spacing;
     final header = _buildHeader(context);
+    final bodyArea = _buildBodyArea(context);
+    final footerArea = footer.isEmpty ? null : _buildFooterArea(context);
+    if (isFooterPinned) {
+      return Scaffold(
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ?header,
+                Expanded(child: _ScrollingBody(child: bodyArea)),
+                if (footerArea != null)
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: constraints.maxHeight / 2),
+                    child: SingleChildScrollView(child: footerArea),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       body: SafeArea(
         child: CustomScrollView(
@@ -66,44 +98,48 @@ class ScreenFrame extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   ?header,
-                  Expanded(
-                    child: Padding(
-                      padding:
-                          bodyPadding ??
-                          EdgeInsets.fromLTRB(spacing.space6, spacing.space6, spacing.space6, 0),
-                      child: Column(
-                        mainAxisAlignment: isBodyAtBottom
-                            ? MainAxisAlignment.end
-                            : MainAxisAlignment.start,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          ...?switch (bodyTop) {
-                            final bodyTop? => [bodyTop, if (isBodyAtBottom) const Spacer()],
-                            null => null,
-                          },
-                          body,
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (footer.isNotEmpty)
-                    Padding(
-                      padding: EdgeInsets.all(spacing.space6),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final (index, action) in footer.indexed) ...[
-                            if (index > 0) SizedBox(height: spacing.space2),
-                            action,
-                          ],
-                        ],
-                      ),
-                    ),
+                  Expanded(child: bodyArea),
+                  ?footerArea,
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildBodyArea(BuildContext context) {
+    final spacing = context.lookUpTokens.spacing;
+    return Padding(
+      padding:
+          bodyPadding ?? EdgeInsets.fromLTRB(spacing.space6, spacing.space6, spacing.space6, 0),
+      child: Column(
+        mainAxisAlignment: isBodyAtBottom ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ...?switch (bodyTop) {
+            final bodyTop? => [bodyTop, if (isBodyAtBottom) const Spacer()],
+            null => null,
+          },
+          body,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooterArea(BuildContext context) {
+    final spacing = context.lookUpTokens.spacing;
+    return Padding(
+      padding: EdgeInsets.all(spacing.space6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (index, action) in footer.indexed) ...[
+            if (index > 0) SizedBox(height: spacing.space2),
+            action,
+          ],
+        ],
       ),
     );
   }
@@ -129,4 +165,35 @@ class ScreenFrame extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The body of a frame with a pinned footer: it scrolls on its own, with its scrollbar always shown
+/// while there is more than fits.
+class _ScrollingBody extends StatefulWidget {
+  const _ScrollingBody({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ScrollingBody> createState() => _ScrollingBodyState();
+}
+
+class _ScrollingBodyState extends State<_ScrollingBody> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scrollbar(
+    controller: _controller,
+    thumbVisibility: true,
+    child: CustomScrollView(
+      controller: _controller,
+      slivers: [SliverFillRemaining(hasScrollBody: false, child: widget.child)],
+    ),
+  );
 }

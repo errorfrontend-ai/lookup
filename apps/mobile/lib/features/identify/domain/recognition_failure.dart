@@ -16,8 +16,7 @@ sealed class RecognitionFailure {
     PhoneFailure(:final reportRequestId, reportDelivery: ReportDelivery.accepted) =>
       reportRequestId,
     PhoneFailure() => null,
-    ConnectionFailure() => null,
-    TooManyTriesFailure() => null,
+    AppUpdateRequiredFailure() => null,
     NewerAppNeededFailure() => null,
   };
 }
@@ -95,43 +94,26 @@ final class RecordingUnusableFailure extends RecognitionFailure {
   String toString() => 'RecordingUnusableFailure(requestId: $requestId)';
 }
 
-/// No answer came back (no network, a timeout, a dropped connection): "No connection". The clip is
-/// kept, so "Send again" resends it with the same idempotency key.
-final class ConnectionFailure extends RecognitionFailure {
-  const ConnectionFailure();
+/// This version of the app is too old for Look Up (426 `APP_UPDATE_REQUIRED`, T26′): "Please update
+/// the app" (P6 design §2.15; P6-COMPATIBILITY-02). The clip is dropped; there is no store button
+/// until a listing exists (Q14).
+final class AppUpdateRequiredFailure extends RecognitionFailure {
+  const AppUpdateRequiredFailure();
 
   @override
-  bool operator ==(Object other) => other is ConnectionFailure;
+  bool operator ==(Object other) => other is AppUpdateRequiredFailure;
 
   @override
-  int get hashCode => (ConnectionFailure).hashCode;
+  int get hashCode => (AppUpdateRequiredFailure).hashCode;
 
   @override
-  String toString() => 'ConnectionFailure()';
+  String toString() => 'AppUpdateRequiredFailure()';
 }
 
-/// The API refused for too many identifies (429): "Too many tries".
-final class TooManyTriesFailure extends RecognitionFailure {
-  const TooManyTriesFailure({required this.isShortWait});
-
-  /// Whether the API asked for a wait of a minute or less, so "Please wait a minute" is true;
-  /// otherwise the screen says "Please try again later."
-  final bool isShortWait;
-
-  @override
-  bool operator ==(Object other) =>
-      other is TooManyTriesFailure && other.isShortWait == isShortWait;
-
-  @override
-  int get hashCode => Object.hash(TooManyTriesFailure, isShortWait);
-
-  @override
-  String toString() => 'TooManyTriesFailure(isShortWait: $isShortWait)';
-}
-
-/// The answer is one this version of the app cannot show (a status it does not know, or 426):
-/// "This needs a newer Look Up". `CHOOSE_STATION` is the chooser since Phase 6, so this failure no
-/// longer has a several-stations wording (P6 design §2.15).
+/// The answer is one this version of the app cannot show (a status it does not know): "This needs
+/// a newer Look Up". `CHOOSE_STATION` is the chooser since Phase 6, so this failure no longer has a
+/// several-stations wording, and a 426 is "Please update the app" (P6 design §2.15). "No
+/// connection" and "Too many tries" are retired: their clips go to Saved offline (T24′, T27′).
 final class NewerAppNeededFailure extends RecognitionFailure {
   const NewerAppNeededFailure();
 

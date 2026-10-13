@@ -38,6 +38,9 @@ enum AppRoute {
   /// "Which station?", for `chooseStation` (P6 design §2.6).
   chooseStation('/choose-station', isFlowRoute: true),
 
+  /// Saved offline, for `savedOffline` (P6 design §2.8).
+  savedOffline('/saved-offline', isFlowRoute: true),
+
   /// Result, for `matched` and `fallback`.
   result('/result', isFlowRoute: true),
 
@@ -98,6 +101,7 @@ enum AppRoute {
     RecordingState() => listening,
     UploadingState() => identifying,
     ChooseStationState() => chooseStation,
+    SavedOfflineState() => savedOffline,
     MatchedState() || FallbackState() => result,
     NoMatchState() => noMatch,
     BusyState() => busy,

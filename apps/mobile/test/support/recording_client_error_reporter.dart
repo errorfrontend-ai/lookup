@@ -41,6 +41,12 @@ class RecordingClientErrorReporter implements ClientErrorReporter {
     return waiting.future;
   }
 
+  /// The outbox's queue, when the code under test attaches one; a recorded report never uses it.
+  UnsentClientErrorReportQueue? attachedQueue;
+
+  @override
+  void attachUnsentReportQueue(UnsentClientErrorReportQueue queue) => attachedQueue = queue;
+
   @override
   Future<ClientErrorReportOutcome> report({
     required ClientErrorKind kind,

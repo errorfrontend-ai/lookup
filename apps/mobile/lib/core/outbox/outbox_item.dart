@@ -7,7 +7,8 @@ import 'outbox_item_kind.dart';
 /// number, a label, a link, free text, the install id or the token (§3.8).
 ///
 /// Sealed, so the sender and the index file handle every kind with no default branch. Piece 1 has
-/// station choices; the other kinds of [OutboxItemKind] arrive with the pieces that queue them.
+/// station choices, piece 3 clips and crash reports; taps and reports arrive with the pieces that
+/// queue them.
 sealed class OutboxItem {
   const OutboxItem({
     required this.itemId,
@@ -45,6 +46,10 @@ sealed class OutboxItem {
   /// This item waiting until [nextAttemptAt] instead, with no attempt counted: a wait the phone's
   /// clock stretched, cut back (§3.9 point 9).
   OutboxItem withNextAttemptAt(DateTime nextAttemptAt);
+
+  /// This item with no wait of its own and no attempt counted: the network came back, so a wait
+  /// that came from "no answer" has lost its reason (§3.9 point 9).
+  OutboxItem withoutWait();
 }
 
 /// The listener's choice in "Which station?" (T44): `POST /recognitions/{recognition_id}/choice`
@@ -100,9 +105,215 @@ final class StationChoiceItem extends OutboxItem {
   );
 
   @override
+  StationChoiceItem withoutWait() => StationChoiceItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    attemptCount: attemptCount,
+    lastProblem: lastProblem,
+  );
+
+  @override
   String toString() =>
       'StationChoiceItem($itemId, recognition $recognitionId, station $stationId, '
       'attempts $attemptCount)';
+}
+
+/// A clip kept on the phone because the live send got no answer, stayed busy or was limited (T21′,
+/// T24′, T27′, T31′), sent later with `is_deferred` "true" (contract R1, R2). The recording itself
+/// is the file [audioFileName] in the outbox's `clips/` folder, written and flushed before the item
+/// was added; the item never holds the audio.
+///
+/// It keeps the live send's [idempotencyKey], [capturedAt] and [stationHintId], so a resend is the
+/// same clip to the server, whose recognition is replayed rather than made twice (P6-OUTBOX-03).
+/// Deleted unsent 23 hours 58 minutes after [capturedAt] by the phone's clock, or at once when
+/// [capturedAt] is more than 2 minutes ahead of the clock (P6-D37).
+final class DeferredClipItem extends OutboxItem {
+  const DeferredClipItem({
+    required super.itemId,
+    required super.queuedAt,
+    required this.idempotencyKey,
+    required this.capturedAt,
+    required this.clipDurationMilliseconds,
+    required this.codec,
+    required this.audioFileName,
+    required this.audioSizeBytes,
+    required this.savedReason,
+    this.stationHintId,
+    super.attemptCount,
+    super.nextAttemptAt,
+    super.lastProblem,
+  });
+
+  /// The key made when the clip was captured (lower-case UUID), sent on every attempt.
+  @override
+  final String idempotencyKey;
+
+  /// When the phone recorded the clip, by its own clock, in UTC: the `captured_at` of every send,
+  /// and what orders the clips (contract R7).
+  final DateTime capturedAt;
+
+  /// The clip's length, as the live send gave it.
+  final int clipDurationMilliseconds;
+
+  /// The contract's codec name, e.g. `aac`.
+  final String codec;
+
+  /// "My station" when the clip was captured, or null; never read again at send time (contract
+  /// §1.2).
+  final String? stationHintId;
+
+  /// The recording's file name inside `outbox/clips/`, e.g. `<idempotency key>.m4a`.
+  final String audioFileName;
+
+  /// The recording's size in bytes, as written.
+  final int audioSizeBytes;
+
+  /// Why the live flow kept it, for the Saved screen's words.
+  final DeferredClipSavedReason savedReason;
+
+  @override
+  OutboxItemKind get kind => OutboxItemKind.deferredClip;
+
+  @override
+  DeferredClipItem retried({
+    required DateTime? nextAttemptAt,
+    required OutboxItemProblem? lastProblem,
+  }) =>
+      _copy(attemptCount: attemptCount + 1, nextAttemptAt: nextAttemptAt, lastProblem: lastProblem);
+
+  @override
+  DeferredClipItem withNextAttemptAt(DateTime nextAttemptAt) =>
+      _copy(attemptCount: attemptCount, nextAttemptAt: nextAttemptAt, lastProblem: lastProblem);
+
+  @override
+  DeferredClipItem withoutWait() =>
+      _copy(attemptCount: attemptCount, nextAttemptAt: null, lastProblem: lastProblem);
+
+  DeferredClipItem _copy({
+    required int attemptCount,
+    required DateTime? nextAttemptAt,
+    required OutboxItemProblem? lastProblem,
+  }) => DeferredClipItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    idempotencyKey: idempotencyKey,
+    capturedAt: capturedAt,
+    clipDurationMilliseconds: clipDurationMilliseconds,
+    codec: codec,
+    stationHintId: stationHintId,
+    audioFileName: audioFileName,
+    audioSizeBytes: audioSizeBytes,
+    savedReason: savedReason,
+    attemptCount: attemptCount,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  String toString() =>
+      'DeferredClipItem($itemId, key $idempotencyKey, captured $capturedAt, attempts $attemptCount)';
+}
+
+/// Why the live flow kept a clip for later (P6 design §2.8): the Saved screen's three reasons.
+enum DeferredClipSavedReason {
+  /// No answer to the live send (T27′).
+  noConnection('NO_CONNECTION'),
+
+  /// Busy on the fourth send, or the app hidden during Busy (T21′, T31′).
+  busy('BUSY'),
+
+  /// A 429 to the live send (T24′).
+  tooManyTries('TOO_MANY_TRIES');
+
+  const DeferredClipSavedReason(this.storedName);
+
+  /// The name written in the index file.
+  final String storedName;
+
+  /// The reason stored as [storedName], or null.
+  static DeferredClipSavedReason? fromStoredName(Object? storedName) {
+    for (final reason in values) {
+      if (reason.storedName == storedName) return reason;
+    }
+    return null;
+  }
+}
+
+/// A crash report that got no answer (P6 design §3.20; P6-ERRORREPORTING-05): the fields the
+/// reporter had already scrubbed, with [occurredAt], sent to `POST /client-errors` with [reportId]
+/// as its `X-Request-Id` on every attempt (P6-D43). It never carries the install token.
+final class ClientErrorReportItem extends OutboxItem {
+  ClientErrorReportItem({
+    required super.itemId,
+    required super.queuedAt,
+    required this.reportId,
+    required this.occurredAt,
+    required Map<String, String> fields,
+    super.attemptCount,
+    super.nextAttemptAt,
+    super.lastProblem,
+  }) : fields = Map.unmodifiable(fields);
+
+  /// A lower-case version-4 UUID made when the report was queued.
+  final String reportId;
+
+  /// When the error happened, by the phone's clock, in UTC: the body's `occurredAt`.
+  final DateTime occurredAt;
+
+  /// The report's body as the reporter built it (`source`, `kind`, `message`, and `stack`,
+  /// `location`, `relatedRequestId`, `appVersion` when present), already scrubbed.
+  final Map<String, String> fields;
+
+  @override
+  OutboxItemKind get kind => OutboxItemKind.clientErrorReport;
+
+  /// The report's id: the same `X-Request-Id` on every send, so the API's log shows one report
+  /// even when an answer was lost (P6-OUTBOX-03 for crash reports).
+  @override
+  String get idempotencyKey => reportId;
+
+  @override
+  ClientErrorReportItem retried({
+    required DateTime? nextAttemptAt,
+    required OutboxItemProblem? lastProblem,
+  }) => ClientErrorReportItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    reportId: reportId,
+    occurredAt: occurredAt,
+    fields: fields,
+    attemptCount: attemptCount + 1,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  ClientErrorReportItem withNextAttemptAt(DateTime nextAttemptAt) => ClientErrorReportItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    reportId: reportId,
+    occurredAt: occurredAt,
+    fields: fields,
+    attemptCount: attemptCount,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  ClientErrorReportItem withoutWait() => ClientErrorReportItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    reportId: reportId,
+    occurredAt: occurredAt,
+    fields: fields,
+    attemptCount: attemptCount,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  String toString() => 'ClientErrorReportItem($itemId, report $reportId, attempts $attemptCount)';
 }
 
 /// Why the last send of an item did not settle it (P6 design §3.8 `last_problem`), which History's

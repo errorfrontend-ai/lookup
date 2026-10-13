@@ -1,14 +1,21 @@
 import 'dart:io' show Directory;
 import 'dart:math';
 
+import 'package:device_services/device_services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:lookup_listener/app/deferred_result_handler.dart';
+import 'package:lookup_listener/app/device_services_lock_take_over.dart';
 import 'package:lookup_listener/app/engine_identity.dart';
 import 'package:lookup_listener/app/history_answer_reader.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
+import 'package:lookup_listener/core/device/network_watcher.dart';
+import 'package:lookup_listener/core/device/notification_permission.dart';
+import 'package:lookup_listener/core/error_reporting/client_error_report_sender.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/error_reporting/development_log.dart';
+import 'package:lookup_listener/core/files/owned_lock_file.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
@@ -22,12 +29,16 @@ import 'package:lookup_listener/core/time/clock.dart';
 import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/history/data/history_repository.dart';
 import 'package:lookup_listener/features/history/data/history_store.dart';
+import 'package:lookup_listener/features/history/domain/history_waiting_clip.dart';
+import 'package:lookup_listener/features/identify/data/deferred_clip_sender.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
 import 'package:lookup_listener/features/identify/data/station_choice_sender.dart';
+import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/settings/data/settings_providers.dart';
 import 'package:lookup_listener/features/settings/data/station_list_cache.dart';
 import 'package:lookup_listener/features/settings/data/station_list_repository.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// The app's one clock (design §3.5): wall-clock time for the API and a monotonic one for waits.
@@ -97,6 +108,49 @@ final Provider<EngineIdentity> engineIdentityProvider = Provider<EngineIdentity>
   retry: (retryCount, error) => null,
 );
 
+/// The in-repo `device_services` plugin (P6 design §3.15): notifications, the network, attached
+/// engines. Tests override it with `FakeDeviceServices`.
+final Provider<DeviceServices> deviceServicesProvider = Provider<DeviceServices>(
+  (ref) => const DeviceServices(),
+  retry: (retryCount, error) => null,
+);
+
+/// How the lock files of the outbox and History judge a lock another engine of this process may
+/// hold (P6 design §3.8): the plugin's one step for the whole process, or, where it keeps no record
+/// of engines, this engine as the only one.
+final Provider<LockTakeOver> lockTakeOverProvider = Provider<LockTakeOver>(
+  (ref) => DeviceServicesLockTakeOver(
+    deviceServices: ref.watch(deviceServicesProvider),
+    fallback: LocalLockTakeOver(attachedEngineIds: {ref.watch(engineIdentityProvider).engineId}),
+  ),
+  retry: (retryCount, error) => null,
+);
+
+/// Whether Android reports a network, and when one comes back (P6 design §3.9). Started at start-up.
+final Provider<NetworkWatcher> networkWatcherProvider = Provider<NetworkWatcher>((ref) {
+  final watcher = NetworkWatcher(deviceServices: ref.watch(deviceServicesProvider));
+  ref.onDispose(watcher.dispose);
+  return watcher;
+}, retry: (retryCount, error) => null);
+
+/// The app's words outside any screen: the notification's (P6 design §2.16). The app is English
+/// only (the user's decision, 13 October 2026).
+final Provider<AppLocalizations> appWordsProvider = Provider<AppLocalizations>(
+  (ref) => lookupAppLocalizations(AppLocalizations.supportedLocales.first),
+  retry: (retryCount, error) => null,
+);
+
+/// Where a saved clip's outcome goes: History, then the notification (P6 design §3.11).
+final Provider<DeferredResultHandler> deferredResultHandlerProvider =
+    Provider<DeferredResultHandler>(
+      (ref) => DeferredResultHandler(
+        history: ref.watch(historyRepositoryProvider),
+        deviceServices: ref.watch(deviceServicesProvider),
+        words: ref.watch(appWordsProvider),
+      ),
+      retry: (retryCount, error) => null,
+    );
+
 /// Where the outbox lives: the `outbox` folder of the app's support folder (P6 design §3.8). Tests
 /// point it at a temporary folder.
 final Provider<Future<Directory> Function()> outboxFolderLocatorProvider =
@@ -142,12 +196,22 @@ final Provider<Random> outboxRandomProvider = Provider<Random>(
 );
 
 /// The outbox's sender, one run at a time per engine (P6 design §3.9), with the sender of each kind
-/// the app queues: station choices so far (piece 1).
+/// the app queues: station choices (piece 1), saved clips and crash reports (piece 3).
 final Provider<OutboxSender> outboxSenderProvider = Provider<OutboxSender>(
   (ref) => OutboxSender(
     store: ref.watch(outboxStoreProvider),
     itemSenders: {
       OutboxItemKind.stationChoice: StationChoiceSender(
+        apiClient: ref.watch(apiClientProvider),
+        clock: ref.watch(clockProvider),
+      ),
+      OutboxItemKind.deferredClip: DeferredClipSender(
+        apiClient: ref.watch(apiClientProvider),
+        store: ref.watch(outboxStoreProvider),
+        resultSink: ref.watch(deferredResultHandlerProvider),
+        clock: ref.watch(clockProvider),
+      ),
+      OutboxItemKind.clientErrorReport: ClientErrorReportSender(
         apiClient: ref.watch(apiClientProvider),
         clock: ref.watch(clockProvider),
       ),
@@ -159,7 +223,16 @@ final Provider<OutboxSender> outboxSenderProvider = Provider<OutboxSender>(
     clock: ref.watch(clockProvider),
     // No outbox send starts while the listener's own identify records, sends or waits (§3.9).
     isLiveIdentifyUnderWay: () => ref.read(recognitionFlowProvider).isLiveIdentifyUnderWay,
+    // Nor while Android reports no network at all (§3.9 point 7).
+    isNetworkAvailable: () => ref.read(networkWatcherProvider).isNetworkAvailable,
+    onClipsExpired: ref.watch(deferredResultHandlerProvider).recordExpiredClips,
   ),
+  retry: (retryCount, error) => null,
+);
+
+/// The interface the identify feature hands a saved clip's outcome to.
+final Provider<DeferredResultSink> deferredResultSinkProvider = Provider<DeferredResultSink>(
+  (ref) => ref.watch(deferredResultHandlerProvider),
   retry: (retryCount, error) => null,
 );
 
@@ -169,6 +242,7 @@ final Provider<OutboxRunScheduler> outboxRunSchedulerProvider = Provider<OutboxR
   final scheduler = OutboxRunScheduler(
     sender: ref.watch(outboxSenderProvider),
     itemsQueued: ref.watch(outboxStoreProvider).itemsQueued,
+    networkBack: ref.watch(networkWatcherProvider).networkBack,
     clock: ref.watch(clockProvider),
   );
   ref.onDispose(scheduler.dispose);
@@ -193,34 +267,42 @@ List<Override> get appServiceOverrides => [
   recognitionClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
   recognitionRandomUuidProvider.overrideWith((ref) => ref.watch(randomUuidProvider)),
   outboxStoreProvider.overrideWith((ref) {
-    final engineIdentity = ref.watch(engineIdentityProvider);
-    return OutboxStore(
+    final clientErrorReporter = ref.watch(clientErrorReporterProvider);
+    final store = OutboxStore(
       locateFolder: ref.watch(outboxFolderLocatorProvider),
-      lockOwner: engineIdentity.lockOwner,
-      isEngineAttached: engineIdentity.isEngineAttached,
+      lockOwner: ref.watch(engineIdentityProvider).lockOwner,
+      lockTakeOver: ref.watch(lockTakeOverProvider),
       clock: ref.watch(clockProvider),
       randomUuid: ref.watch(randomUuidProvider),
-      clientErrorReporter: ref.watch(clientErrorReporterProvider),
+      clientErrorReporter: clientErrorReporter,
     );
+    // A crash report that gets no answer waits here to be sent later (P6 design §3.20).
+    clientErrorReporter.attachUnsentReportQueue(store.queueClientErrorReport);
+    return store;
   }),
   historyRepositoryProvider.overrideWith((ref) {
-    final engineIdentity = ref.watch(engineIdentityProvider);
     final clock = ref.watch(clockProvider);
     final clientErrorReporter = ref.watch(clientErrorReporterProvider);
+    final outboxStore = ref.watch(outboxStoreProvider);
     return HistoryRepository(
       store: HistoryStore(
         locateFolder: ref.watch(historyFolderLocatorProvider),
-        lockOwner: engineIdentity.lockOwner,
-        isEngineAttached: engineIdentity.isEngineAttached,
+        lockOwner: ref.watch(engineIdentityProvider).lockOwner,
+        lockTakeOver: ref.watch(lockTakeOverProvider),
         clock: clock,
         clientErrorReporter: clientErrorReporter,
       ),
       answerReader: const HistoryAnswerReader(),
       clientErrorReporter: clientErrorReporter,
       clock: clock,
+      readWaitingClips: () async => waitingClipsIn(await outboxStore.read()),
+      waitingClipsChanged: outboxStore.changed,
     );
   }),
   historyClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
+  notificationPermissionProvider.overrideWith(
+    (ref) => NotificationPermission(deviceServices: ref.watch(deviceServicesProvider)),
+  ),
   stationListRepositoryProvider.overrideWith(
     (ref) => StationListRepository(
       apiClient: ref.watch(apiClientProvider),
@@ -230,4 +312,27 @@ List<Override> get appServiceOverrides => [
       clock: ref.watch(clockProvider),
     ),
   ),
+];
+
+/// The clips [index] holds, as History's "Waiting for signal" rows show them (P6 design §2.9): why
+/// each waits, from the last answer it got: the outbox's last problem, the update gate, or, before
+/// the outbox has tried it, the live answer it was saved after.
+List<HistoryWaitingClip> waitingClipsIn(OutboxIndex index) => [
+  for (final clip in index.clips)
+    HistoryWaitingClip(
+      idempotencyKey: clip.idempotencyKey,
+      capturedAtOnPhone: clip.capturedAt,
+      status: index.updatePause != null
+          ? HistoryWaitingClipStatus.waitingForUpdate
+          : switch (clip.lastProblem) {
+              OutboxItemProblem.busy || OutboxItemProblem.limited => HistoryWaitingClipStatus.busy,
+              OutboxItemProblem.updateRequired => HistoryWaitingClipStatus.waitingForUpdate,
+              OutboxItemProblem.noAnswer => HistoryWaitingClipStatus.waitingForSignal,
+              null => switch (clip.savedReason) {
+                DeferredClipSavedReason.noConnection => HistoryWaitingClipStatus.waitingForSignal,
+                DeferredClipSavedReason.busy ||
+                DeferredClipSavedReason.tooManyTries => HistoryWaitingClipStatus.busy,
+              },
+            },
+    ),
 ];

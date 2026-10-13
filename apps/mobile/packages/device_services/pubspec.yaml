@@ -1,0 +1,24 @@
+name: device_services
+description: >-
+  Look Up's own Android services for the listener app (P6 design §3.15): result notifications and the
+  recognition id their tap carries, the network's state, and which Dart engines of the process are
+  attached, for the outbox's lock files. Android framework only, so nothing is downloaded.
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.11.5
+  flutter: ">=3.41.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: zm.lookup.device_services
+        pluginClass: DeviceServicesPlugin
+      ios:
+        pluginClass: DeviceServicesPlugin

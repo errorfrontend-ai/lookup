@@ -1027,6 +1027,198 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS must be 30 outside the development flavour.'**
   String get configurationProblemOutboxBackoffFirstWaitOutsideDevelopment;
+
+  /// The Saved screen's primary button: back to Home, the clip still waiting (P6-OFFLINE-28).
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get okButton;
+
+  /// A saved clip's notification title. Never a brand, ad, station or outcome: it shows on a locked phone (amendment A6).
+  ///
+  /// In en, this message translates to:
+  /// **'Look Up'**
+  String get savedClipNotificationTitle;
+
+  /// A saved clip's notification text, the same for every outcome; its tap opens the result inside the app (amendment A6).
+  ///
+  /// In en, this message translates to:
+  /// **'Your saved clip has been checked. Tap to see the result.'**
+  String get savedClipNotificationText;
+
+  /// The name of the notification channel in the phone's settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved clip results'**
+  String get savedClipNotificationChannelName;
+
+  /// What the notification channel is for, in the phone's settings.
+  ///
+  /// In en, this message translates to:
+  /// **'When a clip saved with no signal has been checked'**
+  String get savedClipNotificationChannelDescription;
+
+  /// The Saved screen's heading when the clip got no answer (P6-OFFLINE-24).
+  ///
+  /// In en, this message translates to:
+  /// **'Saved — we\'ll identify it when you\'re back online'**
+  String get savedOfflineHeadingNoConnection;
+
+  /// The Saved screen's text when the clip got no answer.
+  ///
+  /// In en, this message translates to:
+  /// **'No signal right now. Your clip stays on this phone for up to 24 hours and is deleted as soon as it\'s sent.'**
+  String get savedOfflineBodyNoConnection;
+
+  /// The Saved screen's heading when Look Up stayed busy, or the app was left while it was (P6-OFFLINE-25).
+  ///
+  /// In en, this message translates to:
+  /// **'Saved — we\'ll identify it when Look Up is less busy'**
+  String get savedOfflineHeadingBusy;
+
+  /// The Saved screen's text when Look Up stayed busy.
+  ///
+  /// In en, this message translates to:
+  /// **'Lots of people are listening right now. Your clip stays on this phone for up to 24 hours and is deleted as soon as it\'s sent.'**
+  String get savedOfflineBodyBusy;
+
+  /// The Saved screen's heading after too many tries in a short time (P6-OFFLINE-26).
+  ///
+  /// In en, this message translates to:
+  /// **'Saved — we\'ll identify it a little later'**
+  String get savedOfflineHeadingTooManyTries;
+
+  /// The Saved screen's text after too many tries.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve identified a lot in a short time. Your clip stays on this phone for up to 24 hours and is deleted as soon as it\'s sent.'**
+  String get savedOfflineBodyTooManyTries;
+
+  /// Shown on the Saved screen only when a sixth clip pushed out the oldest waiting one (P6-D6).
+  ///
+  /// In en, this message translates to:
+  /// **'You had 5 clips waiting, so the oldest one was deleted.'**
+  String get savedOfflineOldestClipDeleted;
+
+  /// The Saved screen's bell panel when notifications are allowed (P6-OFFLINE-27).
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ll get a notification with the result, including the station\'s buttons.'**
+  String get savedOfflineNotificationsAllowed;
+
+  /// The Saved screen's bell panel on Android 13 or later before the listener was asked.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow notifications to hear when the result is ready.'**
+  String get savedOfflineNotificationsNotAsked;
+
+  /// The button that asks the phone for permission to post notifications (T50).
+  ///
+  /// In en, this message translates to:
+  /// **'Allow notifications'**
+  String get savedOfflineAllowNotificationsButton;
+
+  /// The Saved screen's bell panel when notifications are refused or turned off.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications are off for Look Up, so the result will wait in History.'**
+  String get savedOfflineNotificationsOff;
+
+  /// The Saved screen's second button: the History tab, where the clip shows as Pending (P6-OFFLINE-29).
+  ///
+  /// In en, this message translates to:
+  /// **'See it in History'**
+  String get savedOfflineSeeInHistoryButton;
+
+  /// History's first section, shown only while at least one clip waits (P6-HISTORY-04).
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for signal'**
+  String get historyWaitingHeading;
+
+  /// A waiting or unidentified clip's row title, e.g. "Clip from today, 14:32".
+  ///
+  /// In en, this message translates to:
+  /// **'Clip from {dayAndTime}'**
+  String historyClipFrom(String dayAndTime);
+
+  /// The day label "Today" inside a sentence, e.g. "Clip from today, 14:32".
+  ///
+  /// In en, this message translates to:
+  /// **'today'**
+  String get dayTodayInSentence;
+
+  /// The day label "Yesterday" inside a sentence, e.g. "Clip from yesterday, 18:40".
+  ///
+  /// In en, this message translates to:
+  /// **'yesterday'**
+  String get dayYesterdayInSentence;
+
+  /// A waiting clip's subtitle after no answer, or before any try.
+  ///
+  /// In en, this message translates to:
+  /// **'Will identify when you\'re back online'**
+  String get historyWaitingForSignal;
+
+  /// A waiting clip's subtitle after a busy or limited answer.
+  ///
+  /// In en, this message translates to:
+  /// **'Look Up is busy — will try again soon'**
+  String get historyWaitingBusy;
+
+  /// A waiting clip's subtitle while the update gate holds the outbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for a newer version of Look Up'**
+  String get historyWaitingForUpdate;
+
+  /// The badge on a waiting clip, always in words (P6-ACCESSIBILITY-04).
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get historyPendingBadge;
+
+  /// The row of a saved clip that was on more than one station; its tap opens "Which station?".
+  ///
+  /// In en, this message translates to:
+  /// **'Choose your station to see the buttons'**
+  String get historyAwaitingChoiceDetail;
+
+  /// The row of a saved clip that was not recognised.
+  ///
+  /// In en, this message translates to:
+  /// **'Not recognised'**
+  String get historyNotRecognised;
+
+  /// The row of a saved clip deleted unsent after 24 hours.
+  ///
+  /// In en, this message translates to:
+  /// **'Not sent within 24 hours — deleted'**
+  String get historyNotSentWithin24Hours;
+
+  /// The row of a saved clip that could not be checked (its time was wrong, or the answer could not be read).
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t be checked — deleted'**
+  String get historyCouldNotBeChecked;
+
+  /// The Permission screen's second promise (P6-PERMISSION-01).
+  ///
+  /// In en, this message translates to:
+  /// **'No signal? The clip waits on your phone and is deleted once it\'s sent — never kept longer than 24 hours.'**
+  String get permissionPromiseOfflineClip;
+
+  /// The heading when this version is too old for Look Up (426, P6-COMPATIBILITY-02).
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app'**
+  String get errorPleaseUpdateHeading;
+
+  /// The text under "Please update the app".
+  ///
+  /// In en, this message translates to:
+  /// **'This version of Look Up is too old to identify ads.'**
+  String get errorPleaseUpdateExplanation;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

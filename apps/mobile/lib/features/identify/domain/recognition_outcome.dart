@@ -1,6 +1,6 @@
-import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_problem_report.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 import 'package:lookup_listener/features/identify/domain/send_policy.dart';
 
 /// What the flow does after one send, as `SendPolicy` decided it from the answer (§3.11, S4-D10).
@@ -19,8 +19,8 @@ sealed class RecognitionOutcome {
   bool get isClipKept;
 }
 
-/// The identify is over for this clip: show [nextState] (matched, fallback, no match, idle after a
-/// cancel, or an error other than "no connection") and drop the clip.
+/// The identify is over for this clip: show [nextState] (matched, fallback, no match, the chooser,
+/// idle after a cancel, or an error) and drop the clip.
 final class FinishedOutcome extends RecognitionOutcome {
   const FinishedOutcome(this.nextState, {this.problemReport});
 
@@ -34,17 +34,30 @@ final class FinishedOutcome extends RecognitionOutcome {
   bool get isClipKept => false;
 }
 
-/// No answer came back: show "No connection" and keep the clip, so "Send again" resends it with
-/// the same key, which the server answers as a replay if it had it (S4-D12). The counts do not
-/// move: nothing was answered.
-final class ConnectionLostOutcome extends RecognitionOutcome {
-  const ConnectionLostOutcome();
+/// The clip cannot be identified now (no answer, too many tries, still busy on the fourth send):
+/// it goes to the outbox with its key, recording, capture time and hint, which sends it later
+/// (contract R1; T21′, T24′, T27′). The flow writes it before it shows Saved offline, so the clip
+/// is kept until then.
+final class SaveForLaterOutcome extends RecognitionOutcome {
+  const SaveForLaterOutcome({required this.reason});
 
+  final SavedClipReason reason;
+
+  /// What shows once the clip is written; the flow says whether the oldest clip made room.
   @override
-  RecognitionState get nextState => const ErrorState(failure: ConnectionFailure());
+  RecognitionState get nextState => SavedOfflineState(reason: reason, wasOldestClipDeleted: false);
 
   @override
   bool get isClipKept => true;
+
+  @override
+  bool operator ==(Object other) => other is SaveForLaterOutcome && other.reason == reason;
+
+  @override
+  int get hashCode => Object.hash(SaveForLaterOutcome, reason);
+
+  @override
+  String toString() => 'SaveForLaterOutcome(reason: ${reason.name})';
 }
 
 /// The API had no room (502, 503, 504): show Busy counting down [retryDelaySeconds], keep the

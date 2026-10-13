@@ -11,4 +11,8 @@ abstract interface class StoredAnswerReader {
   /// [chosenStationId]. Null when this version cannot read the answer, or the chosen station is not
   /// among its candidates. Never throws.
   RecognitionResult? readResult(Object? answer, {String? chosenStationId});
+
+  /// The candidates of a `CHOOSE_STATION` [answer], in the server's order, each with its card; null
+  /// when this version cannot read it as a chooser. Never throws.
+  List<RecognitionResult>? readCandidates(Object? answer);
 }

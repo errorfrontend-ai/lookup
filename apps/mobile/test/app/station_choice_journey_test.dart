@@ -7,12 +7,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/core/outbox/outbox_index_file.dart';
 import 'package:lookup_listener/core/outbox/outbox_store.dart';
-import 'package:lookup_listener/core/time/clock.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
 import '../support/received_multipart_form.dart';
 import 'listener_app_harness.dart';
+import 'test_time_clock.dart';
 
 const String _recognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
 const String _stationBId = '0192a6c4-1111-4000-8000-000000000002';
@@ -24,11 +24,6 @@ const String _stationBId = '0192a6c4-1111-4000-8000-000000000002';
 void main() {
   late Directory outboxFolder;
 
-  setUp(() {
-    outboxFolder = Directory.systemTemp.createTempSync('station_choice_journey_');
-    addTearDown(() => outboxFolder.deleteSync(recursive: true));
-  });
-
   List<OutboxItem> outboxItems() => switch (OutboxIndexFile(outboxFolder).read()) {
     OutboxIndexRead(:final index) => index.items,
     _ => const [],
@@ -38,13 +33,13 @@ void main() {
   /// does after the first frame, then identifies and gets the chooser of `choose-station.json`.
   Future<ListenerAppHarness> showChooser(WidgetTester tester) async {
     final harness = ListenerAppHarness();
+    outboxFolder = harness.outboxFolder;
     harness.answerWithResponseFixture('valid/choose-station');
     await harness.pumpApp(
       tester,
       extraOverrides: [
         // The outbox's waits are wall-clock times: the clock follows the test's fake time.
-        clockProvider.overrideWithValue(_TestTimeClock(tester)),
-        outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
+        clockProvider.overrideWithValue(TestTimeClock(tester)),
         outboxRandomProvider.overrideWithValue(Random(11)),
       ],
     );
@@ -157,19 +152,4 @@ void main() {
     expect(find.text('via Station B · 104.3 FM'), findsOneWidget);
     expect(find.text('Which station are you listening to?'), findsNothing);
   });
-}
-
-/// The wall clock and the monotonic clock of the widget test's fake time, so a wait the outbox
-/// stores as a time of day falls due when the test's timers say it has passed.
-class _TestTimeClock implements Clock {
-  _TestTimeClock(this._tester) : _startedAt = _tester.binding.clock.now();
-
-  final WidgetTester _tester;
-  final DateTime _startedAt;
-
-  @override
-  DateTime now() => _tester.binding.clock.now().toUtc();
-
-  @override
-  Duration monotonicElapsed() => _tester.binding.clock.now().difference(_startedAt);
 }

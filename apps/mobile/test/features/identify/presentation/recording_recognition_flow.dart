@@ -32,9 +32,6 @@ class RecordingRecognitionFlow extends RecognitionFlow {
   Future<void> tryNow() async => calls.add('tryNow');
 
   @override
-  Future<void> sendAgain() async => calls.add('sendAgain');
-
-  @override
   Future<void> tryAgain() async => calls.add('tryAgain');
 
   @override

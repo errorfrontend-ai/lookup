@@ -1,11 +1,11 @@
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 
 /// Where one identify stands: the nine top-level states of §2.12 (S4-STATE-03, S4-D4), and from
-/// Phase 6 "Which station?" (P6-STATE-01; the tenth; Saved offline, the eleventh, comes with the
-/// outbox's clips in piece 3).
+/// Phase 6 "Which station?" and "Saved offline" (P6-STATE-01: eleven).
 ///
 /// Sealed, with every subclass in this one library, so the router's redirect and every screen
 /// selector are exhaustive switches with no default branch: a new state cannot compile without
@@ -22,6 +22,7 @@ sealed class RecognitionState {
     IdleState() ||
     PermissionNeededState() ||
     ChooseStationState() ||
+    SavedOfflineState() ||
     MatchedState() ||
     FallbackState() ||
     NoMatchState() ||
@@ -248,4 +249,29 @@ final class ErrorState extends RecognitionState {
 
   @override
   String toString() => 'ErrorState($failure)';
+}
+
+/// Saved offline (P6 design §2.8; T21′, T24′, T27′, T31′): the clip is in the outbox, written and
+/// flushed before this state shows, so "Saved" is always true; the outbox sends it later.
+final class SavedOfflineState extends RecognitionState {
+  const SavedOfflineState({required this.reason, required this.wasOldestClipDeleted});
+
+  /// Why it was kept: the screen's icon, heading and text.
+  final SavedClipReason reason;
+
+  /// Whether a sixth clip pushed out the oldest waiting one, which the screen says (P6-D6).
+  final bool wasOldestClipDeleted;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SavedOfflineState &&
+      other.reason == reason &&
+      other.wasOldestClipDeleted == wasOldestClipDeleted;
+
+  @override
+  int get hashCode => Object.hash(SavedOfflineState, reason, wasOldestClipDeleted);
+
+  @override
+  String toString() =>
+      'SavedOfflineState(reason: ${reason.name}, wasOldestClipDeleted: $wasOldestClipDeleted)';
 }

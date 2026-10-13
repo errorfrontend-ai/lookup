@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,7 +36,7 @@ void main() {
   OutboxStore storeFor(LockFileOwner owner, {Directory? outboxFolder}) => OutboxStore(
     locateFolder: () async => outboxFolder ?? folder,
     lockOwner: owner,
-    isEngineAttached: {_engineA.engineId, _engineB.engineId}.contains,
+    lockTakeOver: LocalLockTakeOver(attachedEngineIds: {_engineA.engineId, _engineB.engineId}),
     clock: clock,
     randomUuid: RandomUuid(),
     clientErrorReporter: reporter,
@@ -291,10 +292,13 @@ void main() {
       final lockOfB = OwnedLockFile(
         file: File('${folder.path}/index.lock'),
         owner: _engineB,
-        isEngineAttached: {_engineA.engineId, _engineB.engineId}.contains,
+        lockTakeOver: LocalLockTakeOver(attachedEngineIds: {_engineA.engineId, _engineB.engineId}),
         clock: clock,
       );
-      expect(lockOfB.tryTake(), isTrue);
+      var isTaken = false;
+      unawaited(lockOfB.tryTake().then((value) => isTaken = value));
+      fakeAsync.flushMicrotasks();
+      expect(isTaken, isTrue);
       final lockLineOfB = File('${folder.path}/index.lock').readAsStringSync();
 
       Object? failureOfA;
@@ -331,6 +335,175 @@ void main() {
         _recognitionTwo,
         _recognitionOne,
       ]);
+    });
+  });
+
+  group('saved clips (P6 design §3.8; P6-OFFLINE-01, -03, -04; contract R1)', () {
+    const keyOne = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c21';
+    final audio = List<int>.generate(2400, (index) => index % 251);
+
+    Future<QueuedDeferredClip> queueClip(
+      OutboxStore store,
+      String key, {
+      DateTime? capturedAt,
+      List<int>? audioBytes,
+    }) => store.queueDeferredClip(
+      idempotencyKey: key,
+      capturedAt: capturedAt ?? DateTime.utc(2026, 10, 8, 11, 59),
+      clipDurationMilliseconds: 8000,
+      codec: 'aac',
+      stationHintId: _stationA,
+      audioBytes: audioBytes ?? audio,
+      savedReason: DeferredClipSavedReason.noConnection,
+    );
+
+    test(
+      'the recording is in clips/<key>.m4a, byte for byte, before the item is announced',
+      () async {
+        final store = storeFor(_engineA);
+        final announcedWithFile = <bool>[];
+        final clipFile = File('${folder.path}/clips/$keyOne.m4a');
+        store.itemsQueued.listen((_) => announcedWithFile.add(clipFile.existsSync()));
+
+        final queued = await queueClip(store, keyOne.toUpperCase());
+        expect(queued.isQueued, isTrue);
+        expect(queued.wasOldestClipDeleted, isFalse);
+        expect(announcedWithFile, [isTrue]);
+        expect(clipFile.readAsBytesSync(), audio);
+
+        final clip = (await store.read()).items.single as DeferredClipItem;
+        expect(clip.idempotencyKey, keyOne, reason: 'kept in lower case');
+        expect(clip.capturedAt, DateTime.utc(2026, 10, 8, 11, 59));
+        expect(clip.stationHintId, _stationA);
+        expect(clip.audioFileName, '$keyOne.m4a');
+        expect(clip.audioSizeBytes, audio.length);
+        expect(clip.queuedAt, DateTime.utc(2026, 10, 8, 12));
+        expect(await store.readClipAudio(clip), audio);
+      },
+    );
+
+    test('the same key is never queued twice', () async {
+      final store = storeFor(_engineA);
+      await queueClip(store, keyOne);
+      final again = await queueClip(store, keyOne, audioBytes: [1, 2, 3]);
+      expect(again.isQueued, isFalse);
+      expect((await store.read()).clips, hasLength(1));
+      expect(File('${folder.path}/clips/$keyOne.m4a').readAsBytesSync(), audio);
+    });
+
+    test('a key that is not a UUID is refused, and nothing is written', () async {
+      final store = storeFor(_engineA);
+      await expectLater(queueClip(store, '../../escape'), throwsArgumentError);
+      expect(Directory('${folder.path}/clips').existsSync(), isFalse);
+      expect((await store.read()).items, isEmpty);
+    });
+
+    test(
+      'a sixth clip deletes the oldest capture and its recording, and says so (P6-D6)',
+      () async {
+        final store = storeFor(_engineA);
+        final keys = [
+          for (var number = 0; number < 6; number++) '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c3$number',
+        ];
+        // Queued out of capture order: the oldest capture is the third one queued.
+        final capturedMinutesAgo = [3, 4, 9, 2, 1, 0];
+        for (var number = 0; number < 5; number++) {
+          final queued = await queueClip(
+            store,
+            keys[number],
+            capturedAt: DateTime.utc(
+              2026,
+              10,
+              8,
+              12,
+            ).subtract(Duration(minutes: capturedMinutesAgo[number])),
+          );
+          expect(queued.wasOldestClipDeleted, isFalse);
+        }
+        final sixth = await queueClip(store, keys[5], capturedAt: DateTime.utc(2026, 10, 8, 12));
+        expect(sixth.isQueued, isTrue);
+        expect(sixth.wasOldestClipDeleted, isTrue);
+
+        final waiting = (await store.read()).clips.map((clip) => clip.idempotencyKey).toSet();
+        expect(waiting, hasLength(OutboxTimingRules.maximumStoredClips));
+        expect(waiting, isNot(contains(keys[2])));
+        expect(File('${folder.path}/clips/${keys[2]}.m4a').existsSync(), isFalse);
+        expect(Directory('${folder.path}/clips').listSync(), hasLength(5));
+      },
+    );
+
+    test('a clip removed from the index loses its recording at once', () async {
+      final store = storeFor(_engineA);
+      await queueClip(store, keyOne);
+      final clip = (await store.read()).clips.single;
+      await store.modify((index) => index.withItemRemoved(clip.itemId));
+      expect(File('${folder.path}/clips/$keyOne.m4a').existsSync(), isFalse);
+      expect(await store.readClipAudio(clip), isNull);
+    });
+
+    test('the start sweep deletes recordings no item names, and items whose recording is gone, '
+        'with a report', () async {
+      final store = storeFor(_engineA);
+      const keyTwo = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c22';
+      await queueClip(store, keyOne);
+      await queueClip(store, keyTwo);
+      File('${folder.path}/clips/$keyTwo.m4a').deleteSync();
+      final orphan = File('${folder.path}/clips/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.m4a')
+        ..writeAsBytesSync([1, 2, 3]);
+
+      await store.sweepClipFiles();
+      expect(orphan.existsSync(), isFalse);
+      expect((await store.read()).clips.map((clip) => clip.idempotencyKey), [keyOne]);
+      expect(File('${folder.path}/clips/$keyOne.m4a').existsSync(), isTrue);
+      expect(reporter.reports.single.error, contains('1 waiting clips had lost'));
+    });
+
+    test('a sweep with nothing out of place changes nothing and reports nothing', () async {
+      final store = storeFor(_engineA);
+      await queueClip(store, keyOne);
+      var changes = 0;
+      store.changed.listen((_) => changes++);
+      await store.sweepClipFiles();
+      await Future<void>.delayed(Duration.zero);
+      expect(changes, 0);
+      expect(reporter.reports, isEmpty);
+    });
+  });
+
+  group('crash reports that got no answer (P6 design §3.20)', () {
+    test('are queued with their id, time and fields, and announced', () async {
+      final store = storeFor(_engineA);
+      var announced = 0;
+      store.itemsQueued.listen((_) => announced++);
+      await store.queueClientErrorReport(
+        reportId: '5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a',
+        occurredAt: DateTime.utc(2026, 10, 8, 11, 59, 58),
+        fields: const {'kind': 'reported', 'message': 'Saving the result to History failed'},
+      );
+      expect(announced, 1);
+      final item = (await store.read()).items.single as ClientErrorReportItem;
+      expect(item.reportId, '5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a');
+      expect(item.occurredAt, DateTime.utc(2026, 10, 8, 11, 59, 58));
+      expect(item.fields['message'], 'Saving the result to History failed');
+    });
+
+    test('at most 20 wait: the 21st deletes the oldest', () async {
+      final store = storeFor(_engineA);
+      for (var number = 0; number <= OutboxTimingRules.maximumQueuedClientErrorReports; number++) {
+        clock.advance(const Duration(seconds: 1));
+        await store.queueClientErrorReport(
+          reportId: 'report-$number',
+          occurredAt: clock.now(),
+          fields: const {'kind': 'reported'},
+        );
+      }
+      final ids = [
+        for (final item in (await store.read()).items)
+          if (item is ClientErrorReportItem) item.reportId,
+      ];
+      expect(ids, hasLength(OutboxTimingRules.maximumQueuedClientErrorReports));
+      expect(ids, isNot(contains('report-0')));
+      expect(ids.last, 'report-20');
     });
   });
 }

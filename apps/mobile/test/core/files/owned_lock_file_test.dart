@@ -31,13 +31,14 @@ void main() {
   Map<String, Object?> lockContent() =>
       jsonDecode(lockPath.readAsStringSync()) as Map<String, Object?>;
 
-  OwnedLockFile lockFor(LockFileOwner owner, {void Function()? beforeTakeOver}) => OwnedLockFile(
-    file: lockPath,
-    owner: owner,
-    isEngineAttached: attachedEngines.contains,
-    clock: clock,
-    beforeTakeOver: beforeTakeOver,
-  );
+  OwnedLockFile lockFor(LockFileOwner owner, {Future<void> Function()? beforeTakeOver}) =>
+      OwnedLockFile(
+        file: lockPath,
+        owner: owner,
+        lockTakeOver: LocalLockTakeOver(attachedEngineIds: attachedEngines),
+        clock: clock,
+        beforeTakeOver: beforeTakeOver,
+      );
 
   setUp(() {
     folder = Directory.systemTemp.createTempSync('owned_lock_file_test_');
@@ -47,9 +48,9 @@ void main() {
   });
   tearDown(() => folder.deleteSync(recursive: true));
 
-  test('a free lock is created holding one line that names this process and engine', () {
+  test('a free lock is created holding one line that names this process and engine', () async {
     final lock = lockFor(_thisEngine);
-    expect(lock.tryTake(), isTrue);
+    expect(await lock.tryTake(), isTrue);
     expect(lock.isHeld, isTrue);
     expect(jsonDecode(lockPath.readAsStringSync()), {
       'process_id': 4242,
@@ -61,30 +62,33 @@ void main() {
     expect(lock.isHeld, isFalse);
   });
 
-  test('a lock naming another process id is taken over: that process has ended', () {
+  test('a lock naming another process id is taken over: that process has ended', () async {
     lockPath.writeAsStringSync(_lockLine(processId: 1111, engineId: _otherEngineId));
     final lock = lockFor(_thisEngine);
-    expect(lock.tryTake(), isTrue);
+    expect(await lock.tryTake(), isTrue);
     expect(lockContent()['process_id'], 4242);
     expect(folder.listSync(), hasLength(1), reason: 'the dead lock was renamed and deleted');
   });
 
-  test('a lock of this process held by an attached engine is never taken over, however old', () {
-    attachedEngines.add(_otherEngineId);
-    final heldLine = _lockLine(
-      processId: 4242,
-      engineId: _otherEngineId,
-      takenAt: '2020-01-01T00:00:00.000Z',
-    );
-    lockPath.writeAsStringSync(heldLine);
-    // A file time years in the past changes nothing: age is never a reason.
-    lockPath.setLastModifiedSync(DateTime.utc(2020));
-    clock.advance(const Duration(days: 365));
+  test(
+    'a lock of this process held by an attached engine is never taken over, however old',
+    () async {
+      attachedEngines.add(_otherEngineId);
+      final heldLine = _lockLine(
+        processId: 4242,
+        engineId: _otherEngineId,
+        takenAt: '2020-01-01T00:00:00.000Z',
+      );
+      lockPath.writeAsStringSync(heldLine);
+      // A file time years in the past changes nothing: age is never a reason.
+      lockPath.setLastModifiedSync(DateTime.utc(2020));
+      clock.advance(const Duration(days: 365));
 
-    final lock = lockFor(_thisEngine);
-    expect(lock.tryTake(), isFalse);
-    expect(lockPath.readAsStringSync(), heldLine);
-  });
+      final lock = lockFor(_thisEngine);
+      expect(await lock.tryTake(), isFalse);
+      expect(lockPath.readAsStringSync(), heldLine);
+    },
+  );
 
   test('waiting for a live engine\'s lock: no take-over after 40 seconds, and the lock is taken '
       'as soon as its owner lets go', () {
@@ -122,37 +126,41 @@ void main() {
     });
   });
 
-  test('a lock of this process naming an engine no longer attached is taken over', () {
+  test('a lock of this process naming an engine no longer attached is taken over', () async {
     lockPath.writeAsStringSync(_lockLine(processId: 4242, engineId: _otherEngineId));
-    expect(lockFor(_thisEngine).tryTake(), isTrue);
+    expect(await lockFor(_thisEngine).tryTake(), isTrue);
     expect(lockContent()['engine_id'], _thisEngine.engineId);
   });
 
-  test('a lock this engine left behind (a release that never happened) is taken back', () {
+  test('a lock this engine left behind (a release that never happened) is taken back', () async {
     lockPath.writeAsStringSync(
       _lockLine(processId: 4242, engineId: _thisEngine.engineId, takenAt: '2026-10-08T11:00:00Z'),
     );
-    expect(lockFor(_thisEngine).tryTake(), isTrue);
+    expect(await lockFor(_thisEngine).tryTake(), isTrue);
   });
 
   test('two engines judging the same dead lock: only one takes it, and the lock taken in between '
-      'is never removed', () {
+      'is never removed', () async {
     const otherEngine = LockFileOwner(processId: 4242, engineId: _otherEngineId);
     attachedEngines.add(_otherEngineId);
     lockPath.writeAsStringSync(_lockLine(processId: 1111, engineId: 'a-process-that-ended'));
     final otherLock = lockFor(otherEngine);
     var hasOtherTaken = false;
     // This engine judges the lock dead; before it acts, the other engine takes it over.
-    final lock = lockFor(_thisEngine, beforeTakeOver: () => hasOtherTaken = otherLock.tryTake());
+    final lock = lockFor(
+      _thisEngine,
+      beforeTakeOver: () async => hasOtherTaken = await otherLock.tryTake(),
+    );
 
-    expect(lock.tryTake(), isFalse);
+    expect(await lock.tryTake(), isFalse);
     expect(hasOtherTaken, isTrue);
     expect(otherLock.isHeld, isTrue);
     expect(lockContent()['engine_id'], _otherEngineId);
   });
 
-  test('release never removes a lock another engine holds', () {
-    final lock = lockFor(_thisEngine)..tryTake();
+  test('release never removes a lock another engine holds', () async {
+    final lock = lockFor(_thisEngine);
+    await lock.tryTake();
     final otherLine = _lockLine(processId: 1111, engineId: _otherEngineId);
     // Something replaced this engine's lock while it held it.
     lockPath.writeAsStringSync(otherLine);
@@ -160,10 +168,13 @@ void main() {
     expect(lockPath.readAsStringSync(), otherLine);
   });
 
-  test('an unreadable lock is judged dead only when it is still the same at the next look', () {
-    lockPath.writeAsStringSync('');
-    final lock = lockFor(_thisEngine);
-    expect(lock.tryTake(), isFalse, reason: 'its owner may be writing it right now');
-    expect(lock.tryTake(), isTrue, reason: 'still unreadable: left by a crash');
-  });
+  test(
+    'an unreadable lock is judged dead only when it is still the same at the next look',
+    () async {
+      lockPath.writeAsStringSync('');
+      final lock = lockFor(_thisEngine);
+      expect(await lock.tryTake(), isFalse, reason: 'its owner may be writing it right now');
+      expect(await lock.tryTake(), isTrue, reason: 'still unreadable: left by a crash');
+    },
+  );
 }

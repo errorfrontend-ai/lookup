@@ -14,6 +14,9 @@ import 'package:lookup_listener/features/identify/presentation/listening_screen.
 import 'package:lookup_listener/features/identify/presentation/no_match_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/permission_screen.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
+import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
+import 'package:lookup_listener/features/identify/presentation/saved_offline_screen.dart';
 
 import '../features/identify/presentation/identify_screen_harness.dart';
 import '../features/result/support/result_screen_harness.dart';
@@ -56,8 +59,15 @@ void main() {
     'Error, recording unusable': const ErrorScreen(
       failure: RecordingUnusableFailure(requestId: '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f'),
     ),
-    'Error, no connection': const ErrorScreen(failure: ConnectionFailure()),
-    'Error, too many tries': const ErrorScreen(failure: TooManyTriesFailure(isShortWait: true)),
+    'Error, please update the app': const ErrorScreen(failure: AppUpdateRequiredFailure()),
+    'Saved offline, no connection, the oldest clip deleted': SavedOfflineScreen(
+      state: const SavedOfflineState(
+        reason: SavedClipReason.noConnection,
+        wasOldestClipDeleted: true,
+      ),
+      onBackToHome: () {},
+      onSeeInHistory: () {},
+    ),
     'Error, newer app': const ErrorScreen(failure: NewerAppNeededFailure()),
   };
 

@@ -22,4 +22,11 @@ final class HistoryAnswerReader implements StoredAnswerReader {
       _ => null,
     };
   }
+
+  @override
+  List<RecognitionResult>? readCandidates(Object? answer) =>
+      switch (_parser.read(httpStatus: 200, body: answer)) {
+        ChooseStationAnswer(:final candidates) => candidates,
+        _ => null,
+      };
 }

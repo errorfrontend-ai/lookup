@@ -14,11 +14,17 @@ abstract final class AndroidProjectChecks {
     'production': ('zm.lookup.listener', 'Look Up'),
   };
 
-  /// The only permissions the app holds (§3.20).
+  /// The only permissions the app's own manifest holds (§3.20; P6 design §3.21): the microphone,
+  /// the network, and the saved clips' notifications, asked for only from "Allow notifications".
   static const Set<String> allowedPermissions = {
     'android.permission.INTERNET',
     'android.permission.RECORD_AUDIO',
+    'android.permission.POST_NOTIFICATIONS',
   };
+
+  /// The only permission the in-repo `device_services` plugin adds (P6 design §3.15, §3.21): a
+  /// normal one, granted at install, to know whether a network is up.
+  static const Set<String> devicePluginPermissions = {'android.permission.ACCESS_NETWORK_STATE'};
 
   /// The cached build tools the plugins are pointed at (§3.20, S4-D33).
   static const String androidGradlePluginVersion = '8.11.1';
@@ -86,8 +92,8 @@ abstract final class AndroidProjectChecks {
     return problems;
   }
 
-  /// `src/main/AndroidManifest.xml`: exactly INTERNET and RECORD_AUDIO, backup off, cleartext off,
-  /// the network-security configuration, the button queries, and no service.
+  /// `src/main/AndroidManifest.xml`: exactly INTERNET, RECORD_AUDIO and POST_NOTIFICATIONS, backup
+  /// off, cleartext off, the network-security configuration, the button queries, and no service.
   static List<String> problemsWithMainManifest(String manifestText) {
     final manifest = SimpleXmlElement.parse(manifestText);
     final problems = <String>[];
@@ -95,8 +101,8 @@ abstract final class AndroidProjectChecks {
     if (permissions.length != allowedPermissions.length ||
         !permissions.toSet().containsAll(allowedPermissions)) {
       problems.add(
-        'the permissions are ${permissions.join(', ')}, not exactly INTERNET and '
-        'RECORD_AUDIO (§3.20)',
+        'the permissions are ${permissions.join(', ')}, not exactly INTERNET, RECORD_AUDIO and '
+        'POST_NOTIFICATIONS (§3.20; P6 §3.21)',
       );
     }
     final applications = manifest.childrenNamed('application').toList();
@@ -124,7 +130,23 @@ abstract final class AndroidProjectChecks {
     return problems;
   }
 
-  /// A manifest of another source set (debug, profile, a flavour): no permission beyond the two,
+  /// The `device_services` plugin's manifest: exactly ACCESS_NETWORK_STATE, and no service,
+  /// receiver or activity of its own (P6 design §3.16, §3.21).
+  static List<String> problemsWithDevicePluginManifest(String manifestText) {
+    final manifest = SimpleXmlElement.parse(manifestText);
+    final permissions = _permissionsOf(manifest);
+    return [
+      if (permissions.length != devicePluginPermissions.length ||
+          !permissions.toSet().containsAll(devicePluginPermissions))
+        'the device_services permissions are ${permissions.join(', ')}, not exactly '
+            'ACCESS_NETWORK_STATE (P6 §3.21)',
+      for (final component in ['service', 'receiver', 'activity', 'provider'])
+        if (manifest.descendantsNamed(component).isNotEmpty)
+          'the device_services manifest declares a $component (P6 §3.16)',
+    ];
+  }
+
+  /// A manifest of another source set (debug, profile, a flavour): no permission beyond the three,
   /// and cleartext allowed only in the development flavour.
   static List<String> problemsWithSourceSetManifest(String sourceSet, String manifestText) {
     final manifest = SimpleXmlElement.parse(manifestText);

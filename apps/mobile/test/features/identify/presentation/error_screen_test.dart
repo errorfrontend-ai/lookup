@@ -108,35 +108,15 @@ const List<_Variant> _variants = [
     code: '6F1C-2D3E',
     buttons: ['Try again', 'Back to home'],
   ),
+  // "No connection" and "Too many tries" are retired: their clips go to Saved offline (P6 design
+  // §2.15). A 426 is "Please update the app", with no code and no store button (P6-COMPATIBILITY-02).
   _Variant(
-    name: 'no connection',
-    failure: ConnectionFailure(),
-    icon: Icons.signal_cellular_off_outlined,
-    heading: 'No connection',
+    name: 'please update the app',
+    failure: AppUpdateRequiredFailure(),
+    icon: Icons.system_update_outlined,
+    heading: 'Please update the app',
     role: SemanticsRole.status,
-    explanation:
-        "We couldn't reach Look Up. We kept your clip, so you can send it again when you have "
-        'signal.',
-    code: null,
-    buttons: ['Send again', 'Back to home'],
-  ),
-  _Variant(
-    name: 'too many tries, a short wait',
-    failure: TooManyTriesFailure(isShortWait: true),
-    icon: Icons.schedule,
-    heading: 'Too many tries',
-    role: SemanticsRole.status,
-    explanation: "You've identified a lot in a short time. Please wait a minute, then try again.",
-    code: null,
-    buttons: ['Back to home'],
-  ),
-  _Variant(
-    name: 'too many tries, a long wait',
-    failure: TooManyTriesFailure(isShortWait: false),
-    icon: Icons.schedule,
-    heading: 'Too many tries',
-    role: SemanticsRole.status,
-    explanation: 'Please try again later.',
+    explanation: 'This version of Look Up is too old to identify ads.',
     code: null,
     buttons: ['Back to home'],
   ),
@@ -172,8 +152,10 @@ final Map<String, ({Color icon, Color circle})> _iconColoursByVariant = {
   'server failure': (icon: LookUpColours.light.danger, circle: LookUpColours.light.dangerSoft),
   'phone failure': (icon: LookUpColours.light.danger, circle: LookUpColours.light.dangerSoft),
   'recording unusable': (icon: LookUpColours.light.ink, circle: LookUpColours.light.lineSoft),
-  'no connection': (icon: LookUpColours.light.ink, circle: LookUpColours.light.lineSoft),
-  'too many tries': (icon: LookUpColours.light.warning, circle: LookUpColours.light.warningSoft),
+  'please update the app': (
+    icon: LookUpColours.light.accent,
+    circle: LookUpColours.light.accentSoft,
+  ),
   'newer app needed': (icon: LookUpColours.light.accent, circle: LookUpColours.light.accentSoft),
 };
 
@@ -202,7 +184,7 @@ void main() {
             ),
           ))
             (button.child! as Text).data,
-        ].where(['Try again', 'Send again', 'Back to home'].contains).toList();
+        ].where(['Try again', 'Back to home'].contains).toList();
         expect(footerLabels, variant.buttons);
         if (variant.buttons.length == 1) {
           expect(find.widgetWithText(FilledButton, 'Back to home'), findsOneWidget);
@@ -372,13 +354,6 @@ void main() {
       );
       await scrollToAndTap(tester, find.text('Try again'));
       expect(harness.flow.calls, ['tryAgain']);
-    });
-
-    testWidgets('"Send again" calls sendAgain() (T37)', (tester) async {
-      final harness = _harnessFor(const ConnectionFailure());
-      await harness.pump(tester, const ErrorScreen(failure: ConnectionFailure()));
-      await scrollToAndTap(tester, find.text('Send again'));
-      expect(harness.flow.calls, ['sendAgain']);
     });
 
     for (final variant in [_variants.first, _variants[5], _variants[6]]) {

@@ -98,7 +98,7 @@ class RecognitionFlowHarness {
         OutboxStore(
           locateFolder: () async => outboxFolder,
           lockOwner: flowTestLockOwner,
-          isEngineAttached: (engineId) => engineId == flowTestLockOwner.engineId,
+          lockTakeOver: LocalLockTakeOver(attachedEngineIds: {flowTestLockOwner.engineId}),
           clock: clock,
           randomUuid: randomUuid,
           clientErrorReporter: this.reporter,
@@ -107,7 +107,7 @@ class RecognitionFlowHarness {
       store: HistoryStore(
         locateFolder: () async => historyFolder,
         lockOwner: flowTestLockOwner,
-        isEngineAttached: (engineId) => engineId == flowTestLockOwner.engineId,
+        lockTakeOver: LocalLockTakeOver(attachedEngineIds: {flowTestLockOwner.engineId}),
         clock: clock,
         clientErrorReporter: this.reporter,
       ),

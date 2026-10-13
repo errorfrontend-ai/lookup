@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show FileSystemException;
 
 import 'package:dio/dio.dart' show DioException, DioExceptionType, RequestOptions;
 import 'package:flutter_test/flutter_test.dart';
@@ -291,11 +292,70 @@ void main() {
       );
     });
 
-    test('no answer is not accepted, and nothing is kept for later (Step 4)', () async {
+    test('no answer is not accepted; with no outbox attached, nothing is kept', () async {
       adapter.failWithDioType(DioExceptionType.connectionError);
       final outcome = await reporterWith().report(kind: ClientErrorKind.uncaught, error: 'e');
       expect(outcome, isA<ClientErrorReportNotAccepted>());
       expect(adapter.unusedAnswerCount, 0);
+    });
+  });
+
+  group('a report that gets no answer is kept to send later (P6 design §3.20; '
+      'P6-ERRORREPORTING-05)', () {
+    late List<({String reportId, DateTime occurredAt, Map<String, String> fields})> queued;
+
+    ClientErrorReporter reporterWithQueue({Object? queueFailure}) => reporterWith()
+      ..attachUnsentReportQueue(({required reportId, required occurredAt, required fields}) async {
+        if (queueFailure != null) throw queueFailure;
+        queued.add((reportId: reportId, occurredAt: occurredAt, fields: fields));
+      });
+
+    setUp(() => queued = []);
+
+    for (final type in [
+      DioExceptionType.connectionError,
+      DioExceptionType.connectionTimeout,
+      DioExceptionType.receiveTimeout,
+    ]) {
+      test('${type.name}: kept under the id it was sent with, the time it happened and its '
+          'scrubbed fields; still not accepted, so no code is shown', () async {
+        adapter.failWithDioType(type);
+        final occurredAt = clock.now();
+        const reportId = '5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a';
+        final outcome = await reporterWithQueue().report(
+          kind: ClientErrorKind.reported,
+          error: 'Saving the result to History failed for +44 7700 900123',
+          reportRequestId: reportId,
+          location: '/r/0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70?from=notification',
+        );
+
+        expect(outcome, isA<ClientErrorReportNotAccepted>());
+        final kept = queued.single;
+        expect(kept.reportId, reportId);
+        expect(kept.occurredAt, occurredAt);
+        expect(kept.fields['kind'], 'reported');
+        expect(kept.fields['source'], 'listener-app');
+        expect(kept.fields['message'], isNot(contains('7700 900123')));
+        expect(kept.fields['location'], isNot(contains('from=notification')));
+        expect(kept.fields.containsKey('occurredAt'), isFalse, reason: 'added when it is sent');
+      });
+    }
+
+    test('an answer, even a refusal, is never kept for later', () async {
+      final reporter = reporterWithQueue();
+      for (final status in [400, 429, 500, 503]) {
+        adapter.answerText(status, '');
+        await reporter.report(kind: ClientErrorKind.uncaught, error: 'e$status');
+      }
+      expect(queued, isEmpty);
+    });
+
+    test('an outbox that cannot keep it loses it quietly: report() still never throws', () async {
+      adapter.failWithDioType(DioExceptionType.connectionError);
+      final outcome = await reporterWithQueue(
+        queueFailure: const FileSystemException('The phone is full'),
+      ).report(kind: ClientErrorKind.uncaught, error: 'e');
+      expect(outcome, isA<ClientErrorReportNotAccepted>());
     });
   });
 

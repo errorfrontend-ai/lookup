@@ -35,12 +35,24 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Only when you tap Identify — never in the background.'), findsOneWidget);
+      // The offline promise, true since Phase 6, between the other two (P6-PERMISSION-01).
+      expect(
+        find.text(
+          "No signal? The clip waits on your phone and is deleted once it's sent — never kept "
+          'longer than 24 hours.',
+        ),
+        findsOneWidget,
+      );
       expect(
         find.text('Radio stations see how many people used their buttons — never who you are.'),
         findsOneWidget,
       );
-      // The offline promise would be false before Phase 6 (S4-D1).
-      expect(find.textContaining('No signal?'), findsNothing);
+      final promiseTops = [
+        'Only when you tap Identify',
+        'No signal?',
+        'Radio stations see',
+      ].map((start) => tester.getTopLeft(find.textContaining(start)).dy).toList();
+      expect(promiseTops, orderedEquals([...promiseTops]..sort()));
       expect(find.widgetWithText(FilledButton, 'Allow microphone'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Not now'), findsOneWidget);
       expect(find.text('Said no before?'), findsOneWidget);
@@ -115,10 +127,10 @@ void main() {
       await _harnessFor(
         MicrophoneAccess.notAskedYet,
       ).pump(tester, const PermissionScreen(microphoneAccess: MicrophoneAccess.notAskedYet));
-      expect(find.byIcon(Icons.check), findsNWidgets(2));
+      expect(find.byIcon(Icons.check), findsNWidgets(3));
       expect(
         find.descendant(of: find.byType(ExcludeSemantics), matching: find.byIcon(Icons.check)),
-        findsNWidgets(2),
+        findsNWidgets(3),
       );
       // The microphone circle is decoration too.
       expect(
@@ -126,6 +138,34 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  group('on a 360 × 800 phone (P6 design §2.4)', () {
+    for (final access in _variants) {
+      testWidgets('${access.name}: the buttons are in reach with no scrolling', (tester) async {
+        await _harnessFor(access).pump(tester, PermissionScreen(microphoneAccess: access));
+        await tester.pumpAndSettle();
+        for (final button in [find.byType(FilledButton), find.text('Not now')]) {
+          expect(tester.getRect(button).bottom, lessThanOrEqualTo(800), reason: '$button');
+        }
+      });
+    }
+
+    for (final access in [MicrophoneAccess.refusedOnce, MicrophoneAccess.refusedForGood]) {
+      testWidgets('${access.name}: the note under the promises is scrolled into view', (
+        tester,
+      ) async {
+        final note = access == MicrophoneAccess.refusedOnce
+            ? englishWords.permissionRefusedOnceNote
+            : englishWords.permissionRefusedForGoodNote;
+        await _harnessFor(access).pump(tester, PermissionScreen(microphoneAccess: access));
+        await tester.pumpAndSettle();
+        final noteRect = tester.getRect(find.text(note));
+        final footerTop = tester.getRect(find.byType(FilledButton)).top;
+        expect(noteRect.bottom, lessThanOrEqualTo(footerTop));
+        expect(noteRect.top, greaterThanOrEqualTo(0));
+      });
+    }
   });
 
   group('each control calls the flow', () {

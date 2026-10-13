@@ -17,11 +17,15 @@ import 'outbox_timing_rules.dart';
 /// Sends what waits in the outbox, one request at a time, for every kind (P6 design §3.9; contract
 /// §3). A run:
 ///
-/// 1. starts on app start, resume, a new item, and by itself after a wait (amendment A1); a run
-///    already under way picks new items up, and a second never starts beside it;
-/// 2. takes `sending.lock`, judged by its owner, never by its age (P6-D36);
-/// 3. deletes expired items and ended pauses, cuts the waits a clock put back has stretched (§3.9
-///    point 9), and stops when nothing is left;
+/// 1. starts on app start, resume, the network coming back, a new item, and by itself after a wait
+///    (amendment A1); a run already under way picks new items up, and a second never starts beside
+///    it;
+/// 2. takes `sending.lock`, judged by its owner, never by its age (P6-D36); at app start it also
+///    sweeps clip files no item names, and items whose file is gone (§3.8);
+/// 3. deletes expired items and ended pauses (an expired clip leaves a History row through
+///    [onClipsExpired]), cuts the waits a clock put back has stretched (§3.9 point 9), and stops
+///    when nothing is left; when the network came back it also clears the waits that came from "no
+///    answer", whose reason has gone;
 /// 4. waits once: a random whole number of seconds from 0 to 120, drawn once per run, not per item
 ///    (P6-OFFLINE-12); 0 to 10 when the item that started it was queued after the last run had
 ///    emptied the queue; none for a wake-up, whose wait was already jittered;
@@ -32,7 +36,9 @@ import 'outbox_timing_rules.dart';
 ///    (amendment A2); a probe with no answer, or stopped by a fault on the phone, leaves it;
 /// 6. registers when the install needs it, and after a refused token once per run (contract R10);
 /// 7. sends the oldest due item, one at a time (P6-OFFLINE-10, -11), never while the listener's own
-///    identify is under way, and applies [OutboxAcknowledgementPolicy] to each answer;
+///    identify is under way, and never while Android reports no network at all, which counts no
+///    failure: the run ends, and the network coming back starts the next (§3.9 point 7); applies
+///    [OutboxAcknowledgementPolicy] to each answer;
 /// 8. ends on no answer: that item counts a failure and waits its backoff (P6-OUTBOX-04), and the
 ///    wake-up of point 1 starts the next run when it has passed.
 ///
@@ -43,7 +49,9 @@ import 'outbox_timing_rules.dart';
 class OutboxSender {
   /// [itemSenders] has one sender per kind the app queues. [random] draws the run's wait, the
   /// backoff's factor and the deferred clips' busy wait; tests seed it. [isLiveIdentifyUnderWay]
-  /// says whether the listener is recording, sending or waiting on Busy.
+  /// says whether the listener is recording, sending or waiting on Busy. [isNetworkAvailable] says
+  /// whether Android reports any network (the `device_services` plugin); without one, no send is
+  /// tried. [onClipsExpired] keeps a History row for each clip deleted unsent.
   OutboxSender({
     required OutboxStore store,
     required Map<OutboxItemKind, OutboxItemSender> itemSenders,
@@ -53,6 +61,8 @@ class OutboxSender {
     required Random random,
     required Clock clock,
     required bool Function() isLiveIdentifyUnderWay,
+    bool Function()? isNetworkAvailable,
+    Future<void> Function(List<OutboxExpiredClip> expiredClips)? onClipsExpired,
     String appVersion = AppVersion.current,
   }) : _store = store,
        _itemSenders = Map.unmodifiable(itemSenders),
@@ -62,6 +72,8 @@ class OutboxSender {
        _random = random,
        _clock = clock,
        _isLiveIdentifyUnderWay = isLiveIdentifyUnderWay,
+       _isNetworkAvailable = isNetworkAvailable ?? (() => true),
+       _onClipsExpired = onClipsExpired,
        _appVersion = appVersion;
 
   final OutboxStore _store;
@@ -72,6 +84,8 @@ class OutboxSender {
   final Random _random;
   final Clock _clock;
   final bool Function() _isLiveIdentifyUnderWay;
+  final bool Function() _isNetworkAvailable;
+  final Future<void> Function(List<OutboxExpiredClip> expiredClips)? _onClipsExpired;
   final String _appVersion;
 
   bool _isRunning = false;
@@ -105,8 +119,12 @@ class OutboxSender {
     try {
       final lock = await _store.sendingLock();
       // Another engine is sending: it picks these items up.
-      if (!lock.tryTake()) return const OutboxRunEnded(nextWakeUpAt: null);
+      if (!await lock.tryTake()) return const OutboxRunEnded(nextWakeUpAt: null);
       sendingLock = lock;
+      if (reason == OutboxRunReason.appStarted) await _store.sweepClipFiles();
+      if (reason == OutboxRunReason.networkBack) {
+        await _store.modify((index) => index.withNoAnswerWaitsCleared());
+      }
       final index = await _withoutExpired();
       if (index.isEmpty) {
         _didLastRunEmptyQueue = true;
@@ -122,6 +140,8 @@ class OutboxSender {
       } while (_wasItemQueuedDuringRun && !progress.hasEnded);
       final finalIndex = await _store.read();
       _didLastRunEmptyQueue = finalIndex.isEmpty;
+      // With no network there is nothing to wake up for: the network coming back starts the next.
+      if (progress.hasEndedForNoNetwork) return const OutboxRunEnded(nextWakeUpAt: null);
       return OutboxRunEnded(nextWakeUpAt: _nextWakeUpAt(finalIndex, progress));
     } on Object catch (error, stackTrace) {
       hasFailed = true;
@@ -145,6 +165,7 @@ class OutboxSender {
     ),
     OutboxRunReason.appStarted ||
     OutboxRunReason.appResumed ||
+    OutboxRunReason.networkBack ||
     OutboxRunReason.itemQueued => _random.nextInt(_timingRules.sendingDelayMaximumSeconds + 1),
   };
 
@@ -153,6 +174,10 @@ class OutboxSender {
     while (!progress.hasEnded) {
       while (_isLiveIdentifyUnderWay()) {
         await Future<void>.delayed(OutboxTimingRules.liveIdentifyCheckInterval);
+      }
+      if (!_isNetworkAvailable()) {
+        progress.endForNoNetwork();
+        return;
       }
       final index = await _withoutExpired();
       final now = _clock.now();
@@ -405,16 +430,39 @@ class OutboxSender {
   Future<OutboxIndex> _withoutExpired() async {
     final index = await _store.read();
     if (identical(_cleaned(index), index)) return index;
-    final written = await _store.modify(_cleaned);
+    var expiredClips = const <OutboxExpiredClip>[];
+    final written = await _store.modify((current) {
+      // One moment for both, so a clip at its very boundary is either recorded and deleted, or kept.
+      final now = _clock.now();
+      expiredClips = current.expiredClips(now);
+      return _cleaned(current, now: now);
+    });
     // The settled items are off the disk now.
     _settledItemIds.clear();
+    if (expiredClips.isNotEmpty) await _recordExpiredClips(expiredClips);
     return written;
+  }
+
+  /// Hands the clips deleted unsent to History; a failure there is reported, never thrown, as the
+  /// clips are gone either way.
+  Future<void> _recordExpiredClips(List<OutboxExpiredClip> expiredClips) async {
+    final onClipsExpired = _onClipsExpired;
+    if (onClipsExpired == null) return;
+    try {
+      await onClipsExpired(expiredClips);
+    } on Object catch (error, stackTrace) {
+      _report(
+        'History could not keep the clips deleted unsent',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   /// [index] cleaned at the clock's time (see [_withoutExpired]); [index] itself when nothing in it
   /// needs to change.
-  OutboxIndex _cleaned(OutboxIndex index) => index
-      .withoutExpired(now: _clock.now(), appVersion: _appVersion)
+  OutboxIndex _cleaned(OutboxIndex index, {DateTime? now}) => index
+      .withoutExpired(now: now ?? _clock.now(), appVersion: _appVersion)
       .withItemsRemoved(_settledItemIds);
 
   /// When the next run should start by itself. After a run that ended on no answer, never before
@@ -462,6 +510,10 @@ enum OutboxRunReason {
   /// The app came back to the foreground.
   appResumed,
 
+  /// Android reported a network again while the app was open (§3.9 point 1): the waits that came
+  /// from "no answer" are cleared first.
+  networkBack,
+
   /// An item was queued.
   itemQueued,
 
@@ -503,8 +555,17 @@ final class _RunProgress {
   /// When the item that met no answer may go again; the wake-up is not earlier.
   DateTime? noAnswerRetryAt;
 
+  /// Set when the run ended because Android reported no network: no failure was counted, and no
+  /// wake-up is set.
+  bool hasEndedForNoNetwork = false;
+
   void endOnNoAnswer(DateTime? retryAt) {
     hasEnded = true;
     noAnswerRetryAt = retryAt;
+  }
+
+  void endForNoNetwork() {
+    hasEnded = true;
+    hasEndedForNoNetwork = true;
   }
 }

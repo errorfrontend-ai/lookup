@@ -191,6 +191,7 @@ abstract final class SourceRules {
       'Queueing the station choice failed',
       'Remembering My station failed',
       'Saving the result to History failed',
+      'Keeping the clip for later failed',
     },
     'app/bootstrap.dart': {'Deleting old History entries at start failed'},
     'features/identify/presentation/reference_code_panel.dart': {'monospace', 'Menlo', 'Courier'},
@@ -216,6 +217,7 @@ abstract final class SourceRules {
     '/no-match',
     '/busy',
     '/error',
+    '/saved-offline',
   };
 
   /// The files that build widgets, where every animation lives: `app/`, `core/widgets/` and each

@@ -30,17 +30,17 @@ import 'package:lookup_listener/core/time/clock.dart';
 /// Synchronous file calls inside: the index is a few hundred kilobytes at most (50 entries).
 class HistoryStore {
   /// [locateFolder] gives the History folder (the app's support folder plus `history`; tests give a
-  /// temporary one). [lockOwner] is this engine; [isEngineAttached] says whether another engine of
-  /// this process still runs (§3.8).
+  /// temporary one). [lockOwner] is this engine; [lockTakeOver] judges a lock another engine of
+  /// this process may hold (§3.8).
   HistoryStore({
     required Future<Directory> Function() locateFolder,
     required LockFileOwner lockOwner,
-    required bool Function(String engineId) isEngineAttached,
+    required LockTakeOver lockTakeOver,
     required Clock clock,
     required ClientErrorReporter clientErrorReporter,
   }) : _locateFolder = locateFolder,
        _lockOwner = lockOwner,
-       _isEngineAttached = isEngineAttached,
+       _lockTakeOver = lockTakeOver,
        _clock = clock,
        _clientErrorReporter = clientErrorReporter;
 
@@ -59,7 +59,7 @@ class HistoryStore {
 
   final Future<Directory> Function() _locateFolder;
   final LockFileOwner _lockOwner;
-  final bool Function(String engineId) _isEngineAttached;
+  final LockTakeOver _lockTakeOver;
   final Clock _clock;
   final ClientErrorReporter _clientErrorReporter;
 
@@ -195,7 +195,7 @@ class HistoryStore {
         indexLock: OwnedLockFile(
           file: File('${directory.path}/index.lock'),
           owner: _lockOwner,
-          isEngineAttached: _isEngineAttached,
+          lockTakeOver: _lockTakeOver,
           clock: _clock,
         ),
       );
@@ -242,10 +242,16 @@ final class StoredHistoryEntry {
   /// The kind of a result the listener saw.
   static const String resultKind = 'RESULT';
 
+  /// The kind of a saved clip answered `CHOOSE_STATION`, waiting for the listener's choice.
+  static const String awaitingChoiceKind = 'AWAITING_CHOICE';
+
+  /// The kind of a saved clip that will never be identified.
+  static const String notIdentifiedKind = 'NOT_IDENTIFIED';
+
   /// The recognition id.
   final String entryId;
 
-  /// `RESULT` in piece 2; `AWAITING_CHOICE` and `NOT_IDENTIFIED` arrive with piece 3.
+  /// `RESULT`, `AWAITING_CHOICE` or `NOT_IDENTIFIED`.
   final String kind;
 
   /// When the phone recorded the clip, by its own clock, in UTC.

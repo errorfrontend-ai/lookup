@@ -1,0 +1,322 @@
+import 'dart:io';
+
+import 'package:dio/dio.dart' show DioExceptionType;
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/outbox/outbox_index.dart';
+import 'package:lookup_listener/core/outbox/outbox_item.dart';
+import 'package:lookup_listener/core/outbox/outbox_item_group.dart';
+import 'package:lookup_listener/core/outbox/outbox_sender.dart';
+import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
+import 'package:lookup_listener/features/identify/data/recognize_request_builder.dart';
+import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
+
+import '../../support/received_multipart_form.dart';
+import 'outbox_sender_harness.dart';
+
+const String _keyOne = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c21';
+const String _keyTwo = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c22';
+
+/// The recognition ids of the shared answers.
+const String _matchRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+
+void _runSenderTest(void Function(OutboxSenderHarness harness) body) {
+  fakeAsync((fakeAsync) {
+    final harness = OutboxSenderHarness(fakeAsync);
+    try {
+      body(harness);
+    } finally {
+      harness.dispose();
+    }
+  });
+}
+
+/// Saved clips and queued crash reports through the outbox sender (P6 design §3.8, §3.9, §3.11,
+/// §3.20; contract R1 to R5, R9; P6-OFFLINE-01, -02, -05, -07, -09; P6-OUTBOX-07): what is sent, what
+/// each answer does with the clip, and where its outcome goes.
+void main() {
+  group('a saved clip is sent', () {
+    test('as the same clip: its key, capture time, hint and recording, marked deferred, with the '
+        'send time of this attempt (P6-OUTBOX-07)', () {
+      _runSenderTest((harness) {
+        final capturedAt = harness.clock.now().subtract(const Duration(minutes: 5));
+        final audio = [0, 0, 0, 24, 102, 116, 121, 112, 77, 52, 65, 32, 1, 2, 3];
+        harness.queueClip(_keyOne, capturedAt: capturedAt, audioBytes: audio);
+        harness.answerWithResponseFixture('valid/match-campaign');
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        final form = ReceivedMultipartForm.of(harness.recognizeRequests.single);
+        expect(form.fieldValues['idempotency_key'], _keyOne);
+        expect(form.fieldValues['is_deferred'], 'true');
+        expect(
+          form.fieldValues['captured_at'],
+          RecognizeRequestBuilder.formatUtcTimestamp(capturedAt),
+        );
+        expect(
+          form.fieldValues['sent_at'],
+          RecognizeRequestBuilder.formatUtcTimestamp(harness.clock.now()),
+        );
+        expect(form.fieldValues['station_hint'], stationA);
+        expect(form.fileParts.single.bytes, audio);
+      });
+    });
+
+    test('a match goes to History with its answer, and the clip and its recording are deleted', () {
+      _runSenderTest((harness) {
+        final capturedAt = harness.clock.now().subtract(const Duration(minutes: 5));
+        harness.queueClip(_keyOne, capturedAt: capturedAt);
+        harness.answerWithResponseFixture('valid/match-campaign');
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        final outcome = harness.resultSink.outcomes.single as DeferredClipMatched;
+        expect(outcome.idempotencyKey, _keyOne);
+        expect(outcome.capturedAtOnPhone, capturedAt);
+        expect(outcome.recognitionId, _matchRecognitionId);
+        expect(outcome.answerBody['status'], 'MATCH');
+        expect(harness.items, isEmpty);
+        expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isFalse);
+        expect(harness.reporter.reports, isEmpty);
+      });
+    });
+
+    test('"Which station?" goes to History as a chooser to answer later', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.answerWithResponseFixture('valid/choose-station');
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        final outcome = harness.resultSink.outcomes.single as DeferredClipAwaitingChoice;
+        expect(outcome.recognitionId, _matchRecognitionId);
+        expect(outcome.answerBody['status'], 'CHOOSE_STATION');
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    for (final (name, fixture, reason) in [
+      ('no match', null, DeferredClipNotIdentifiedReason.notRecognised),
+      ('400 INVALID_AUDIO', 'invalid-audio', DeferredClipNotIdentifiedReason.notRecognised),
+      (
+        '422 CAPTURE_EXPIRED',
+        'capture-expired',
+        DeferredClipNotIdentifiedReason.notSentWithin24Hours,
+      ),
+      (
+        '422 CAPTURE_TIME_INVALID',
+        'capture-time-invalid',
+        DeferredClipNotIdentifiedReason.couldNotBeChecked,
+      ),
+    ]) {
+      test('$name: History keeps "${reason.storedName}", and the clip is deleted', () {
+        _runSenderTest((harness) {
+          harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+          if (fixture == null) {
+            harness.answerWithResponseFixture('valid/no-match');
+          } else {
+            harness.answerWithEnvelopeFixture(fixture);
+          }
+          harness.startRun(OutboxRunReason.wakeUp);
+
+          final outcome = harness.resultSink.outcomes.single as DeferredClipNotIdentified;
+          expect(outcome.reason, reason);
+          expect(outcome.idempotencyKey, _keyOne);
+          expect(harness.items, isEmpty);
+          expect(harness.reporter.reports, isEmpty);
+        });
+      });
+    }
+
+    test(
+      'busy: the clip waits, the clips pause as the server asked, and History hears nothing',
+      () {
+        _runSenderTest((harness) {
+          harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+          harness.answerWithEnvelopeFixture('recognition-busy', retryAfter: '187');
+          harness.startRun(OutboxRunReason.wakeUp);
+
+          expect(harness.items, hasLength(1));
+          expect(
+            harness.index.groupPausedUntil[OutboxItemGroup.clips],
+            harness.clock.now().add(const Duration(seconds: 187)),
+          );
+          expect(harness.resultSink.outcomes, isEmpty);
+          expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isTrue);
+        });
+      },
+    );
+
+    test('an answer History cannot keep deletes the clip with a report, as a phone fault does '
+        '(contract R9)', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.resultSink.failure = const FileSystemException('The phone is full');
+        harness.answerWithResponseFixture('valid/match-campaign');
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        expect(harness.items, isEmpty);
+        expect(harness.reporter.reports, hasLength(1));
+        expect(harness.reporter.reports.single.error.toString(), isNot(contains('phone is full')));
+      });
+    });
+
+    test('a clip whose recording is gone is not sent: deleted, with a report', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        File('${harness.folder.path}/clips/$_keyOne.m4a').deleteSync();
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        expect(harness.recognizeRequests, isEmpty);
+        expect(harness.items, isEmpty);
+        expect(harness.reporter.reports, hasLength(1));
+      });
+    });
+
+    test('two clips go one at a time, oldest capture first (contract R7)', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyTwo, capturedAt: harness.clock.now());
+        harness.queueClip(
+          _keyOne,
+          capturedAt: harness.clock.now().subtract(const Duration(minutes: 3)),
+        );
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.startRun(OutboxRunReason.wakeUp);
+        harness.followWakeUps();
+
+        expect(
+          harness.recognizeRequests.map(
+            (request) => ReceivedMultipartForm.of(request).fieldValues['idempotency_key'],
+          ),
+          [_keyOne, _keyTwo],
+        );
+      });
+    });
+  });
+
+  group('the network (P6 design §3.9 points 1, 7 and 9; P6-OFFLINE-07)', () {
+    test('with none, nothing is tried, and the run asks for no wake-up: the network coming back '
+        'starts the next', () {
+      _runSenderTest((harness) {
+        harness.isNetworkUp = false;
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        expect(harness.adapter.requests, isEmpty);
+        expect(harness.lastWakeUpAt, isNull);
+        expect(harness.items, hasLength(1));
+      });
+    });
+
+    test('back: a wait that came from no answer is cleared, and the clip goes after the sending '
+        'delay rather than at the end of its backoff', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.adapter.failWithDioType(DioExceptionType.connectionError);
+        harness.startRun(OutboxRunReason.wakeUp);
+        final waiting = harness.items.single;
+        expect(waiting.lastProblem, OutboxItemProblem.noAnswer);
+        expect(waiting.nextAttemptAt, isNotNull);
+
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.startRun(OutboxRunReason.networkBack);
+        expect(harness.items.single.nextAttemptAt, isNull, reason: 'cleared before the delay');
+        harness.wait(Duration(seconds: harness.timingRules.sendingDelayMaximumSeconds));
+
+        expect(harness.recognizeRequests, hasLength(2));
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('back: a wait the server asked for stays', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.answerWithEnvelopeFixture('recognition-busy', retryAfter: '187');
+        harness.startRun(OutboxRunReason.wakeUp);
+        final pausedUntil = harness.index.groupPausedUntil[OutboxItemGroup.clips];
+
+        harness.startRun(OutboxRunReason.networkBack);
+        harness.wait(const Duration(seconds: 120));
+        expect(harness.recognizeRequests, hasLength(1));
+        expect(harness.index.groupPausedUntil[OutboxItemGroup.clips], pausedUntil);
+      });
+    });
+  });
+
+  group('a clip that runs out (P6-OFFLINE-05, P6-D37)', () {
+    test('23 hours 58 minutes after its capture it is deleted unsent, its recording too, and '
+        'History is told why', () {
+      _runSenderTest((harness) {
+        harness.queueClip(
+          _keyOne,
+          capturedAt: harness.clock.now().subtract(OutboxTimingRules.clipKeptFor),
+        );
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        expect(harness.recognizeRequests, isEmpty);
+        expect(harness.items, isEmpty);
+        expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isFalse);
+        expect(harness.expiredClips.single.item.idempotencyKey, _keyOne);
+        expect(harness.expiredClips.single.reason, OutboxClipExpiry.notSentWithin24Hours);
+      });
+    });
+
+    test('a capture time more than 2 minutes ahead of the clock is deleted at once', () {
+      _runSenderTest((harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now().add(const Duration(minutes: 3)));
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        expect(harness.recognizeRequests, isEmpty);
+        expect(harness.expiredClips.single.reason, OutboxClipExpiry.captureTimeAheadOfTheClock);
+      });
+    });
+  });
+
+  test('at start, a recording no item names is deleted (P6 design §3.8)', () {
+    _runSenderTest((harness) {
+      harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+      final orphan = File('${harness.folder.path}/clips/0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f.m4a')
+        ..writeAsBytesSync([1, 2, 3]);
+      harness.isNetworkUp = false;
+      harness.startRun(OutboxRunReason.appStarted);
+
+      expect(orphan.existsSync(), isFalse);
+      expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isTrue);
+    });
+  });
+
+  group('a crash report that got no answer (P6 design §3.20)', () {
+    const reportId = '5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a';
+
+    test('is sent later with its own id and the time it happened, then deleted', () {
+      _runSenderTest((harness) {
+        final occurredAt = harness.clock.now().subtract(const Duration(minutes: 40));
+        harness.queueCrashReport(reportId, occurredAt: occurredAt);
+        harness.adapter.answerText(202, '');
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        final request = harness.clientErrorRequests.single;
+        expect(request.header('X-Request-Id'), reportId);
+        expect(request.jsonBody, {
+          'kind': 'reported',
+          'message': 'Saving the result to History failed',
+          'occurredAt': occurredAt.toUtc().toIso8601String(),
+        });
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('a 429 pauses only the crash reports: a clip still goes', () {
+      _runSenderTest((harness) {
+        harness.queueCrashReport(reportId, occurredAt: harness.clock.now());
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.answerWithEnvelopeFixture('rate-limited', retryAfter: '30');
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.startRun(OutboxRunReason.wakeUp);
+        harness.settle();
+
+        expect(harness.index.groupPausedUntil.keys, [OutboxItemGroup.crashReports]);
+        expect(harness.recognizeRequests, hasLength(1));
+        expect(harness.items.single, isA<ClientErrorReportItem>());
+      });
+    });
+  });
+}

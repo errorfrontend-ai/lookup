@@ -126,6 +126,72 @@ void main() {
     expect(tester.getRect(find.byKey(const Key('body'))).bottom, 800 - 48);
   });
 
+  group('with the footer pinned, as on Permission (P6 design §2.4)', () {
+    Widget pinnedScreen({String bodyText = _longBody, int bodyRepeats = 4}) => ScreenFrame(
+      exitButton: ScreenExitButton.back(label: 'Back', onPressed: () {}),
+      isFooterPinned: true,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [for (var repeat = 0; repeat < bodyRepeats; repeat++) Text(bodyText)],
+      ),
+      footer: [
+        FilledButton(onPressed: () {}, child: const Text('Allow microphone')),
+        TextButton(onPressed: () {}, child: const Text('Not now')),
+      ],
+    );
+
+    testWidgets('a body taller than the screen scrolls, and the header and footer stay put', (
+      tester,
+    ) async {
+      await PhoneScreen.standard.pump(tester, pinnedScreen());
+      final primaryBefore = tester.getRect(find.byType(FilledButton));
+      final secondary = tester.getRect(find.byType(TextButton));
+      expect(secondary.bottom, 800 - 24, reason: 'in reach with no scrolling');
+      expect(primaryBefore.width, 360 - 2 * 24);
+
+      await tester.drag(find.text(_longBody).first, const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(FilledButton)), primaryBefore);
+      expect(tester.getRect(find.byType(IconButton)), const Rect.fromLTWH(8, 12, 48, 48));
+      expect(
+        tester.getTopLeft(find.text(_longBody).first).dy,
+        lessThan(12 + 48),
+        reason: 'the body moved, under the header',
+      );
+    });
+
+    testWidgets('the body shows its scrollbar, so the listener sees that more follows', (
+      tester,
+    ) async {
+      await PhoneScreen.standard.pump(tester, pinnedScreen());
+      final scrollbar = tester.widget<Scrollbar>(find.byType(Scrollbar));
+      expect(scrollbar.thumbVisibility, isTrue);
+      expect(
+        find.descendant(of: find.byType(Scrollbar), matching: find.byType(FilledButton)),
+        findsNothing,
+        reason: 'the footer is outside the scrolling part',
+      );
+    });
+
+    testWidgets('a short body sits at the top, with the footer at the bottom', (tester) async {
+      await PhoneScreen.standard.pump(tester, pinnedScreen(bodyText: 'Short', bodyRepeats: 1));
+      expect(tester.getTopLeft(find.text('Short')), const Offset(24, 12 + 48 + 24));
+      expect(tester.getRect(find.byType(TextButton)).bottom, 800 - 24);
+    });
+
+    for (final screen in PhoneScreen.layoutChecks) {
+      testWidgets('fits on $screen: the footer takes at most half the height', (tester) async {
+        await screen.pump(tester, pinnedScreen());
+        expect(tester.takeException(), isNull);
+        final footerTop = tester.getRect(find.byType(FilledButton)).top - 24;
+        expect(footerTop, greaterThanOrEqualTo(screen.height / 2));
+        await tester.ensureVisible(find.byType(TextButton));
+        await tester.pump();
+        expect(tester.getRect(find.byType(TextButton)).bottom, lessThanOrEqualTo(screen.height));
+      });
+    }
+  });
+
   testWidgets('without a header or footer, the body starts 24 dp in', (tester) async {
     await PhoneScreen.standard.pump(tester, const ScreenFrame(body: Text('Only a body')));
     expect(tester.getTopLeft(find.text('Only a body')), const Offset(24, 24));

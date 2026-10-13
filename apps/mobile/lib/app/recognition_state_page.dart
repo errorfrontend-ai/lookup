@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_route.dart';
+import 'package:lookup_listener/app/pending_destination.dart';
+import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/busy_screen.dart';
@@ -11,6 +13,7 @@ import 'package:lookup_listener/features/identify/presentation/listening_screen.
 import 'package:lookup_listener/features/identify/presentation/no_match_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/permission_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
+import 'package:lookup_listener/features/identify/presentation/saved_offline_screen.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
 /// What one flow route's page shows: the screen for the newest recognition state that belongs to
@@ -43,6 +46,15 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
     return _screenFor(shownState);
   }
 
+  void _backToHome() => ref.read(recognitionFlowProvider.notifier).backToHome();
+
+  /// Ends the flow at the History tab: the destination is kept before the flow goes idle, so the
+  /// redirect lands there in one step.
+  void _backToHistory() {
+    ref.read(pendingDestinationProvider).keep(AppRoute.history.path);
+    _backToHome();
+  }
+
   /// The screen for [state]: an exhaustive switch with no default branch (S4-STATE-09).
   Widget _screenFor(RecognitionState state) => switch (state) {
     // Never shown here: no flow route belongs to `idle`, whose screen is the Identify tab.
@@ -55,7 +67,20 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
       secondsLeft: secondsLeft,
     ),
     UploadingState() => const IdentifyingScreen(),
-    ChooseStationState() => ChooseStationScreen(state: state),
+    ChooseStationState(:final origin) => ChooseStationScreen(
+      state: state,
+      // T47: Cancel on a chooser opened from History goes back there (P6 design §2.6).
+      onCancel: switch (origin) {
+        ChooserOrigin.liveIdentify => _backToHome,
+        ChooserOrigin.savedRecognition => _backToHistory,
+      },
+    ),
+    SavedOfflineState() => SavedOfflineScreen(
+      state: state,
+      onBackToHome: _backToHome,
+      // T49: History, where the clip shows as Pending, with no frame of Home (P6 design §3.7).
+      onSeeInHistory: _backToHistory,
+    ),
     MatchedState(:final result) || FallbackState(:final result) => ResultScreen(
       result: result,
       onBackToHome: ref.read(recognitionFlowProvider.notifier).backToHome,

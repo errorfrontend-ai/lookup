@@ -18,7 +18,10 @@ import 'package:lookup_listener/features/identify/domain/recognition_answer.dart
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_problem_report.dart';
+import 'package:lookup_listener/core/outbox/outbox_item.dart' show DeferredClipSavedReason;
+import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 import 'package:lookup_listener/features/identify/domain/send_policy.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/settings/data/settings_providers.dart';
@@ -35,15 +38,22 @@ import 'package:lookup_listener/features/settings/domain/listener_station.dart';
 ///   (P6-CHOOSER-10), the result is saved to History with the chosen station (P6-HISTORY-01) and,
 ///   with "Remember" ticked, the station becomes "My station" (P6-CHOOSER-07, -08). A failure there
 ///   is reported and never changes the screen.
-/// - T46: Cancel goes Home; nothing is queued, saved or remembered (P6-CHOOSER-14, gap 28).
+/// - T46: Cancel goes Home; nothing is queued, saved or remembered (P6-CHOOSER-14, gap 28). T47:
+///   Cancel on a chooser opened from History goes back to History. T51: a saved `CHOOSE_STATION`
+///   opens the chooser from History's store, with no request.
+/// - T21′, T24′, T27′, T31′: no answer, too many tries, still busy on the fourth send, or the app
+///   hidden during Busy: the clip goes to the outbox — its key, recording, capture time and hint —
+///   and Saved offline shows once it is written and flushed (contract R1). A clip the phone could
+///   not keep is a failure on the phone, reported. T26′: a 426 is "Please update the app".
 /// - A live result (matched or fallback) is saved to History in the background as it shows, with
 ///   the answer exactly as it came and the phone's capture time (P6 design §3.14; P6-HISTORY-01,
 ///   -14); a save that fails is reported, and the Result then shows no "Saved to History".
 ///
 /// Screens read the state and call the methods below; the router follows the state (S4-D5).
 /// Only Home accepts a new identify (T41). The clip is held here, privately, never in a state, and
-/// is dropped on every outcome and every way out except Busy and "No connection", which keep it so
-/// the same clip, with the same idempotency key, can be sent again (S4-D7).
+/// is dropped on every outcome and every way out except Busy, which keeps it so the same clip,
+/// with the same idempotency key, can be sent again (S4-D7), and Saved offline, which hands it to
+/// the outbox first.
 ///
 /// Everything it uses comes from providers, so tests run it with a fake recorder, permission, HTTP
 /// adapter, clock and fake time. After every wait it checks that the identify it belongs to is
@@ -63,7 +73,8 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   /// event from an earlier one changes nothing.
   int _identifyNumber = 0;
 
-  /// The clip in memory, kept only while Identifying, Busy or "No connection" (S4-D7).
+  /// The clip in memory, kept only while Identifying or Busy (S4-D7), until it is sent or handed to
+  /// the outbox.
   CapturedClip? _clip;
 
   /// The `CHOOSE_STATION` answer the chooser shows, kept until a row is tapped so the chosen
@@ -90,6 +101,10 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   /// Whether the app is on screen: resumed, or inactive (the notification shade over it), which
   /// changes nothing (S4-D23).
   bool _isInForeground = true;
+
+  /// The identify whose clip is being written to the outbox, if any, so neither Busy's countdown
+  /// nor a second save of that clip starts meanwhile (T31′).
+  int? _identifyNumberSavingForLater;
 
   /// Set while a tap's permission check is under way, before the state shows it, so a double tap
   /// starts one identify only (T41).
@@ -228,12 +243,27 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     await _send(_beginIdentify());
   }
 
-  /// "Send again" on "No connection" (T37): the kept clip, with the same idempotency key, so the
-  /// API answers with a replay if the first send reached it.
-  Future<void> sendAgain() async {
-    if (state case ErrorState(failure: ConnectionFailure()) when _clip != null) {
-      await _send(_beginIdentify());
-    }
+  /// T51: a saved `CHOOSE_STATION` from History or its notification shows the chooser, from the
+  /// stored candidates, with no request. Only from Home (idle); [answer] is the stored answer, kept
+  /// so the chosen result can be saved over the waiting entry (T44).
+  void openSavedChooser({
+    required String recognitionId,
+    required List<RecognitionResult> candidates,
+    required Map<String, Object?> answer,
+    required DateTime capturedAtOnPhone,
+  }) {
+    if (state is! IdleState || candidates.length < 2) return;
+    _beginIdentify();
+    _chooserAnswer = (
+      recognitionId: recognitionId,
+      answer: answer,
+      capturedAtOnPhone: capturedAtOnPhone,
+    );
+    state = ChooseStationState(
+      recognitionId: recognitionId,
+      candidates: candidates,
+      origin: ChooserOrigin.savedRecognition,
+    );
   }
 
   /// Every way back to Home: Back and "Not now" on Permission (T8), Close ×, Cancel and system
@@ -480,12 +510,17 @@ class RecognitionFlow extends Notifier<RecognitionState> {
         if (problemReport != null) {
           unawaited(_sendProblemReport(identifyNumber, problemReport, shownState: nextState));
         }
-      case ConnectionLostOutcome(:final nextState):
-        // T27: the clip and its counts stay for "Send again".
-        state = nextState;
+      case SaveForLaterOutcome(:final reason):
+        // T21′, T24′, T27′: the clip goes to the outbox; Saved offline once it is written.
+        await _saveClipForLater(identifyNumber, reason);
       case BusyOutcome(:final nextState, :final nextPolicy):
-        // T20: the clip stays; the countdown sends it again.
+        // T20: the clip stays; the countdown sends it again. T31′: with the app away, no countdown
+        // runs, so the clip goes to the outbox at once.
         _sendPolicy = nextPolicy;
+        if (!_isInForeground) {
+          await _saveClipForLater(identifyNumber, SavedClipReason.busy);
+          return;
+        }
         state = nextState;
         _startBusyCountdown(identifyNumber);
       case WaitAndResendOutcome(:final waitSeconds, :final nextPolicy):
@@ -501,11 +536,12 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   }
 
   /// T29 to T31: counts the Busy wait down, one second at a time, only while the app is in the
-  /// foreground; at zero the kept clip is sent again with a new request id and send time.
+  /// foreground and the clip is not on its way to the outbox; at zero the kept clip is sent again
+  /// with a new request id and send time.
   void _startBusyCountdown(int identifyNumber) {
     _busyCountdown?.cancel();
     _busyCountdown = null;
-    if (!_isInForeground) return;
+    if (!_isInForeground || _identifyNumberSavingForLater == identifyNumber) return;
     _busyCountdown = Timer.periodic(
       const Duration(seconds: 1),
       (countdown) => _countDownBusy(identifyNumber, countdown),
@@ -565,6 +601,51 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     } on Object catch (error, stackTrace) {
       _reportQuietly(error, stackTrace, description: 'Reading My station for the hint failed');
       return null;
+    }
+  }
+
+  /// Hands the kept clip to the outbox — its key, recording, capture time and hint — and shows Saved
+  /// offline once it is written (contract R1); with five already waiting, the oldest made room, and
+  /// the screen says so (P6-D6). A clip the phone could not keep is a failure on the phone,
+  /// reported (§2.17), and the clip is dropped.
+  Future<void> _saveClipForLater(int identifyNumber, SavedClipReason reason) async {
+    final clip = _clip;
+    if (clip == null ||
+        !_isCurrent(identifyNumber) ||
+        _identifyNumberSavingForLater == identifyNumber) {
+      return;
+    }
+    _busyCountdown?.cancel();
+    _busyCountdown = null;
+    _identifyNumberSavingForLater = identifyNumber;
+    try {
+      final queued = await ref
+          .read(outboxStoreProvider)
+          .queueDeferredClip(
+            idempotencyKey: clip.idempotencyKey,
+            capturedAt: clip.capturedAt,
+            clipDurationMilliseconds: clip.clipDurationMilliseconds,
+            codec: clip.codec.wireName,
+            stationHintId: clip.stationHintId,
+            audioBytes: clip.audioBytes,
+            savedReason: switch (reason) {
+              SavedClipReason.noConnection => DeferredClipSavedReason.noConnection,
+              SavedClipReason.busy => DeferredClipSavedReason.busy,
+              SavedClipReason.tooManyTries => DeferredClipSavedReason.tooManyTries,
+            },
+          );
+      if (!_isCurrent(identifyNumber)) return;
+      _dropClip();
+      state = SavedOfflineState(reason: reason, wasOldestClipDeleted: queued.wasOldestClipDeleted);
+    } on Object catch (error, stackTrace) {
+      _failOnPhone(
+        identifyNumber,
+        error,
+        stackTrace,
+        description: 'Keeping the clip for later failed',
+      );
+    } finally {
+      if (_identifyNumberSavingForLater == identifyNumber) _identifyNumberSavingForLater = null;
     }
   }
 
@@ -717,15 +798,20 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     );
   }
 
-  /// The app's lifecycle (§3.17, S4-D23): hidden or paused cancels a recording (T13) and pauses
-  /// Busy's countdown (T31) and the wait after a 409 (T22); shown again resumes them; resumed on
-  /// the Permission screen re-reads the permission (T7). `inactive` alone changes nothing.
+  /// The app's lifecycle (§3.17, S4-D23): hidden or paused cancels a recording (T13), hands a
+  /// clip waiting on Busy to the outbox (T31′) and pauses the wait after a 409 (T22); shown again
+  /// resumes that wait; resumed on the Permission screen re-reads the permission (T7). `inactive`
+  /// alone changes nothing.
   void _followLifecycle(AppLifecycleState lifecycleState) {
     final wasInForeground = _isInForeground;
     _isInForeground = _isForeground(lifecycleState);
     final current = state;
     if (!_isInForeground) {
       if (current is RecordingState) _goHome();
+      // T31′: left during Busy, the clip goes to the outbox rather than waiting for the app.
+      if (current is BusyState && _clip != null) {
+        unawaited(_saveClipForLater(_identifyNumber, SavedClipReason.busy));
+      }
       _busyCountdown?.cancel();
       _busyCountdown = null;
       // The seconds left are kept; only the timer stops.
@@ -834,6 +920,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     RecordingState() => '/listening',
     UploadingState() => '/identifying',
     ChooseStationState() => '/choose-station',
+    SavedOfflineState() => '/saved-offline',
     MatchedState() || FallbackState() => '/result',
     NoMatchState() => '/no-match',
     BusyState() => '/busy',

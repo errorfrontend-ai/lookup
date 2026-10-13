@@ -8,6 +8,7 @@ import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/app_route.dart';
 import 'package:lookup_listener/app/app_router.dart';
 import 'package:lookup_listener/app/look_up_app.dart';
+import 'package:lookup_listener/app/notification_launch_handler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
@@ -75,6 +76,15 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
         retry: (retryCount, error) => null,
       );
       final reporter = container.read(clientErrorReporterProvider);
+      // Sent before the app starts, so the plugin counts this engine as attached before it takes any
+      // lock file (P6 design §3.8): its first lock comes after the first frame, and the platform reads
+      // this engine's messages in order.
+      unawaited(
+        container
+            .read(deviceServicesProvider)
+            .registerEngine(container.read(engineIdentityProvider).engineId),
+      );
+      container.read(networkWatcherProvider).start();
 
       // The route the listener is on, e.g. `/listening`, for each report's `location`: the top
       // page's route as declared, so a saved result reports `/r/:recognitionId`, never its id.
@@ -103,6 +113,8 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
       WidgetsBinding.instance.addPostFrameCallback((_) {
         container.read(listenerInstallRepositoryProvider).registerInBackground();
         container.read(outboxRunSchedulerProvider).start();
+        // A saved clip's notification tapped to start the app, or while it runs (P6 design §3.15).
+        unawaited(container.read(notificationLaunchHandlerProvider).start());
         unawaited(
           container
               .read(historyRepositoryProvider)

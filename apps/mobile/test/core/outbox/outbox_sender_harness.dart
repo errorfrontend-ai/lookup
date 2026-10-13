@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:lookup_listener/core/configuration/app_version.dart';
+import 'package:lookup_listener/core/error_reporting/client_error_report_sender.dart';
 import 'package:lookup_listener/core/files/owned_lock_file.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
@@ -16,9 +17,12 @@ import 'package:lookup_listener/core/outbox/outbox_index_file.dart';
 import 'package:lookup_listener/core/outbox/outbox_sender.dart';
 import 'package:lookup_listener/core/outbox/outbox_store.dart';
 import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
+import 'package:lookup_listener/features/identify/data/deferred_clip_sender.dart';
 import 'package:lookup_listener/features/identify/data/station_choice_sender.dart';
+import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/contract_fixtures.dart';
 import '../../support/example_app_configurations.dart';
 import '../../support/fake_async_clock.dart';
 import '../../support/fake_http_client_adapter.dart';
@@ -56,10 +60,27 @@ final class SentChoice {
   String? get requestId => request.header('X-Request-Id');
 }
 
+/// Where a saved clip's outcome went, in the sender tests: kept in order, or a failure the test
+/// asks for (History could not keep it).
+final class RecordingDeferredResultSink implements DeferredResultSink {
+  final List<DeferredClipOutcome> outcomes = [];
+
+  /// Set to make the next records fail, as a full storage would.
+  Object? failure;
+
+  @override
+  Future<void> record(DeferredClipOutcome outcome) async {
+    final failure = this.failure;
+    if (failure != null) throw failure;
+    outcomes.add(outcome);
+  }
+}
+
 /// The outbox sender wired as the app wires it, in fake time: the real store over a temporary
-/// folder, the real station choice sender, API client and install repository over a fake HTTP
-/// adapter, a clock that follows the fake time, a recording crash reporter, and a random source
-/// the test chooses (P6 design §4.1).
+/// folder, the real station choice, saved clip and crash report senders, API client and install
+/// repository over a fake HTTP adapter, a clock that follows the fake time, a recording crash
+/// reporter, a recording result sink, a network the test switches, and a random source the test
+/// chooses (P6 design §4.1).
 final class OutboxSenderHarness {
   OutboxSenderHarness(
     this.fakeAsync, {
@@ -89,7 +110,7 @@ final class OutboxSenderHarness {
     store = OutboxStore(
       locateFolder: () async => folder,
       lockOwner: senderTestEngine,
-      isEngineAttached: attachedEngines.contains,
+      lockTakeOver: LocalLockTakeOver(attachedEngineIds: attachedEngines),
       clock: clock,
       randomUuid: randomUuid,
       clientErrorReporter: reporter,
@@ -98,6 +119,16 @@ final class OutboxSenderHarness {
       store: store,
       itemSenders: {
         OutboxItemKind.stationChoice: StationChoiceSender(apiClient: apiClient, clock: clock),
+        OutboxItemKind.deferredClip: DeferredClipSender(
+          apiClient: apiClient,
+          store: store,
+          resultSink: resultSink,
+          clock: clock,
+        ),
+        OutboxItemKind.clientErrorReport: ClientErrorReportSender(
+          apiClient: apiClient,
+          clock: clock,
+        ),
       },
       listenerInstallRepository: ListenerInstallRepository(
         store: ListenerInstallStore(randomUuid: randomUuid),
@@ -110,6 +141,8 @@ final class OutboxSenderHarness {
       random: random ?? Random(1),
       clock: clock,
       isLiveIdentifyUnderWay: () => isLiveIdentifyUnderWay,
+      isNetworkAvailable: () => isNetworkUp,
+      onClipsExpired: (expiredClips) async => this.expiredClips.addAll(expiredClips),
       appVersion: appVersion,
     );
   }
@@ -127,6 +160,83 @@ final class OutboxSenderHarness {
 
   /// Whether the listener's own identify is recording, sending or busy now.
   bool isLiveIdentifyUnderWay = false;
+
+  /// Whether Android reports a network now.
+  bool isNetworkUp = true;
+
+  /// Where saved clips' outcomes went.
+  final RecordingDeferredResultSink resultSink = RecordingDeferredResultSink();
+
+  /// The clips deleted unsent, as the sender handed them to History.
+  final List<OutboxExpiredClip> expiredClips = [];
+
+  /// Every recognize request (saved clips' sends).
+  List<FakeHttpRequest> get recognizeRequests => [
+    for (final request in adapter.requests)
+      if (request.address.path.endsWith('/recognize')) request,
+  ];
+
+  /// Every crash report request.
+  List<FakeHttpRequest> get clientErrorRequests => [
+    for (final request in adapter.requests)
+      if (request.address.path.endsWith('/client-errors')) request,
+  ];
+
+  /// Saves a clip as the live flow does, with [audioBytes] as its recording.
+  void queueClip(
+    String idempotencyKey, {
+    required DateTime capturedAt,
+    List<int> audioBytes = const [0, 0, 0, 24, 102, 116, 121, 112, 77, 52, 65, 32],
+    String? stationHintId = stationA,
+    DeferredClipSavedReason savedReason = DeferredClipSavedReason.noConnection,
+  }) {
+    unawaited(
+      store.queueDeferredClip(
+        idempotencyKey: idempotencyKey,
+        capturedAt: capturedAt,
+        clipDurationMilliseconds: 8000,
+        codec: 'aac',
+        stationHintId: stationHintId,
+        audioBytes: audioBytes,
+        savedReason: savedReason,
+      ),
+    );
+    settle();
+  }
+
+  /// Queues a crash report that got no answer, as the reporter does.
+  void queueCrashReport(String reportId, {required DateTime occurredAt}) {
+    unawaited(
+      store.queueClientErrorReport(
+        reportId: reportId,
+        occurredAt: occurredAt,
+        fields: const {'kind': 'reported', 'message': 'Saving the result to History failed'},
+      ),
+    );
+    settle();
+  }
+
+  /// Answers the next request with the recognize answer fixture [name], e.g. `valid/no-match`.
+  void answerWithResponseFixture(String name) {
+    final content =
+        ContractFixtures.readFile('recognition/recognize-response/$name.json')!
+            as Map<String, Object?>;
+    adapter.answerJson(200, content['response']);
+  }
+
+  /// Answers the next request with the shared error envelope [name], e.g. `recognition-busy`.
+  void answerWithEnvelopeFixture(String name, {String? retryAfter}) {
+    final content =
+        ContractFixtures.readFile('errors/envelopes/$name.json')! as Map<String, Object?>;
+    final retryAfterValue = retryAfter ?? content['retry_after_seconds']?.toString();
+    adapter.answerJson(
+      content['http_status']! as int,
+      content['body'],
+      headers: {
+        if (retryAfterValue != null) 'retry-after': [retryAfterValue],
+      },
+    );
+  }
 
   /// Every choice request, with the fake time it arrived.
   final List<SentChoice> sentChoices = [];

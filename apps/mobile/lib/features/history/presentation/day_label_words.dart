@@ -13,6 +13,15 @@ abstract final class DayLabelWords {
   static String dayAndTimeOf(DayLabel label, AppLocalizations words, Locale locale) =>
       words.dayAndTime(dayOf(label, words, locale), label.time);
 
+  /// The day and the time inside a sentence: "today, 14:32" and "yesterday, 18:40" in lower case,
+  /// as the waiting row's "Clip from today, 14:32" draws them; other days as [dayAndTimeOf].
+  static String dayAndTimeInSentenceOf(DayLabel label, AppLocalizations words, Locale locale) =>
+      words.dayAndTime(switch (label) {
+        TodayLabel() => words.dayTodayInSentence,
+        YesterdayLabel() => words.dayYesterdayInSentence,
+        WeekdayLabel() || DateLabel() => dayOf(label, words, locale),
+      }, label.time);
+
   /// The day alone, e.g. "Yesterday" or "Mon".
   static String dayOf(DayLabel label, AppLocalizations words, Locale locale) => switch (label) {
     TodayLabel() => words.dayToday,

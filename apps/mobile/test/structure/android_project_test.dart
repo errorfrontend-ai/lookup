@@ -12,6 +12,9 @@ void main() {
 
   final buildFile = read('android/app/build.gradle.kts');
   final mainManifest = read('android/app/src/main/AndroidManifest.xml');
+  final devicePluginManifest = read(
+    'packages/device_services/android/src/main/AndroidManifest.xml',
+  );
   final dataExtractionRules = read('android/app/src/main/res/xml/data_extraction_rules.xml');
   final mainNetworkSecurity = read('android/app/src/main/res/xml/network_security_config.xml');
   final developmentNetworkSecurity = read(
@@ -25,12 +28,14 @@ void main() {
     expect(AndroidProjectChecks.problemsWithAppBuildFile(buildFile), isEmpty);
   });
 
-  test(
-    'the main manifest: exactly INTERNET and RECORD_AUDIO, backup and cleartext off, the button queries, no service',
-    () {
-      expect(AndroidProjectChecks.problemsWithMainManifest(mainManifest), isEmpty);
-    },
-  );
+  test('the main manifest: exactly INTERNET, RECORD_AUDIO and POST_NOTIFICATIONS, backup and '
+      'cleartext off, the button queries, no service', () {
+    expect(AndroidProjectChecks.problemsWithMainManifest(mainManifest), isEmpty);
+  });
+
+  test('the device_services plugin adds only ACCESS_NETWORK_STATE, and no component', () {
+    expect(AndroidProjectChecks.problemsWithDevicePluginManifest(devicePluginManifest), isEmpty);
+  });
 
   test('backup and device transfer exclude everything', () {
     expect(AndroidProjectChecks.problemsWithDataExtractionRules(dataExtractionRules), isEmpty);
@@ -152,7 +157,33 @@ void main() {
       );
       expect(
         AndroidProjectChecks.problemsWithMainManifest(_planted(mainManifest, recordAudio, '')),
-        [contains('not exactly INTERNET and RECORD_AUDIO')],
+        [contains('not exactly INTERNET, RECORD_AUDIO and POST_NOTIFICATIONS')],
+      );
+    });
+
+    test('a device_services permission other than ACCESS_NETWORK_STATE, or a receiver', () {
+      const networkState =
+          '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>';
+
+      expect(
+        AndroidProjectChecks.problemsWithDevicePluginManifest(
+          _planted(
+            devicePluginManifest,
+            networkState,
+            '$networkState<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>',
+          ),
+        ),
+        [contains('ACCESS_FINE_LOCATION')],
+      );
+      expect(
+        AndroidProjectChecks.problemsWithDevicePluginManifest(
+          _planted(
+            devicePluginManifest,
+            '</manifest>',
+            '<application><receiver android:name=".Boot"/></application></manifest>',
+          ),
+        ),
+        [contains('declares a receiver')],
       );
     });
 

@@ -1,7 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Exactly these two (S4-SECURITY, design §3.20). Flutter's template adds INTERNET only to debug builds. -->
+    <!-- The app's own (S4-SECURITY, design §3.20; P6 design §3.21). Flutter's template adds INTERNET only to debug
+         builds. POST_NOTIFICATIONS is asked only from "Allow notifications" on the Saved screen (Q4).
+         ACCESS_NETWORK_STATE comes from the in-repo device_services plugin's manifest. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <!-- No backup of the install token or anything else (S4-D14); cleartext only in the development
          flavour, whose source set replaces network_security_config.xml (S4-D25). -->

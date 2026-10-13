@@ -81,9 +81,38 @@ final class OutboxIndex {
     return null;
   }
 
+  /// The clips that [withoutExpired] deletes at [now], each with why (§3.8, P6-D37): History keeps a
+  /// row for each, "Not sent within 24 hours — deleted" or "Couldn't be checked — deleted".
+  List<OutboxExpiredClip> expiredClips(DateTime now) => [
+    for (final item in items)
+      if (item is DeferredClipItem)
+        if (_clipExpiryOf(item, now) case final reason?)
+          OutboxExpiredClip(item: item, reason: reason),
+  ];
+
+  /// This index with every wait that came from "no answer" cleared: the network came back, so their
+  /// reason has gone (§3.9 point 9). Waits the server asked for (a `Retry-After`, a 5xx backoff, a
+  /// pause) stay. This same index when there is none.
+  OutboxIndex withNoAnswerWaitsCleared() {
+    bool isNoAnswerWait(OutboxItem item) =>
+        item.lastProblem == OutboxItemProblem.noAnswer && item.nextAttemptAt != null;
+    if (!items.any(isNoAnswerWait)) return this;
+    return _with(
+      items: [for (final item in items) isNoAnswerWait(item) ? item.withoutWait() : item],
+    );
+  }
+
+  /// The clips waiting, oldest capture first.
+  List<DeferredClipItem> get clips => [
+    for (final item in items)
+      if (item is DeferredClipItem) item,
+  ]..sort((first, second) => first.capturedAt.compareTo(second.capturedAt));
+
   /// This index as it should be at [now] (§3.8, §3.9 point 9; contract R5; amendment A2):
-  /// - without what has run out: follow-up items queued 7 days ago or more, group pauses that have
-  ///   ended, and a 426 pause made by another version of the app than [appVersion];
+  /// - without what has run out: clips 23 hours 58 minutes after their capture by the phone's clock,
+  ///   or captured more than 2 minutes ahead of it ([expiredClips]); follow-up items and crash
+  ///   reports queued 7 days ago or more; group pauses that have ended; and a 426 pause made by
+  ///   another version of the app than [appVersion];
   /// - with every wait cut to what the clock allows. An item's wait or a group's pause ending more
   ///   than an hour after [now], or a probe due more than 6 hours after it, was set while the
   ///   phone's clock was ahead, and the clock has gone back since: it is cut to an hour (a probe to
@@ -99,8 +128,12 @@ final class OutboxIndex {
     var isChanged = false;
     final keptItems = <OutboxItem>[];
     for (final item in items) {
-      if (item.kind.group == OutboxItemGroup.followUps &&
-          !now.isBefore(item.queuedAt.add(followUpLifetime))) {
+      final hasExpired = switch (item) {
+        DeferredClipItem() => _clipExpiryOf(item, now) != null,
+        StationChoiceItem() ||
+        ClientErrorReportItem() => !now.isBefore(item.queuedAt.add(followUpLifetime)),
+      };
+      if (hasExpired) {
         isChanged = true;
       } else if (item.nextAttemptAt case final nextAttemptAt?
           when nextAttemptAt.isAfter(latestWaitEnd)) {
@@ -189,9 +222,25 @@ final class OutboxIndex {
   bool _isGroupPaused(OutboxItemGroup group, DateTime now) =>
       groupPausedUntil[group]?.isAfter(now) ?? false;
 
-  /// What "oldest" means for [item]: its queued time (clips will go by capture time, piece 3).
+  /// Why [clip] must be deleted unsent at [now], or null while it may still go (§3.8, P6-D37): 23
+  /// hours 58 minutes after its capture by the phone's clock, so a clock moved back by less than 2
+  /// minutes cannot stretch it past 24 hours of real time; or at once when its capture time is more
+  /// than 2 minutes ahead of the clock (the clock went back; the server would refuse it anyway).
+  static OutboxClipExpiry? _clipExpiryOf(DeferredClipItem clip, DateTime now) {
+    if (clip.capturedAt.isAfter(now.add(OutboxTimingRules.clipCaptureTimeAheadAllowance))) {
+      return OutboxClipExpiry.captureTimeAheadOfTheClock;
+    }
+    if (!now.isBefore(clip.capturedAt.add(OutboxTimingRules.clipKeptFor))) {
+      return OutboxClipExpiry.notSentWithin24Hours;
+    }
+    return null;
+  }
+
+  /// What "oldest" means for [item]: a clip's capture time, any other item's queued time (contract
+  /// R7).
   static DateTime _sendingOrderOf(OutboxItem item) => switch (item) {
-    StationChoiceItem(:final queuedAt) => queuedAt,
+    DeferredClipItem(:final capturedAt) => capturedAt,
+    StationChoiceItem(:final queuedAt) || ClientErrorReportItem(:final queuedAt) => queuedAt,
   };
 
   OutboxIndex _with({List<OutboxItem>? items, Map<OutboxItemGroup, DateTime>? groupPausedUntil}) =>
@@ -266,6 +315,21 @@ final class OutboxIndex {
         'recognition_id': recognitionId,
         'station_id': stationId,
       },
+      DeferredClipItem() => {
+        'idempotency_key': item.idempotencyKey,
+        'captured_at': _writeTime(item.capturedAt),
+        'clip_duration_milliseconds': item.clipDurationMilliseconds,
+        'codec': item.codec,
+        'station_hint_id': item.stationHintId,
+        'audio_file': item.audioFileName,
+        'audio_size_bytes': item.audioSizeBytes,
+        'saved_reason': item.savedReason.storedName,
+      },
+      ClientErrorReportItem() => {
+        'report_id': item.reportId,
+        'occurred_at': _writeTime(item.occurredAt),
+        'fields': item.fields,
+      },
     },
   };
 
@@ -294,21 +358,99 @@ final class OutboxIndex {
             ),
           _ => null,
         },
+        OutboxItemKind.deferredClip => switch (json) {
+          {
+            'idempotency_key': final String idempotencyKey,
+            'captured_at': final String capturedAtText,
+            'clip_duration_milliseconds': final int clipDurationMilliseconds,
+            'codec': final String codec,
+            'audio_file': final String audioFileName,
+            'audio_size_bytes': final int audioSizeBytes,
+            'saved_reason': final String savedReasonName,
+          }
+              when _isClipFileName(audioFileName) && audioSizeBytes >= 0 =>
+            switch ((
+              _readTime(capturedAtText),
+              DeferredClipSavedReason.fromStoredName(savedReasonName),
+              json['station_hint_id'],
+            )) {
+              (final capturedAt?, final savedReason?, final String? stationHintId) =>
+                DeferredClipItem(
+                  itemId: itemId,
+                  queuedAt: queuedAt,
+                  idempotencyKey: idempotencyKey,
+                  capturedAt: capturedAt,
+                  clipDurationMilliseconds: clipDurationMilliseconds,
+                  codec: codec,
+                  stationHintId: stationHintId,
+                  audioFileName: audioFileName,
+                  audioSizeBytes: audioSizeBytes,
+                  savedReason: savedReason,
+                  attemptCount: attemptCount,
+                  nextAttemptAt: nextAttemptAt,
+                  lastProblem: lastProblem,
+                ),
+              _ => null,
+            },
+          _ => null,
+        },
+        OutboxItemKind.clientErrorReport => switch (json) {
+          {
+            'report_id': final String reportId,
+            'occurred_at': final String occurredAtText,
+            'fields': final Map<String, Object?> fields,
+          }
+              when fields.values.every((value) => value is String) =>
+            switch (_readTime(occurredAtText)) {
+              final occurredAt? => ClientErrorReportItem(
+                itemId: itemId,
+                queuedAt: queuedAt,
+                reportId: reportId,
+                occurredAt: occurredAt,
+                fields: fields.cast<String, String>(),
+                attemptCount: attemptCount,
+                nextAttemptAt: nextAttemptAt,
+                lastProblem: lastProblem,
+              ),
+              null => null,
+            },
+          _ => null,
+        },
         // Kinds a later piece queues; this version cannot send them.
-        OutboxItemKind.deferredClip ||
-        OutboxItemKind.engagement ||
-        OutboxItemKind.recognitionReport ||
-        OutboxItemKind.clientErrorReport ||
-        null => null,
+        OutboxItemKind.engagement || OutboxItemKind.recognitionReport || null => null,
       };
     }
     return null;
   }
 
+  /// A clip's file name as the store makes it: a UUID and `.m4a`, never a path, so an index that was
+  /// tampered with cannot name a file outside `clips/`.
+  static bool _isClipFileName(String name) => _clipFileName.hasMatch(name);
+
+  static final RegExp _clipFileName = RegExp(r'^[0-9a-f-]{36}\.m4a$');
+
   static String _writeTime(DateTime time) => time.toUtc().toIso8601String();
 
   static DateTime? _readTime(Object? value) =>
       value is String ? DateTime.tryParse(value)?.toUtc() : null;
+}
+
+/// A clip deleted unsent, and why (§3.8): History keeps a row for it.
+final class OutboxExpiredClip {
+  const OutboxExpiredClip({required this.item, required this.reason});
+
+  final DeferredClipItem item;
+  final OutboxClipExpiry reason;
+}
+
+/// Why a waiting clip was deleted unsent (P6 design §3.8, §3.11).
+enum OutboxClipExpiry {
+  /// Its 24 hours ran out: "Not sent within 24 hours — deleted".
+  notSentWithin24Hours,
+
+  /// Its capture time is more than 2 minutes ahead of the phone's clock: "Couldn't be checked —
+  /// deleted".
+  captureTimeAheadOfTheClock,
 }
 
 /// The pause a 426 `APP_UPDATE_REQUIRED` puts on the whole outbox (contract R11, amendment A2). It

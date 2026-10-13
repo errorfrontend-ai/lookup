@@ -18,8 +18,8 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 /// Three variants (S4-D22, gap 31), from [microphoneAccess]: as drawn when the app has never asked;
 /// a sentence saying the listener refused, when they did once; and, when the system will not ask
 /// again, a sentence pointing to the phone's settings with "Open phone settings" as the main
-/// button. The wireframe's offline promise is left out: there is no offline capture before Phase 6,
-/// so it would be false (S4-D1).
+/// button. The wireframe's offline promise is the second, true since clips with no signal wait in
+/// the outbox (P6-PERMISSION-01, P6 design §2.4).
 class PermissionScreen extends ConsumerWidget {
   const PermissionScreen({super.key, required this.microphoneAccess});
 
@@ -29,6 +29,7 @@ class PermissionScreen extends ConsumerWidget {
   /// The promises, each after a tick.
   static List<String> promisesOf(AppLocalizations words) => [
     words.permissionPromiseOnlyWhenYouTap,
+    words.permissionPromiseOfflineClip,
     words.permissionPromiseNeverWhoYouAre,
   ];
 
@@ -50,6 +51,8 @@ class PermissionScreen extends ConsumerWidget {
       child: ScreenFrame(
         exitButton: ScreenExitButton.back(label: words.backButton, onPressed: flow.backToHome),
         bodyPadding: EdgeInsets.fromLTRB(spacing.space6, spacing.space4, spacing.space6, 0),
+        // "Allow microphone" stays in reach above the three promises (P6 design §2.4).
+        isFooterPinned: true,
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -76,7 +79,13 @@ class PermissionScreen extends ConsumerWidget {
             if (variantNote != null) ...[
               SizedBox(height: spacing.space5),
               // Announced, because it appears after the system prompt closes, with no tap on it.
-              Semantics(liveRegion: true, child: Text(variantNote, style: typeStyles.body)),
+              _ShownOnArrival(
+                key: ValueKey(microphoneAccess),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(variantNote, style: typeStyles.body),
+                ),
+              ),
             ],
           ],
         ),
@@ -123,6 +132,39 @@ class _Promise extends StatelessWidget {
 
 /// "Said no before? Open phone settings", under the buttons; it wraps onto two lines when the
 /// text is large.
+/// Scrolls the body until [child] is in view when it first appears: the note after a refusal sits
+/// below the promises, under the fold of a 360 × 800 phone, and says why the screen changed.
+class _ShownOnArrival extends StatefulWidget {
+  const _ShownOnArrival({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ShownOnArrival> createState() => _ShownOnArrivalState();
+}
+
+class _ShownOnArrivalState extends State<_ShownOnArrival> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+        Scrollable.ensureVisible(
+          context,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : context.lookUpTokens.motion.base,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class _SettingsLine extends StatelessWidget {
   const _SettingsLine({required this.onOpen});
 

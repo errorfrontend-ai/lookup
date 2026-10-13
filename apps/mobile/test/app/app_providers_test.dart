@@ -5,6 +5,7 @@ import 'package:lookup_listener/app/outbox_run_scheduler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
+import 'package:lookup_listener/core/files/owned_lock_file.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
 import 'package:lookup_listener/core/outbox/outbox_providers.dart';
@@ -15,6 +16,7 @@ import 'package:lookup_listener/core/time/clock.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lookup_listener/features/history/domain/history_waiting_clip.dart';
 
 import '../support/example_app_configurations.dart';
 import '../support/fake_clock.dart';
@@ -64,9 +66,7 @@ void main() {
     expect(container.read(outboxSenderProvider), isA<OutboxSender>());
     expect(container.read(outboxRunSchedulerProvider), isA<OutboxRunScheduler>());
     expect(container.read(outboxTimingRulesProvider), OutboxTimingRules.standard);
-    final engine = container.read(engineIdentityProvider);
-    expect(engine.isEngineAttached(engine.engineId), isTrue);
-    expect(engine.isEngineAttached('1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e'), isFalse);
+    expect(container.read(lockTakeOverProvider), isA<LockTakeOver>());
   });
 
   test("a development build's lowered waits reach the outbox's rules", () {
@@ -130,5 +130,97 @@ void main() {
       adapter.requests.single.address.toString(),
       'https://api.lookup.invalid/api/v1/installs',
     );
+  });
+
+  group('History\'s waiting rows say why each clip waits (P6 design §2.9; P6-HISTORY-05)', () {
+    DeferredClipItem clip({
+      required DeferredClipSavedReason savedReason,
+      OutboxItemProblem? lastProblem,
+      int minutesAgo = 1,
+    }) => DeferredClipItem(
+      itemId: 'item-$minutesAgo',
+      queuedAt: DateTime.utc(2026, 10, 13, 12),
+      idempotencyKey: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c2$minutesAgo',
+      capturedAt: DateTime.utc(2026, 10, 13, 12).subtract(Duration(minutes: minutesAgo)),
+      clipDurationMilliseconds: 8000,
+      codec: 'aac',
+      audioFileName: '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c2$minutesAgo.m4a',
+      audioSizeBytes: 10,
+      savedReason: savedReason,
+      attemptCount: lastProblem == null ? 0 : 1,
+      lastProblem: lastProblem,
+    );
+
+    HistoryWaitingClipStatus statusOf(DeferredClipItem item, {bool isUpdatePaused = false}) =>
+        waitingClipsIn(
+          OutboxIndex(
+            items: [item],
+            updatePause: isUpdatePaused
+                ? OutboxUpdatePause(
+                    appVersion: '0.3.0',
+                    pausedAt: DateTime.utc(2026, 10, 13, 11),
+                    nextProbeAt: DateTime.utc(2026, 10, 13, 17),
+                  )
+                : null,
+          ),
+        ).single.status;
+
+    test('before the outbox has tried it, the live answer it was saved after', () {
+      expect(
+        statusOf(clip(savedReason: DeferredClipSavedReason.noConnection)),
+        HistoryWaitingClipStatus.waitingForSignal,
+      );
+      for (final reason in [DeferredClipSavedReason.busy, DeferredClipSavedReason.tooManyTries]) {
+        expect(
+          statusOf(clip(savedReason: reason)),
+          HistoryWaitingClipStatus.busy,
+          reason: '$reason',
+        );
+      }
+    });
+
+    test('after a try, the outbox\'s last answer, whatever the clip was saved after', () {
+      for (final (problem, status) in [
+        (OutboxItemProblem.noAnswer, HistoryWaitingClipStatus.waitingForSignal),
+        (OutboxItemProblem.busy, HistoryWaitingClipStatus.busy),
+        (OutboxItemProblem.limited, HistoryWaitingClipStatus.busy),
+        (OutboxItemProblem.updateRequired, HistoryWaitingClipStatus.waitingForUpdate),
+      ]) {
+        expect(
+          statusOf(clip(savedReason: DeferredClipSavedReason.busy, lastProblem: problem)),
+          status,
+          reason: '$problem',
+        );
+      }
+    });
+
+    test('while the update gate holds the sender, every clip waits for a newer version', () {
+      expect(
+        statusOf(
+          clip(
+            savedReason: DeferredClipSavedReason.noConnection,
+            lastProblem: OutboxItemProblem.noAnswer,
+          ),
+          isUpdatePaused: true,
+        ),
+        HistoryWaitingClipStatus.waitingForUpdate,
+      );
+    });
+
+    test('each row keeps its clip\'s key and capture time, oldest first', () {
+      final rows = waitingClipsIn(
+        OutboxIndex(
+          items: [
+            clip(savedReason: DeferredClipSavedReason.noConnection, minutesAgo: 1),
+            clip(savedReason: DeferredClipSavedReason.noConnection, minutesAgo: 7),
+          ],
+        ),
+      );
+      expect(rows.map((row) => row.capturedAtOnPhone), [
+        DateTime.utc(2026, 10, 13, 11, 53),
+        DateTime.utc(2026, 10, 13, 11, 59),
+      ]);
+      expect(rows.first.idempotencyKey, '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c27');
+    });
   });
 }

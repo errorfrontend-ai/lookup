@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -168,10 +169,13 @@ void main() {
         final otherLock = OwnedLockFile(
           file: File('${harness.folder.path}/sending.lock'),
           owner: otherEngine,
-          isEngineAttached: harness.attachedEngines.contains,
+          lockTakeOver: LocalLockTakeOver(attachedEngineIds: harness.attachedEngines),
           clock: harness.clock,
         );
-        expect(otherLock.tryTake(), isTrue);
+        var isTaken = false;
+        unawaited(otherLock.tryTake().then((value) => isTaken = value));
+        harness.settle();
+        expect(isTaken, isTrue);
         harness.startRun(OutboxRunReason.appStarted);
         expect(harness.sentChoices, isEmpty);
         expect(harness.items, hasLength(1));

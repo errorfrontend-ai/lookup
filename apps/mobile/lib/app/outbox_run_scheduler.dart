@@ -13,23 +13,29 @@ import 'package:lookup_listener/core/time/clock.dart';
 /// the signal returns, sooner after the first failure and less often after each one.
 ///
 /// The timer is cancelled when the app is hidden, and a resume starts a run that sets it again.
-/// Network events (piece 3) and the background job (piece 3, if approved) add their own triggers.
+/// When Android reports the network back while the app is in the foreground, a run starts at once
+/// (its "no answer" waits cleared, §3.9); while it is hidden, the background job sends instead.
 class OutboxRunScheduler {
-  /// [itemsQueued] fires after each item reaches the outbox (`OutboxStore.itemsQueued`).
+  /// [itemsQueued] fires after each item reaches the outbox (`OutboxStore.itemsQueued`);
+  /// [networkBack] when Android reports a network again (`NetworkWatcher.networkBack`).
   OutboxRunScheduler({
     required OutboxSender sender,
     required Stream<void> itemsQueued,
+    Stream<void>? networkBack,
     required Clock clock,
   }) : _sender = sender,
        _itemsQueued = itemsQueued,
+       _networkBack = networkBack,
        _clock = clock;
 
   final OutboxSender _sender;
   final Stream<void> _itemsQueued;
+  final Stream<void>? _networkBack;
   final Clock _clock;
 
   AppLifecycleListener? _lifecycleListener;
   StreamSubscription<void>? _itemsQueuedSubscription;
+  StreamSubscription<void>? _networkBackSubscription;
   Timer? _wakeUpTimer;
   DateTime? _wakeUpAt;
   bool _isInForeground = true;
@@ -55,6 +61,9 @@ class OutboxRunScheduler {
     _itemsQueuedSubscription = _itemsQueued.listen(
       (_) => unawaited(_startRun(OutboxRunReason.itemQueued)),
     );
+    _networkBackSubscription = _networkBack?.listen((_) {
+      if (_isInForeground) unawaited(_startRun(OutboxRunReason.networkBack));
+    });
     unawaited(_startRun(OutboxRunReason.appStarted));
   }
 
@@ -65,6 +74,8 @@ class OutboxRunScheduler {
     _wakeUpTimer = null;
     unawaited(_itemsQueuedSubscription?.cancel());
     _itemsQueuedSubscription = null;
+    unawaited(_networkBackSubscription?.cancel());
+    _networkBackSubscription = null;
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
   }

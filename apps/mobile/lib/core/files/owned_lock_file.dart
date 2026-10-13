@@ -44,31 +44,37 @@ final class LockFileOwner {
 /// - this process and an engine that is no longer attached (its engine was destroyed mid-run), or
 ///   this very engine (a lock it failed to remove): taken over.
 ///
+/// Whether another engine of this process is attached only the platform can say once a second
+/// engine exists (the background job), so that judgement and its take-over are [LockTakeOver]'s:
+/// on Android the `device_services` plugin makes them one step for the whole process; with one
+/// engine, [LocalLockTakeOver] decides in Dart.
+///
 /// `taken_at` is written for people reading the folder; nothing ever decides by it.
 ///
 /// **A take-over** reads the lock again and goes on only if it still holds exactly what was judged
 /// dead; it then renames it to a unique name and deletes that, and only then creates its own lock
 /// exclusively. A lock someone else took in the meantime is never removed, and a take-over is never
-/// delete-and-create. From piece 3 the plugin that knows which engines are attached also makes this
-/// check-and-rename one step for the whole process.
+/// delete-and-create.
 ///
 /// A lock whose content cannot be read (left by a crash between creating it and writing its line)
 /// is judged dead only when it still holds the same content one attempt later, so an owner in the
-/// middle of writing it is never mistaken for a dead one.
+/// middle of writing it is never mistaken for a dead one; and, carried over from the review of
+/// piece 1, never while another engine of this process is attached, as that engine may be the one
+/// writing it.
 ///
 /// Synchronous file calls, all of them small: one engine runs its own calls one after the other.
 final class OwnedLockFile {
-  /// [isEngineAttached] says whether an engine of this process, by its id, is still running.
+  /// [lockTakeOver] judges and takes over a lock another engine of this process may hold.
   /// [beforeTakeOver] is for tests: it runs after a lock was judged dead and before it is taken
   /// over, so a test can let another engine act in between.
   OwnedLockFile({
     required this.file,
     required this.owner,
-    required bool Function(String engineId) isEngineAttached,
+    required LockTakeOver lockTakeOver,
     required Clock clock,
     Random? random,
-    @visibleForTesting void Function()? beforeTakeOver,
-  }) : _isEngineAttached = isEngineAttached,
+    @visibleForTesting Future<void> Function()? beforeTakeOver,
+  }) : _lockTakeOver = lockTakeOver,
        _clock = clock,
        _random = random ?? Random.secure(),
        _beforeTakeOver = beforeTakeOver;
@@ -82,10 +88,10 @@ final class OwnedLockFile {
   /// This engine, which the lock names while it holds it.
   final LockFileOwner owner;
 
-  final bool Function(String engineId) _isEngineAttached;
+  final LockTakeOver _lockTakeOver;
   final Clock _clock;
   final Random _random;
-  final void Function()? _beforeTakeOver;
+  final Future<void> Function()? _beforeTakeOver;
 
   /// The exact line this engine wrote when it took the lock; null while it does not hold it.
   String? _heldContent;
@@ -98,16 +104,30 @@ final class OwnedLockFile {
   bool get isHeld => _heldContent != null;
 
   /// Takes the lock if it can, now: creates it, or takes over a dead one. False when a live owner
-  /// holds it (or another engine took it first). Never waits, never throws.
-  bool tryTake() {
+  /// holds it (or another engine took it first). Never waits for a live owner, never throws.
+  Future<bool> tryTake() async {
     if (isHeld) return true;
     try {
       if (_create()) return true;
       final existing = _readOrNull();
       if (existing == null) return _create();
-      if (!_isDead(existing)) return false;
-      _beforeTakeOver?.call();
-      if (!_removeIfStillHolding(existing)) return false;
+      final judgement = _judge(existing);
+      switch (judgement) {
+        case _Alive():
+          return false;
+        case _DeadHere():
+          await _beforeTakeOver?.call();
+          if (!removeIfStillHolding(file, existing, random: _random)) return false;
+        case _AskTheProcess(:final ownerEngineId):
+          await _beforeTakeOver?.call();
+          final isTakenOver = await _lockTakeOver.takeOverDeadLock(
+            file: file,
+            expectedContent: existing,
+            askingEngineId: owner.engineId,
+            ownerEngineId: ownerEngineId,
+          );
+          if (!isTakenOver) return false;
+      }
       return _create();
     } on FileSystemException {
       return false;
@@ -119,7 +139,7 @@ final class OwnedLockFile {
   Future<bool> take({required Duration patience}) async {
     final attempts = patience.inMicroseconds ~/ retryInterval.inMicroseconds;
     for (var attempt = 0; attempt <= attempts; attempt++) {
-      if (tryTake()) return true;
+      if (await tryTake()) return true;
       if (attempt < attempts) await Future<void>.delayed(retryInterval);
     }
     return false;
@@ -164,18 +184,19 @@ final class OwnedLockFile {
     }
   }
 
-  /// Whether the owner [content] names is gone, by the rules above.
-  bool _isDead(String content) {
+  /// What the rules above say of the owner [content] names: alive, gone (decided here), or for
+  /// another engine of this process (and an unreadable lock seen twice) the process's to say.
+  _Judgement _judge(String content) {
     final named = _ownerIn(content);
     if (named == null) {
       final isSecondLook = _unreadableContentSeen == content;
       _unreadableContentSeen = content;
-      return isSecondLook;
+      return isSecondLook ? const _AskTheProcess(ownerEngineId: null) : const _Alive();
     }
     _unreadableContentSeen = null;
-    if (named.processId != owner.processId) return true;
-    if (named.engineId == owner.engineId) return true;
-    return !_isEngineAttached(named.engineId);
+    if (named.processId != owner.processId) return const _DeadHere();
+    if (named.engineId == owner.engineId) return const _DeadHere();
+    return _AskTheProcess(ownerEngineId: named.engineId);
   }
 
   /// The owner a lock's line names, or null when it names none.
@@ -193,15 +214,90 @@ final class OwnedLockFile {
     return null;
   }
 
-  /// Renames the lock away and deletes it, only if it still holds exactly [judgedDead].
-  bool _removeIfStillHolding(String judgedDead) {
-    if (_readOrNull() != judgedDead) return false;
-    final suffix = List.generate(8, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'));
+  /// Renames the lock [file] away and deletes it, only if it still holds exactly [judgedDead]:
+  /// never delete-and-create, so a lock taken in between is never removed.
+  static bool removeIfStillHolding(File file, String judgedDead, {required Random random}) {
+    try {
+      if (file.readAsStringSync() != judgedDead) return false;
+    } on FileSystemException {
+      return false;
+    }
+    final suffix = List.generate(8, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'));
     try {
       file.renameSync('${file.path}.taken-over-${suffix.join()}').deleteSync();
     } on FileSystemException {
       return false;
     }
     return true;
+  }
+}
+
+/// What [OwnedLockFile] judged of an existing lock.
+sealed class _Judgement {
+  const _Judgement();
+}
+
+/// A live owner holds it.
+final class _Alive extends _Judgement {
+  const _Alive();
+}
+
+/// Its owner is gone, which this engine can tell alone: another process, or this very engine.
+final class _DeadHere extends _Judgement {
+  const _DeadHere();
+}
+
+/// Another engine of this process named it ([ownerEngineId]), or nobody can be read from it: the
+/// process decides, as one step with the take-over.
+final class _AskTheProcess extends _Judgement {
+  const _AskTheProcess({required this.ownerEngineId});
+
+  final String? ownerEngineId;
+}
+
+/// Judges and takes over a lock another engine of this process may hold (P6 design §3.8), as one
+/// step for the whole process, so a lock an attached engine holds is never removed.
+abstract interface class LockTakeOver {
+  /// Removes [file] when it still holds exactly [expectedContent] and its owner is gone: the engine
+  /// [ownerEngineId] of this process is not attached, or, for a lock that names no owner, no engine
+  /// of this process but [askingEngineId] is. Answers whether it removed it. Never throws.
+  Future<bool> takeOverDeadLock({
+    required File file,
+    required String expectedContent,
+    required String askingEngineId,
+    required String? ownerEngineId,
+  });
+}
+
+/// [LockTakeOver] decided in Dart from a known set of attached engines: right when this engine is
+/// the only one in its process (iOS, a platform without the plugin), and for tests, which set the
+/// engines they pretend are attached.
+final class LocalLockTakeOver implements LockTakeOver {
+  /// [attachedEngineIds] are the engines of this process that run; null means every one does.
+  LocalLockTakeOver({required Set<String>? attachedEngineIds, Random? random})
+    : _attachedEngineIds = attachedEngineIds,
+      _random = random ?? Random.secure();
+
+  /// Every engine counts as attached, so no lock of this process is ever taken over.
+  LocalLockTakeOver.everyEngineAttached() : this(attachedEngineIds: null);
+
+  final Set<String>? _attachedEngineIds;
+  final Random _random;
+
+  bool _isAttached(String engineId) => _attachedEngineIds?.contains(engineId) ?? true;
+
+  @override
+  Future<bool> takeOverDeadLock({
+    required File file,
+    required String expectedContent,
+    required String askingEngineId,
+    required String? ownerEngineId,
+  }) async {
+    final attached = _attachedEngineIds;
+    final isOwnerGone = ownerEngineId != null
+        ? !_isAttached(ownerEngineId)
+        : attached != null && attached.every((engineId) => engineId == askingEngineId);
+    if (!isOwnerGone) return false;
+    return OwnedLockFile.removeIfStillHolding(file, expectedContent, random: _random);
   }
 }

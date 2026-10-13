@@ -71,24 +71,15 @@ class ErrorScreen extends ConsumerWidget {
         explanation: words.errorRecordingUnusableExplanation,
         footer: _ErrorFooter.tryAgain,
       ),
-      ConnectionFailure() => _ErrorWording(
-        icon: Icons.signal_cellular_off_outlined,
-        iconColour: colours.ink,
-        circleColour: colours.lineSoft,
-        heading: words.errorNoConnectionHeading,
+      // 426: this version is too old (P6 design §2.15; P6-COMPATIBILITY-02). No code panel, and no
+      // store button until a listing exists (Q14).
+      AppUpdateRequiredFailure() => _ErrorWording(
+        icon: Icons.system_update_outlined,
+        iconColour: colours.accent,
+        circleColour: colours.accentSoft,
+        heading: words.errorPleaseUpdateHeading,
         headingRole: SemanticsRole.status,
-        explanation: words.errorNoConnectionExplanation,
-        footer: _ErrorFooter.sendAgain,
-      ),
-      TooManyTriesFailure(:final isShortWait) => _ErrorWording(
-        icon: Icons.schedule,
-        iconColour: colours.warning,
-        circleColour: colours.warningSoft,
-        heading: words.errorTooManyTriesHeading,
-        headingRole: SemanticsRole.status,
-        explanation: isShortWait
-            ? words.errorTooManyTriesShortWaitExplanation
-            : words.errorTooManyTriesLaterExplanation,
+        explanation: words.errorPleaseUpdateExplanation,
         footer: _ErrorFooter.backToHomeOnly,
       ),
       // An answer this version cannot show; CHOOSE_STATION is the chooser now (P6 design §2.15).
@@ -162,13 +153,6 @@ class ErrorScreen extends ConsumerWidget {
             ),
             TextButton(onPressed: flow.backToHome, child: backToHomeLabel),
           ],
-          _ErrorFooter.sendAgain => [
-            FilledButton(
-              onPressed: () => unawaited(flow.sendAgain()),
-              child: Text(words.sendAgainButton),
-            ),
-            TextButton(onPressed: flow.backToHome, child: backToHomeLabel),
-          ],
           _ErrorFooter.backToHomeOnly => [
             FilledButton(onPressed: flow.backToHome, child: backToHomeLabel),
           ],
@@ -182,9 +166,6 @@ class ErrorScreen extends ConsumerWidget {
 enum _ErrorFooter {
   /// "Try again" (a new listening) and "Back to home".
   tryAgain,
-
-  /// "Send again" (the kept clip) and "Back to home".
-  sendAgain,
 
   /// "Back to home" alone: trying again now would not help.
   backToHomeOnly,

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/features/identify/data/recognize_request_builder.dart';
 import 'package:lookup_listener/features/identify/domain/captured_clip.dart';
 import 'package:lookup_listener/features/identify/domain/clip_settings.dart';
+import 'package:lookup_listener/core/outbox/outbox_item.dart';
 
 import '../../../support/contract_fixtures.dart';
 import '../../../support/repository_file_locator.dart';
@@ -262,6 +263,56 @@ void main() {
         ),
       );
       expect(fields['idempotency_key'], _idempotencyKey);
+    });
+  });
+
+  group('a clip sent from the outbox (contract R2; P6-OUTBOX-07)', () {
+    final fixture = validFixtures.firstWhere(
+      (fixture) => fixture.name == 'deferred-send-from-the-outbox',
+    );
+    final stored = DeferredClipItem(
+      itemId: '0f1e2d3c-4b5a-4968-8776-655443322110',
+      queuedAt: DateTime.utc(2026, 10, 8, 10, 0, 9),
+      idempotencyKey: '7c2e9a4b-1d3f-4a6e-8b5c-2f1e0d9c8b7a',
+      capturedAt: DateTime.utc(2026, 10, 8, 10),
+      clipDurationMilliseconds: 8000,
+      codec: 'aac',
+      stationHintId: _stationBId,
+      audioFileName: '7c2e9a4b-1d3f-4a6e-8b5c-2f1e0d9c8b7a.m4a',
+      audioSizeBytes: 3,
+      savedReason: DeferredClipSavedReason.noConnection,
+    );
+    final parts = builder.buildDeferred(
+      stored,
+      audioBytes: const [1, 2, 3],
+      sentAt: DateTime.utc(2026, 10, 8, 11, 30),
+    );
+
+    test('gives exactly the fields of deferred-send-from-the-outbox.json, in its order', () {
+      final expectedFields = fieldsOf(fixture);
+      expect(parts.textFields.map((field) => field.key), expectedFields.keys);
+      expect(_fieldMap(parts), expectedFields);
+      expect(ContractSchemaChecker.problemsWith(_fieldMap(parts), schema), isEmpty);
+    });
+
+    test('sends the stored recording as the same audio part a live send uses', () {
+      expect(parts.audioPart.bytes, [1, 2, 3]);
+      expect(parts.audioPart.fieldName, 'audio');
+      expect(parts.audioPart.fileName, 'clip.m4a');
+      expect(parts.audioPart.contentType, 'audio/mp4');
+    });
+
+    test('only sent_at changes from one attempt to the next', () {
+      final later = _fieldMap(
+        builder.buildDeferred(
+          stored,
+          audioBytes: const [1, 2, 3],
+          sentAt: DateTime.utc(2026, 10, 8, 11, 45),
+        ),
+      );
+      final first = _fieldMap(parts);
+      expect(later['sent_at'], '2026-10-08T11:45:00.000Z');
+      expect({...later}..remove('sent_at'), {...first}..remove('sent_at'));
     });
   });
 }

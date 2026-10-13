@@ -4,6 +4,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_failure.dar
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/domain/send_policy.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 
 const String _apiRequestId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
 const String _reportRequestId = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
@@ -40,7 +41,7 @@ List<RecognitionOutcome> _sendClip(List<RecognitionAnswer> answers) {
       BusyOutcome(:final nextPolicy) => nextPolicy,
       WaitAndResendOutcome(:final nextPolicy) => nextPolicy,
       RegisterAgainOutcome(:final nextPolicy) => nextPolicy,
-      ConnectionLostOutcome() => policy,
+      SaveForLaterOutcome() => policy,
       FinishedOutcome() => policy,
     };
   }
@@ -48,25 +49,27 @@ List<RecognitionOutcome> _sendClip(List<RecognitionAnswer> answers) {
 }
 
 void main() {
-  group('at most 4 sends of one clip on busy answers (S4-D11, T20, T21)', () {
-    test('the first three busy answers show Busy and keep the clip; the fourth ends in Error', () {
-      final outcomes = _sendClip([_busy, _busy, _busy, _busy]);
-      for (final outcome in outcomes.take(3)) {
-        expect(outcome, isA<BusyOutcome>());
-        expect(outcome.isClipKept, isTrue);
-      }
-      expect(
-        [
-          for (final outcome in outcomes.take(3))
-            (outcome as BusyOutcome).nextPolicy.busyAnswerCount,
-        ],
-        [1, 2, 3],
-      );
-      final last = outcomes.last as FinishedOutcome;
-      expect(last.nextState, const ErrorState(failure: ServerFailure(requestId: _apiRequestId)));
-      expect(last.isClipKept, isFalse);
-      expect(last.problemReport, isNull, reason: 'the API logged its busy answer under its id');
-    });
+  group('at most 4 sends of one clip on busy answers (S4-D11, T20, T21′)', () {
+    test(
+      'the first three busy answers show Busy and keep the clip; the fourth keeps it for later',
+      () {
+        final outcomes = _sendClip([_busy, _busy, _busy, _busy]);
+        for (final outcome in outcomes.take(3)) {
+          expect(outcome, isA<BusyOutcome>());
+          expect(outcome.isClipKept, isTrue);
+        }
+        expect(
+          [
+            for (final outcome in outcomes.take(3))
+              (outcome as BusyOutcome).nextPolicy.busyAnswerCount,
+          ],
+          [1, 2, 3],
+        );
+        // T21′: the clip goes to the outbox, which sends it once Look Up is less busy; no report.
+        expect(outcomes.last, const SaveForLaterOutcome(reason: SavedClipReason.busy));
+        expect(outcomes.last.isClipKept, isTrue);
+      },
+    );
 
     test('502, 503 and 504 all count as busy, whatever their code', () {
       final outcomes = _sendClip([
@@ -76,27 +79,14 @@ void main() {
         _answer(503, errorCode: 'SERVICE_UNAVAILABLE'),
       ]);
       expect(outcomes.take(3), everyElement(isA<BusyOutcome>()));
-      expect(outcomes.last.nextState, isA<ErrorState>());
+      expect(outcomes.last, const SaveForLaterOutcome(reason: SavedClipReason.busy));
     });
 
     test(
-      'the fourth busy answer with no API id is a phone failure, reported so a code can exist',
+      'the fourth busy answer with no API id is kept for later too: nothing went wrong on the phone',
       () {
         final outcomes = _sendClip([_busy, _busy, _busy, _answer(502, apiRequestId: null)]);
-        final last = outcomes.last as FinishedOutcome;
-        expect(
-          last.nextState,
-          const ErrorState(
-            failure: PhoneFailure(
-              reportRequestId: _reportRequestId,
-              reportDelivery: ReportDelivery.sending,
-            ),
-          ),
-        );
-        expect(last.problemReport!.reportRequestId, _reportRequestId);
-        expect(last.problemReport!.relatedRequestId, isNull);
-        expect(last.problemReport!.summary, contains('HTTP 502'));
-        expect(last.problemReport!.summary, contains('4 sends'));
+        expect(outcomes.last, const SaveForLaterOutcome(reason: SavedClipReason.busy));
       },
     );
 
@@ -110,10 +100,7 @@ void main() {
         const NoAnswer(),
         _busy,
       ]);
-      expect(
-        outcomes.last.nextState,
-        const ErrorState(failure: ServerFailure(requestId: _apiRequestId)),
-      );
+      expect(outcomes.last, const SaveForLaterOutcome(reason: SavedClipReason.busy));
     });
   });
 
@@ -167,7 +154,7 @@ void main() {
     );
     expect(
       policy.decide(const NoAnswer(), reportRequestId: _reportRequestId),
-      isA<ConnectionLostOutcome>(),
+      const SaveForLaterOutcome(reason: SavedClipReason.noConnection),
     );
     expect(
       policy,
@@ -253,24 +240,17 @@ void main() {
     },
   );
 
-  group('a 429 is a short wait only when the server asked for a minute or less', () {
-    for (final (retryAfterSeconds, isShortWait) in [
-      (42, true),
-      (60, true),
-      (61, false),
-      (3600, false),
-      (null, true),
-    ]) {
-      test('Retry-After $retryAfterSeconds → short wait $isShortWait', () {
-        final outcome = const SendPolicy().decide(
-          _answer(429, errorCode: 'RATE_LIMITED', retryAfterSeconds: retryAfterSeconds),
-          reportRequestId: _reportRequestId,
-        );
-        expect(
-          outcome.nextState,
-          ErrorState(failure: TooManyTriesFailure(isShortWait: isShortWait)),
-        );
-      });
+  test('T24′: a 429 keeps the clip for later whatever its wait: the outbox honours the wait', () {
+    for (final retryAfterSeconds in [42, 60, 61, 3600, null]) {
+      final outcome = const SendPolicy().decide(
+        _answer(429, errorCode: 'RATE_LIMITED', retryAfterSeconds: retryAfterSeconds),
+        reportRequestId: _reportRequestId,
+      );
+      expect(
+        outcome,
+        const SaveForLaterOutcome(reason: SavedClipReason.tooManyTries),
+        reason: '$retryAfterSeconds',
+      );
     }
   });
 

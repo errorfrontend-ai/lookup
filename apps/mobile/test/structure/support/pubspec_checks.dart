@@ -28,6 +28,12 @@ abstract final class PubspecChecks {
     'fake_async': '1.3.3',
   };
 
+  /// The app's own plugin, in this repository, by the path the pubspec gives (P6 design §3.3,
+  /// §3.16): written on the Android framework alone, so nothing is downloaded for it.
+  static const Map<String, String> inRepositoryDependencies = {
+    'device_services': 'packages/device_services',
+  };
+
   /// The SDK packages each section must list: Flutter, and its localisations (P6 design §3.17).
   static const Set<String> sdkDependencies = {'flutter', 'flutter_localizations'};
   static const Set<String> sdkDevelopmentDependencies = {'flutter_test'};
@@ -51,7 +57,13 @@ abstract final class PubspecChecks {
 
   /// The exact pins, and nothing listed besides them (S4-STACK-02 to -08).
   static List<String> problemsWithPins(Map<String, Object?> pubspec) => [
-    ..._problemsWithSection(pubspec, 'dependencies', pinnedDependencies, sdkDependencies),
+    ..._problemsWithSection(
+      pubspec,
+      'dependencies',
+      pinnedDependencies,
+      sdkDependencies,
+      inRepositoryPackages: inRepositoryDependencies,
+    ),
     ..._problemsWithSection(
       pubspec,
       'dev_dependencies',
@@ -84,6 +96,17 @@ abstract final class PubspecChecks {
         localizations['source'] != 'sdk' ||
         localizations['dependency'] != 'direct main') {
       problems.add('pubspec.lock does not take flutter_localizations from the SDK');
+    }
+    for (final entry in inRepositoryDependencies.entries) {
+      final package = packages[entry.key];
+      final description = package is Map<String, Object?> ? package['description'] : null;
+      if (package is! Map<String, Object?> ||
+          package['source'] != 'path' ||
+          package['dependency'] != 'direct main' ||
+          description is! Map<String, Object?> ||
+          description['path'] != entry.value) {
+        problems.add('pubspec.lock does not take ${entry.key} from ${entry.value}');
+      }
     }
     final expected = {
       for (final entry in pinnedDependencies.entries) entry.key: (entry.value, 'direct main'),
@@ -209,8 +232,9 @@ abstract final class PubspecChecks {
     Map<String, Object?> pubspec,
     String sectionName,
     Map<String, String> pins,
-    Set<String> sdkPackages,
-  ) {
+    Set<String> sdkPackages, {
+    Map<String, String> inRepositoryPackages = const {},
+  }) {
     final section = pubspec[sectionName];
     if (section is! Map<String, Object?>) return ['pubspec.yaml has no $sectionName'];
     final problems = <String>[];
@@ -228,8 +252,16 @@ abstract final class PubspecChecks {
         problems.add('$sectionName: $name must come from the Flutter SDK');
       }
     }
+    for (final entry in inRepositoryPackages.entries) {
+      final listed = section[entry.key];
+      if (listed is! Map<String, Object?> || listed['path'] != entry.value || listed.length != 1) {
+        problems.add('$sectionName: ${entry.key} must come from ${entry.value} in this repository');
+      }
+    }
     for (final name in section.keys) {
-      if (!pins.containsKey(name) && !sdkPackages.contains(name)) {
+      if (!pins.containsKey(name) &&
+          !sdkPackages.contains(name) &&
+          !inRepositoryPackages.containsKey(name)) {
         problems.add('$sectionName: $name is not one of the pinned packages of §3.3');
       }
     }

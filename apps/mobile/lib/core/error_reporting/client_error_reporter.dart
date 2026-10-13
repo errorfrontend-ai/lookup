@@ -12,6 +12,14 @@ import 'personal_data_scrubber.dart';
 export 'client_error_kind.dart';
 export 'client_error_report_outcome.dart';
 
+/// Keeps a crash report that got no answer, to send later (the outbox's `queueClientErrorReport`).
+typedef UnsentClientErrorReportQueue =
+    Future<void> Function({
+      required String reportId,
+      required DateTime occurredAt,
+      required Map<String, String> fields,
+    });
+
 /// Sends the app's crash reports to `POST <base>/client-errors` (Step 2's route), so client crashes
 /// reach the developers (design §3.19, S4-D26).
 ///
@@ -23,8 +31,11 @@ export 'client_error_report_outcome.dart';
 ///   or of a `DioException` is never used, only its type and the app's own description.
 /// - At most one report of the same error a minute and 10 reports a minute leave the phone: the
 ///   API allows 30 a minute per address, and many listeners can share one carrier address.
-/// - It never throws, and a failure while reporting is not reported. Offline reports are dropped
-///   in Step 4 (queueing them is P6-ERRORREPORTING-05).
+/// - It never throws, and a failure while reporting is not reported.
+/// - A report that gets no answer (no network, a timeout, a dropped connection) is handed to the
+///   outbox through [attachUnsentReportQueue], which sends it later under the same id with the time
+///   it happened (P6 design §3.20, P6-ERRORREPORTING-05); it still counts as not accepted, so a phone
+///   failure shows no reference code for it.
 class ClientErrorReporter {
   /// [readInstallCredentials] gives the install id and token to scrub (the repository's
   /// `readKnownCredentials`). [clock], [appVersion] and [developmentLog] are for tests and
@@ -83,6 +94,13 @@ class ClientErrorReporter {
   /// When each report in the current window was sent, on the monotonic clock.
   final List<Duration> _sentAtTimes = [];
 
+  /// Keeps a report that got no answer, to send later; null until the outbox attaches itself.
+  UnsentClientErrorReportQueue? _unsentReportQueue;
+
+  /// Lets [queue] keep the reports that get no answer (the outbox, once it exists: it reports its
+  /// own failures through this reporter, so it is attached after both are made).
+  void attachUnsentReportQueue(UnsentClientErrorReportQueue queue) => _unsentReportQueue = queue;
+
   /// Reports [error] and resolves to whether the API accepted it. Never throws.
   ///
   /// [error] is the exception, or the app's own words as a string. [description] is the app's own
@@ -128,7 +146,16 @@ class ClientErrorReporter {
         if (_appVersion.isNotEmpty) 'appVersion': _shortened(_appVersion, longestAppVersion),
       };
 
+      final occurredAt = _clock.now();
       final answer = await _apiClient.postJson(path, body, requestId: reportRequestId);
+      if (answer case ApiAnswerNotReceived(
+        reason: ApiNoAnswerReason.noConnection ||
+            ApiNoAnswerReason.timedOut ||
+            ApiNoAnswerReason.connectionDropped,
+        :final sentRequestId,
+      )) {
+        await _queueQuietly(sentRequestId, occurredAt, body);
+      }
       final outcome = switch (answer) {
         ApiAnswerReceived(status: 202, :final sentRequestId) => ClientErrorReportAccepted(
           sentRequestId,
@@ -143,6 +170,30 @@ class ClientErrorReporter {
     } on Object {
       // Reporting must never fail what it reports, and a failure here is not reported again.
       return const ClientErrorReportNotAccepted();
+    }
+  }
+
+  /// Hands a report that got no answer to the outbox, with its own id and the time it happened. A
+  /// failure here is not reported: that would only make another report to queue.
+  Future<void> _queueQuietly(
+    String reportId,
+    DateTime occurredAt,
+    Map<String, Object?> body,
+  ) async {
+    final queue = _unsentReportQueue;
+    if (queue == null) return;
+    try {
+      await queue(
+        reportId: reportId,
+        occurredAt: occurredAt,
+        fields: {
+          for (final MapEntry(:key, :value) in body.entries)
+            if (value is String) key: value,
+        },
+      );
+      _developmentLog.recordEvent('crash report kept to send later');
+    } on Object {
+      // Kept nowhere: the report is lost, as it would have been before the outbox.
     }
   }
 

@@ -29,6 +29,8 @@ import 'package:lookup_listener/features/settings/presentation/my_station_picker
 import 'package:lookup_listener/features/settings/presentation/privacy_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/settings_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/station_picker_row.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
+import 'package:lookup_listener/features/identify/presentation/saved_offline_screen.dart';
 
 import '../features/identify/presentation/identify_screen_harness.dart'
     show disableAnimations, pressSystemBack;
@@ -55,10 +57,11 @@ List<(RecognitionState, AppRoute, Type)> _statesRoutesAndScreens() {
     (const NoMatchState(), AppRoute.noMatch, NoMatchScreen),
     (const BusyState(retryDelaySeconds: 12, secondsUntilRetry: 7), AppRoute.busy, BusyScreen),
     (
-      const ErrorState(failure: TooManyTriesFailure(isShortWait: true)),
-      AppRoute.error,
-      ErrorScreen,
+      const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
+      AppRoute.savedOffline,
+      SavedOfflineScreen,
     ),
+    (const ErrorState(failure: AppUpdateRequiredFailure()), AppRoute.error, ErrorScreen),
   ];
 }
 

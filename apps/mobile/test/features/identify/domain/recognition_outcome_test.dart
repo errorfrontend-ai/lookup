@@ -7,6 +7,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_state.dart'
 import 'package:lookup_listener/features/identify/domain/send_policy.dart';
 import 'package:lookup_listener/features/result/domain/read_action_card.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 
 const String _apiRequestId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
 const String _reportRequestId = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
@@ -238,25 +239,26 @@ void main() {
       );
     }
 
-    test('426 → newer app needed; clip deleted', () {
+    test('T26′: 426 → please update the app; clip deleted (P6-COMPATIBILITY-02)', () {
       _expectFinished(
         _decide(_status(426, errorCode: 'APP_UPDATE_REQUIRED')),
-        const ErrorState(failure: NewerAppNeededFailure()),
+        const ErrorState(failure: AppUpdateRequiredFailure()),
         isReported: false,
       );
     });
 
-    test('429 RATE_LIMITED → too many tries; clip deleted (no outbox before Phase 6)', () {
-      _expectFinished(
-        _decide(_status(429, errorCode: 'RATE_LIMITED', retryAfterSeconds: 42)),
-        const ErrorState(failure: TooManyTriesFailure(isShortWait: true)),
-        isReported: false,
-      );
-      _expectFinished(
-        _decide(_status(429, errorCode: 'RATE_LIMITED', retryAfterSeconds: 3600)),
-        const ErrorState(failure: TooManyTriesFailure(isShortWait: false)),
-        isReported: false,
-      );
+    test('T24′: 429 RATE_LIMITED → kept for later as "too many tries", whatever the wait', () {
+      for (final retryAfterSeconds in [42, 3600, null]) {
+        final outcome = _decide(
+          _status(429, errorCode: 'RATE_LIMITED', retryAfterSeconds: retryAfterSeconds),
+        );
+        expect(
+          outcome,
+          const SaveForLaterOutcome(reason: SavedClipReason.tooManyTries),
+          reason: '$retryAfterSeconds',
+        );
+        expect(outcome.isClipKept, isTrue);
+      }
     });
 
     for (final httpStatus in [500, 501, 505, 507, 599]) {
@@ -284,19 +286,19 @@ void main() {
       });
     }
 
-    test(
-      'the same on the 4th send → server failure with an API id, else phone failure (reported)',
-      () {
-        const policy = SendPolicy(busyAnswerCount: 3);
-        _expectFinished(_decide(_status(503), policy: policy), _serverFailure, isReported: false);
-        _expectFinished(
-          _decide(_status(503, apiRequestId: null), policy: policy),
-          _phoneFailure,
-          isReported: true,
-          relatedRequestId: null,
-        );
-      },
-    );
+    test('T21′: the same on the 4th send → kept for later as "busy", with no report', () {
+      const policy = SendPolicy(busyAnswerCount: 3);
+      for (final answer in [
+        _status(503),
+        _status(503, apiRequestId: null),
+        _status(502),
+        _status(504),
+      ]) {
+        final outcome = _decide(answer, policy: policy);
+        expect(outcome, const SaveForLaterOutcome(reason: SavedClipReason.busy));
+        expect(outcome.isClipKept, isTrue);
+      }
+    });
 
     for (final httpStatus in [100, 201, 204, 301, 302, 304, 403, 404, 405, 408, 418, 451]) {
       test(
@@ -327,10 +329,9 @@ void main() {
         _serverFailure,
         isReported: true,
       );
-      _expectFinished(
+      expect(
         _decide(_status(429, errorCode: unknownCode)),
-        const ErrorState(failure: TooManyTriesFailure(isShortWait: true)),
-        isReported: false,
+        const SaveForLaterOutcome(reason: SavedClipReason.tooManyTries),
       );
       _expectFinished(
         _decide(_status(500, errorCode: unknownCode)),
@@ -346,12 +347,21 @@ void main() {
       );
     });
 
-    test('no answer (no connection, DNS failure, timeout, dropped) → no connection; clip kept', () {
-      final outcome = _decide(const NoAnswer());
-      expect(outcome, isA<ConnectionLostOutcome>());
-      expect(outcome.nextState, const ErrorState(failure: ConnectionFailure()));
-      expect(outcome.isClipKept, isTrue);
-    });
+    test(
+      'T27′: no answer (no connection, DNS failure, timeout, dropped) → kept for later; Saved offline',
+      () {
+        final outcome = _decide(const NoAnswer());
+        expect(outcome, const SaveForLaterOutcome(reason: SavedClipReason.noConnection));
+        expect(
+          outcome.nextState,
+          const SavedOfflineState(
+            reason: SavedClipReason.noConnection,
+            wasOldestClipDeleted: false,
+          ),
+        );
+        expect(outcome.isClipKept, isTrue);
+      },
+    );
 
     test('no answer because the phone itself stopped the request → phone failure, reported', () {
       final outcome = _decide(const PhoneFaultAnswer(problem: 'a fault in the app (StateError)'));
@@ -397,7 +407,6 @@ void main() {
         _status(400, errorCode: 'INVALID_AUDIO'): _apiRequestId,
         _status(422, errorCode: 'CAPTURE_EXPIRED'): _apiRequestId,
         _status(404): _apiRequestId,
-        _status(429): null,
         _status(426): null,
         _status(404, apiRequestId: null): null, // until the report is accepted
       };

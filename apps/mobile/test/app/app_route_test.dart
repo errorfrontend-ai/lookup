@@ -4,6 +4,7 @@ import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 
 import '../features/result/support/result_screen_harness.dart'
     show fixtureRecognitionId, resultWith;
@@ -28,6 +29,7 @@ void main() {
         'noMatch': '/no-match',
         'busy': '/busy',
         'error': '/error',
+        'savedOffline': '/saved-offline',
       },
     );
     expect(AppRoute.values.where((route) => route.path.contains('ad')), isEmpty);
@@ -54,7 +56,9 @@ void main() {
       FallbackState(result: result): AppRoute.result,
       const NoMatchState(): AppRoute.noMatch,
       const BusyState(retryDelaySeconds: 12, secondsUntilRetry: 12): AppRoute.busy,
-      const ErrorState(failure: ConnectionFailure()): AppRoute.error,
+      const SavedOfflineState(reason: SavedClipReason.noConnection, wasOldestClipDeleted: false):
+          AppRoute.savedOffline,
+      const ErrorState(failure: AppUpdateRequiredFailure()): AppRoute.error,
     };
     for (final MapEntry(key: state, value: route) in routes.entries) {
       expect(AppRoute.forState(state), route, reason: '$state');
@@ -73,6 +77,7 @@ void main() {
         AppRoute.listening,
         AppRoute.identifying,
         AppRoute.chooseStation,
+        AppRoute.savedOffline,
         AppRoute.result,
         AppRoute.noMatch,
         AppRoute.busy,

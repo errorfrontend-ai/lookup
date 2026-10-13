@@ -59,6 +59,20 @@ final class OutboxTimingRules {
   /// was set (P6 design §3.9 point 9).
   static const Duration longestStoredWait = Duration(hours: 1);
 
+  /// How long a waiting clip is kept after its capture, by the phone's clock: 2 minutes short of
+  /// its 24 hours, so a clock moved back by less than 2 minutes cannot stretch it past 24 hours of
+  /// real time (P6 design §3.8, P6-D37).
+  static const Duration clipKeptFor = Duration(
+    seconds: storedClipLifetimeSeconds - clipCaptureTimeAheadAllowanceSeconds,
+  );
+
+  /// A clip captured more than this far ahead of the phone's clock is deleted at once: the clock
+  /// went back after the capture, and the server would refuse it (P6-D37).
+  static const Duration clipCaptureTimeAheadAllowance = Duration(
+    seconds: clipCaptureTimeAheadAllowanceSeconds,
+  );
+  static const int clipCaptureTimeAheadAllowanceSeconds = 120;
+
   /// How often a run looks again while the listener's own identify is under way (§3.9 point 7).
   static const Duration liveIdentifyCheckInterval = Duration(seconds: 1);
 

@@ -5,8 +5,10 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/bootstrap.dart';
+import 'package:lookup_listener/app/look_up_app.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
@@ -27,6 +29,7 @@ import 'support/fake_http_client_adapter.dart';
 import 'support/fake_microphone_permission.dart';
 import 'support/recording_client_error_reporter.dart';
 import 'support/english_words.dart';
+import 'support/fake_device_services.dart';
 
 /// The start-up test (design §2.11, §3.7, §3.19): `bootstrap()` as `main()` runs it, with its
 /// services replaced by fakes through the provider container only.
@@ -36,8 +39,10 @@ void main() {
   late RecordingClientErrorReporter reporter;
   late Widget? startedApp;
   late Directory outboxFolder;
+  late FakeDeviceServices deviceServices;
 
   setUp(() {
+    deviceServices = FakeDeviceServices();
     SharedPreferences.setMockInitialValues({});
     adapter = FakeHttpClientAdapter();
     recorder = FakeClipRecorder()..leaveClipFileBehind('left-by-a-crash.m4a');
@@ -74,6 +79,7 @@ void main() {
         clientErrorReporterProvider.overrideWithValue(reporter),
         clipRecorderProvider.overrideWithValue(recorder),
         microphonePermissionProvider.overrideWithValue(FakeMicrophonePermission()),
+        deviceServicesProvider.overrideWithValue(deviceServices),
         // The app's outbox, History and station list, in temporary folders in place of the
         // phone's support folder.
         outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
@@ -308,6 +314,47 @@ void main() {
         OutboxIndexRead(:final index) => index.items,
         _ => null,
       }, isEmpty);
+      expect(reporter.reports, isEmpty);
+    } finally {
+      FlutterError.onError = flutterErrorHandler;
+      PlatformDispatcher.instance.onError = platformErrorHandler;
+      ErrorWidget.builder = errorWidgetBuilder;
+    }
+  });
+
+  testWidgets('start-up tells the device plugin about this engine and follows the network '
+      '(P6 design §3.8, §3.9 point 7)', (tester) async {
+    final flutterErrorHandler = FlutterError.onError;
+    final platformErrorHandler = PlatformDispatcher.instance.onError;
+    final errorWidgetBuilder = ErrorWidget.builder;
+    try {
+      deviceServices.setNetwork(isUp: false);
+      adapter.answerJson(200, {
+        'install_token': 'fake.install.token',
+        'expires_at': DateTime.now().toUtc().add(const Duration(days: 30)).toIso8601String(),
+      });
+      start(
+        AppConfiguration.check({
+          AppConfiguration.flavourDefine: 'production',
+          AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
+          AppConfiguration.supportWhatsAppNumberDefine: '+447700900100',
+        }, gradleFlavour: 'production'),
+      );
+      await tester.pumpWidget(startedApp!);
+      await tester.pump();
+
+      expect(deviceServices.attachedEngineIds, hasLength(1));
+      expect(
+        deviceServices.attachedEngineIds.single,
+        matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')),
+      );
+      final container = ProviderScope.containerOf(tester.element(find.byType(LookUpApp)));
+      expect(container.read(networkWatcherProvider).isNetworkAvailable, isFalse);
+      deviceServices.setNetwork(isUp: true);
+      await tester.pump();
+      expect(container.read(networkWatcherProvider).isNetworkAvailable, isTrue);
+      // The run the network's return started ends after its wait, with nothing to send.
+      await tester.pump(const Duration(seconds: 121));
       expect(reporter.reports, isEmpty);
     } finally {
       FlutterError.onError = flutterErrorHandler;

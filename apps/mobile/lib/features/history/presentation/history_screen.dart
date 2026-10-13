@@ -8,22 +8,30 @@ import 'package:lookup_listener/features/history/domain/history_entry.dart';
 import 'package:lookup_listener/features/history/domain/history_view.dart';
 import 'package:lookup_listener/features/history/presentation/history_empty_state.dart';
 import 'package:lookup_listener/features/history/presentation/history_entry_row.dart';
+import 'package:lookup_listener/features/history/presentation/history_outcome_row.dart';
+import 'package:lookup_listener/features/history/presentation/waiting_clip_row.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 
-/// The History tab at `/history` (P6 design §2.9; wireframe History): "History", then the results
-/// the listener saw under "Earlier", newest first by the phone's capture time, each opening its
-/// saved result, and under them "Saved results keep working without data — call, chat or get
-/// directions any time." With nothing saved, a designed empty state instead (P6-HISTORY-03, -07 to
-/// -13). The clips still waiting for a signal ("Waiting for signal", "Pending") join it in piece 3.
+/// The History tab at `/history` (P6 design §2.9; wireframe History): "History"; then, while clips
+/// wait in the outbox, "Waiting for signal" with a Pending row each, oldest first (P6-HISTORY-04 to
+/// -06); then under "Earlier" everything saved, newest first by the phone's capture time: the
+/// results the listener saw, each opening its saved result, a saved clip still waiting for its
+/// station, which opens "Which station?" (T51), and saved clips that were never identified; and
+/// under them "Saved results keep working without data — call, chat or get directions any time."
+/// With nothing at all, a designed empty state instead (P6-HISTORY-03, -07 to -13).
 ///
-/// It follows History as it changes: a result saved while it is open appears at once. A row's tap
-/// goes to [onOpenResult], given by the tab shell, which knows the routes. The tab bar is the
-/// shell's, with History marked as the current tab (P6-NAVIGATION-05).
+/// It follows History and the outbox as they change: a clip queued or answered while it is open
+/// shows at once. A row's tap goes to [onOpenResult] or [onOpenSavedChooser], given by the tab
+/// shell, which knows the routes. The tab bar is the shell's, with History marked as the current
+/// tab (P6-NAVIGATION-05).
 class HistoryScreen extends ConsumerWidget {
-  const HistoryScreen({super.key, required this.onOpenResult});
+  const HistoryScreen({super.key, required this.onOpenResult, required this.onOpenSavedChooser});
 
   /// Opens the saved result of a recognition id.
   final ValueChanged<String> onOpenResult;
+
+  /// Opens "Which station?" for a saved clip waiting for its station.
+  final ValueChanged<HistoryAwaitingChoiceEntry> onOpenSavedChooser;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -48,6 +56,7 @@ class HistoryScreen extends ConsumerWidget {
           view: value,
           now: ref.watch(historyClockProvider).now(),
           onOpenResult: onOpenResult,
+          onOpenSavedChooser: onOpenSavedChooser,
         ),
         // Read in a moment; a History that cannot be read was reported, and shows nothing rather
         // than an empty History it does not know to be empty.
@@ -57,13 +66,19 @@ class HistoryScreen extends ConsumerWidget {
   }
 }
 
-/// "Earlier", the rows, and the note under them.
+/// "Waiting for signal" and its rows, "Earlier" and its rows, and the note under them.
 class _SavedResults extends StatelessWidget {
-  const _SavedResults({required this.view, required this.now, required this.onOpenResult});
+  const _SavedResults({
+    required this.view,
+    required this.now,
+    required this.onOpenResult,
+    required this.onOpenSavedChooser,
+  });
 
   final HistoryView view;
   final DateTime now;
   final ValueChanged<String> onOpenResult;
+  final ValueChanged<HistoryAwaitingChoiceEntry> onOpenSavedChooser;
 
   @override
   Widget build(BuildContext context) {
@@ -71,12 +86,26 @@ class _SavedResults extends StatelessWidget {
     final spacing = tokens.spacing;
     final words = AppLocalizations.of(context);
     final results = view.results;
+    final waitingClips = view.waitingClips;
+    final entries = view.entries;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionHeading(text: words.historyEarlierHeading),
-        SizedBox(height: spacing.space2),
-        for (final (position, entry) in results.indexed) ...[
+        // Only while a clip waits (P6-HISTORY-06).
+        if (waitingClips.isNotEmpty) ...[
+          SectionHeading(text: words.historyWaitingHeading),
+          SizedBox(height: spacing.space2),
+          for (final (position, clip) in waitingClips.indexed) ...[
+            if (position > 0) SizedBox(height: spacing.space2),
+            WaitingClipRow(key: ValueKey(clip.idempotencyKey), clip: clip, now: now),
+          ],
+          if (entries.isNotEmpty) SizedBox(height: spacing.space5),
+        ],
+        if (entries.isNotEmpty) ...[
+          SectionHeading(text: words.historyEarlierHeading),
+          SizedBox(height: spacing.space2),
+        ],
+        for (final (position, entry) in entries.indexed) ...[
           if (position > 0) SizedBox(height: spacing.space2),
           _row(entry, position),
         ],
@@ -92,11 +121,24 @@ class _SavedResults extends StatelessWidget {
     );
   }
 
-  Widget _row(HistoryResultEntry entry, int position) => HistoryEntryRow(
-    key: ValueKey(entry.entryId),
-    entry: entry,
-    position: position,
-    now: now,
-    onTap: () => onOpenResult(entry.entryId),
-  );
+  Widget _row(HistoryEntry entry, int position) => switch (entry) {
+    HistoryResultEntry() => HistoryEntryRow(
+      key: ValueKey(entry.entryId),
+      entry: entry,
+      position: position,
+      now: now,
+      onTap: () => onOpenResult(entry.entryId),
+    ),
+    HistoryAwaitingChoiceEntry() => HistoryOutcomeRow(
+      key: ValueKey(entry.entryId),
+      entry: entry,
+      now: now,
+      onTap: () => onOpenSavedChooser(entry),
+    ),
+    HistoryNotIdentifiedEntry() => HistoryOutcomeRow(
+      key: ValueKey(entry.entryId),
+      entry: entry,
+      now: now,
+    ),
+  };
 }

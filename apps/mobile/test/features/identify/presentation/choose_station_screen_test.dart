@@ -39,7 +39,7 @@ Future<IdentifyScreenHarness> _show(
   final harness = IdentifyScreenHarness(state: state);
   await harness.pump(
     tester,
-    ChooseStationScreen(state: state),
+    ChooseStationScreen(state: state, onCancel: harness.flow.backToHome),
     phoneScreen: phoneScreen,
     theme: theme,
   );
@@ -328,7 +328,10 @@ void main() {
       tester,
     ) async {
       final harness = IdentifyScreenHarness(state: chooser);
-      await harness.pump(tester, ChooseStationScreen(state: chooser));
+      await harness.pump(
+        tester,
+        ChooseStationScreen(state: chooser, onCancel: harness.flow.backToHome),
+      );
       final settledTop = 800 - tester.getSize(find.byType(BottomSheet)).height;
       expect(tester.getTopLeft(find.byType(BottomSheet)).dy, greaterThan(settledTop));
       await tester.pump(LookUpTokens.light.motion.base);
@@ -336,7 +339,11 @@ void main() {
 
       disableAnimations(tester);
       await tester.pumpWidget(const SizedBox());
-      await IdentifyScreenHarness(state: chooser).pump(tester, ChooseStationScreen(state: chooser));
+      final settledHarness = IdentifyScreenHarness(state: chooser);
+      await settledHarness.pump(
+        tester,
+        ChooseStationScreen(state: chooser, onCancel: settledHarness.flow.backToHome),
+      );
       expect(tester.getTopLeft(find.byType(BottomSheet)).dy, closeTo(settledTop, 0.01));
     });
   });

@@ -27,9 +27,12 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 ///
 /// The sheet slides up over motion.base, and is simply there when the phone asks for less motion.
 class ChooseStationScreen extends ConsumerStatefulWidget {
-  const ChooseStationScreen({super.key, required this.state});
+  const ChooseStationScreen({super.key, required this.state, required this.onCancel});
 
   final ChooseStationState state;
+
+  /// Where Cancel leads: Home after a live identify (T46), History for a saved chooser (T47).
+  final VoidCallback onCancel;
 
   /// The sheet is never wider than this, and is centred on a wider screen.
   static const double sheetMaximumWidth = 640;
@@ -91,7 +94,7 @@ class _ChooseStationScreenState extends ConsumerState<ChooseStationScreen>
   void _cancel() {
     if (_hasAnswered) return;
     _hasAnswered = true;
-    ref.read(recognitionFlowProvider.notifier).backToHome();
+    widget.onCancel();
   }
 
   @override

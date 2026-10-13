@@ -9,6 +9,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_state.dart'
 import 'package:lookup_listener/features/identify/domain/send_policy.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/result/domain/ui_action.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 
 import '../../../support/contract_fixtures.dart';
 
@@ -75,7 +76,7 @@ const Map<String, String> _expectedEnvelopeOutcomes = {
   'internal': 'server failure',
   'invalid-audio': 'recording unusable, reported',
   'payload-too-large': 'server failure, reported',
-  'rate-limited': 'too many tries, short wait',
+  'rate-limited': 'kept for later: too many tries',
   'recognition-busy': 'busy 10 s, clip kept',
   'recognition-in-progress': 'wait 3 s and resend, clip kept',
   'recognition-timeout': 'busy 5 s, clip kept',
@@ -85,7 +86,7 @@ const Map<String, String> _expectedEnvelopeOutcomes = {
   // Answers of the routes the next pieces add; on a clip's send they are an app this old's cue to
   // update (426), or the API refusing what was sent.
   'action-not-on-card': 'server failure, reported',
-  'app-update-required': 'newer app needed',
+  'app-update-required': 'please update the app',
   'not-found': 'server failure, reported',
   'station-already-chosen': 'server failure, reported',
   'station-not-a-candidate': 'server failure, reported',
@@ -104,7 +105,12 @@ String _describe(RecognitionOutcome outcome) {
     BusyOutcome(:final retryDelaySeconds) => 'busy $retryDelaySeconds s, clip kept',
     WaitAndResendOutcome(:final waitSeconds) => 'wait $waitSeconds s and resend, clip kept',
     RegisterAgainOutcome() => 'register again and resend, clip kept',
-    ConnectionLostOutcome() => 'no connection, clip kept',
+    SaveForLaterOutcome(:final reason) =>
+      'kept for later: ${switch (reason) {
+        SavedClipReason.noConnection => 'no connection',
+        SavedClipReason.busy => 'busy',
+        SavedClipReason.tooManyTries => 'too many tries',
+      }}',
     FinishedOutcome(:final nextState) => switch (nextState) {
       MatchedState() => 'matched',
       FallbackState() => 'fallback',
@@ -113,8 +119,7 @@ String _describe(RecognitionOutcome outcome) {
         'chooser: ${candidates.map((candidate) => candidate.stationName).join(', ')}'
             '${areAllCandidatesDefaultCards ? ', all default cards' : ''}',
       ErrorState(failure: NewerAppNeededFailure()) => 'newer app needed',
-      ErrorState(failure: TooManyTriesFailure(isShortWait: true)) => 'too many tries, short wait',
-      ErrorState(failure: TooManyTriesFailure()) => 'too many tries, later',
+      ErrorState(failure: AppUpdateRequiredFailure()) => 'please update the app',
       ErrorState(failure: ServerFailure()) => 'server failure$reported',
       ErrorState(failure: RecordingUnusableFailure()) => 'recording unusable$reported',
       ErrorState(failure: PhoneFailure()) => 'phone failure$reported',
@@ -466,42 +471,54 @@ void main() {
       );
     });
 
-    test('busy envelopes four times in a row end in Error; 409 three times; 401 twice', () {
-      RecognitionOutcome sendRepeatedly(String fixtureName, int times) {
-        final content =
-            envelopes.firstWhere((fixture) => fixture.name == fixtureName).content
-                as Map<String, Object?>;
-        final answer = _parser.read(
-          httpStatus: content['http_status']! as int,
-          body: content['body'],
-          retryAfterSeconds: content['retry_after_seconds'] as int?,
-        );
-        var policy = const SendPolicy();
-        late RecognitionOutcome outcome;
-        for (var send = 0; send < times; send++) {
-          outcome = _decide(answer, policy: policy);
-          policy = switch (outcome) {
-            BusyOutcome(:final nextPolicy) => nextPolicy,
-            WaitAndResendOutcome(:final nextPolicy) => nextPolicy,
-            RegisterAgainOutcome(:final nextPolicy) => nextPolicy,
-            _ => policy,
-          };
+    test(
+      'busy envelopes four times in a row are kept for later (T21′); 409 three times and 401 twice end in Error',
+      () {
+        RecognitionOutcome sendRepeatedly(String fixtureName, int times) {
+          final content =
+              envelopes.firstWhere((fixture) => fixture.name == fixtureName).content
+                  as Map<String, Object?>;
+          final answer = _parser.read(
+            httpStatus: content['http_status']! as int,
+            body: content['body'],
+            retryAfterSeconds: content['retry_after_seconds'] as int?,
+          );
+          var policy = const SendPolicy();
+          late RecognitionOutcome outcome;
+          for (var send = 0; send < times; send++) {
+            outcome = _decide(answer, policy: policy);
+            policy = switch (outcome) {
+              BusyOutcome(:final nextPolicy) => nextPolicy,
+              WaitAndResendOutcome(:final nextPolicy) => nextPolicy,
+              RegisterAgainOutcome(:final nextPolicy) => nextPolicy,
+              _ => policy,
+            };
+          }
+          return outcome;
         }
-        return outcome;
-      }
 
-      for (final busyFixture in [
-        'recognition-busy',
-        'recognition-timeout',
-        'service-unavailable',
-      ]) {
-        expect(_describe(sendRepeatedly(busyFixture, 3)), startsWith('busy'), reason: busyFixture);
-        expect(_describe(sendRepeatedly(busyFixture, 4)), 'server failure', reason: busyFixture);
-      }
-      expect(_describe(sendRepeatedly('recognition-in-progress', 2)), startsWith('wait'));
-      expect(_describe(sendRepeatedly('recognition-in-progress', 3)), 'server failure');
-      expect(_describe(sendRepeatedly('install-token-invalid', 2)), 'server failure, reported');
-    });
+        for (final busyFixture in [
+          'recognition-busy',
+          'recognition-timeout',
+          'service-unavailable',
+        ]) {
+          expect(
+            _describe(sendRepeatedly(busyFixture, 3)),
+            startsWith('busy'),
+            reason: busyFixture,
+          );
+          // T21′: the fourth busy answer keeps the clip for later.
+          expect(
+            _describe(sendRepeatedly(busyFixture, 4)),
+            'kept for later: busy',
+            reason: busyFixture,
+          );
+        }
+        expect(_describe(sendRepeatedly('recognition-in-progress', 2)), startsWith('wait'));
+        expect(_describe(sendRepeatedly('recognition-in-progress', 3)), 'server failure');
+        expect(_describe(sendRepeatedly('install-token-invalid', 2)), 'server failure, reported');
+      },
+    );
   });
 
   group('the API id of an answer (§3.8)', () {

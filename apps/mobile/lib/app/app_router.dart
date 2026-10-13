@@ -11,6 +11,7 @@ import 'package:lookup_listener/app/recognition_state_page.dart';
 import 'package:lookup_listener/app/saved_result_page.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/time/clock.dart';
+import 'package:lookup_listener/features/history/domain/history_entry.dart';
 import 'package:lookup_listener/features/history/presentation/history_screen.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
@@ -44,11 +45,13 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 ///   motion; switching tabs shows the tab at once.
 abstract final class AppRouter {
   /// A router that follows [currentFlowRoute] and lands on [pendingDestination] when it is kept.
-  /// [clock] is the one the "My station" picker reads its "Today" against.
+  /// [clock] is the one the "My station" picker reads its "Today" against; [openSavedChooser] opens
+  /// "Which station?" for a saved clip waiting for its station (T51).
   static GoRouter create({
     required ValueListenable<AppRoute> currentFlowRoute,
     required PendingDestination pendingDestination,
     required Clock clock,
+    required ValueChanged<HistoryAwaitingChoiceEntry> openSavedChooser,
   }) {
     final rootNavigatorKey = GlobalKey<NavigatorState>();
     return GoRouter(
@@ -84,6 +87,8 @@ abstract final class AppRouter {
                   (context, routerState) => HistoryScreen(
                     onOpenResult: (recognitionId) =>
                         context.push(AppRoute.savedResultLocation(recognitionId)),
+                    // T51: the chooser from the saved answer; the redirect follows the flow there.
+                    onOpenSavedChooser: openSavedChooser,
                   ),
                 ),
               ],
@@ -246,6 +251,14 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
     currentFlowRoute: currentFlowRoute,
     pendingDestination: ref.watch(pendingDestinationProvider),
     clock: ref.watch(clockProvider),
+    openSavedChooser: (entry) => ref
+        .read(recognitionFlowProvider.notifier)
+        .openSavedChooser(
+          recognitionId: entry.entryId,
+          candidates: entry.candidates,
+          answer: entry.answerBody,
+          capturedAtOnPhone: entry.capturedAtOnPhone,
+        ),
   );
   ref.onDispose(() {
     router.dispose();

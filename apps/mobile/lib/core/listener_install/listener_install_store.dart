@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../identifiers/random_uuid.dart';
+import '../identifiers/uuid_shape.dart';
 import 'listener_install_credentials.dart';
 
 /// Keeps the install id, the install token, its expiry and the app version the install registered
@@ -32,11 +33,6 @@ class ListenerInstallStore {
   static const String tokenExpiresAtKey = 'listener_install_token_expires_at';
   static const String registeredAppVersionKey = 'listener_install_registered_app_version';
 
-  /// A UUID of any version, the shape the API's contract accepts as an install id.
-  static final RegExp _uuid = RegExp(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-  );
-
   final RandomUuid _randomUuid;
   final Future<SharedPreferences> Function() _openPreferences;
 
@@ -45,7 +41,7 @@ class ListenerInstallStore {
   Future<ListenerInstallCredentials?> read() async {
     final preferences = await _openFresh();
     final installId = preferences.getString(installIdKey);
-    if (installId == null || !_uuid.hasMatch(installId)) return null;
+    if (installId == null || !UuidShape.isLowerCaseUuid(installId)) return null;
     return _credentialsFor(installId, preferences);
   }
 
@@ -55,7 +51,7 @@ class ListenerInstallStore {
   Future<ListenerInstallCredentials> readOrCreate() async {
     final preferences = await _openFresh();
     final storedInstallId = preferences.getString(installIdKey);
-    if (storedInstallId != null && _uuid.hasMatch(storedInstallId)) {
+    if (storedInstallId != null && UuidShape.isLowerCaseUuid(storedInstallId)) {
       return _credentialsFor(storedInstallId, preferences);
     }
     final installId = _randomUuid.generate();

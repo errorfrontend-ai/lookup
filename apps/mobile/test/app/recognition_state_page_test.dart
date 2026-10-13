@@ -27,14 +27,16 @@ void main() {
   testWidgets('keeps showing its last state while the flow moves on and the page fades out', (
     tester,
   ) async {
-    final harness = IdentifyScreenHarness(state: const ErrorState(failure: ConnectionFailure()));
+    final harness = IdentifyScreenHarness(
+      state: const ErrorState(failure: AppUpdateRequiredFailure()),
+    );
     await harness.pump(tester, const RecognitionStatePage(route: AppRoute.error));
-    expect(find.text('No connection'), findsOneWidget);
+    expect(find.text('Please update the app'), findsOneWidget);
 
     harness.flow.show(const UploadingState());
     await tester.pump();
     expect(find.byType(ErrorScreen), findsOneWidget);
-    expect(find.text('No connection'), findsOneWidget);
+    expect(find.text('Please update the app'), findsOneWidget);
   });
 
   testWidgets('the Result page gives its screen the flow\'s backToHome()', (tester) async {

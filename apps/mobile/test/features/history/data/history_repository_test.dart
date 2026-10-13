@@ -11,6 +11,8 @@ import 'package:lookup_listener/features/history/domain/history_entry.dart';
 import 'package:lookup_listener/features/history/domain/history_view.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/result/domain/ui_action.dart';
+import 'package:lookup_listener/features/history/domain/history_waiting_clip.dart';
+import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 
 import '../../../support/fake_clock.dart';
 import '../../../support/history_fixtures.dart';
@@ -41,7 +43,7 @@ void main() {
     store: HistoryStore(
       locateFolder: () async => folder,
       lockOwner: _owner,
-      isEngineAttached: (engineId) => engineId == _owner.engineId,
+      lockTakeOver: LocalLockTakeOver(attachedEngineIds: {_owner.engineId}),
       clock: clock,
       clientErrorReporter: reporter,
     ),
@@ -330,7 +332,7 @@ void main() {
       store: HistoryStore(
         locateFolder: () async => historyFolder,
         lockOwner: _owner,
-        isEngineAttached: (engineId) => engineId == _owner.engineId,
+        lockTakeOver: LocalLockTakeOver(attachedEngineIds: {_owner.engineId}),
         clock: clock,
         clientErrorReporter: reporter,
       ),
@@ -356,15 +358,18 @@ void main() {
       final heldLock = OwnedLockFile(
         file: File('${folder.path}/index.lock'),
         owner: otherEngine,
-        isEngineAttached: (_) => true,
+        lockTakeOver: LocalLockTakeOver.everyEngineAttached(),
         clock: clock,
       );
-      expect(heldLock.tryTake(), isTrue);
+      var isTaken = false;
+      unawaited(heldLock.tryTake().then((value) => isTaken = value));
+      fakeAsync.flushMicrotasks();
+      expect(isTaken, isTrue);
       final history = HistoryRepository(
         store: HistoryStore(
           locateFolder: () async => folder,
           lockOwner: _owner,
-          isEngineAttached: (_) => true,
+          lockTakeOver: LocalLockTakeOver.everyEngineAttached(),
           clock: clock,
           clientErrorReporter: reporter,
         ),
@@ -389,6 +394,143 @@ void main() {
       expect(heldLock.isHeld, isTrue);
       expect(File('${folder.path}/index.lock').readAsStringSync(), contains(otherEngine.engineId));
       expect(HistoryFixtures.readIndexEntries(folder), isEmpty);
+    });
+  });
+
+  group('saved clips\' outcomes (P6 design §3.11; P6-HISTORY-04 to -06; T51)', () {
+    const clipKey = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c21';
+    final capturedAt = DateTime.utc(2026, 10, 13, 12, 40);
+
+    test('a station still to choose is kept with its candidates and its answer', () async {
+      final answer = HistoryFixtures.answer('valid/choose-station');
+      await repository().saveAwaitingChoice(
+        recognitionId: HistoryFixtures.fixtureRecognitionId,
+        answer: answer,
+        capturedAtOnPhone: capturedAt,
+        deferredIdempotencyKey: clipKey,
+        wasNotified: true,
+      );
+      final entry = (await repository().readView()).entries.single as HistoryAwaitingChoiceEntry;
+      expect(entry.candidates.map((candidate) => candidate.stationName), [
+        'Station A',
+        'Station B',
+      ]);
+      expect(entry.answerBody, answer);
+      expect(entry.deferredIdempotencyKey, clipKey);
+      expect(entry.capturedAtOnPhone, capturedAt);
+      expect(await repository().wasNotified(HistoryFixtures.fixtureRecognitionId), isTrue);
+    });
+
+    test('an answer that does not read as a chooser is refused, and nothing is kept', () async {
+      await expectLater(
+        repository().saveAwaitingChoice(
+          recognitionId: HistoryFixtures.fixtureRecognitionId,
+          answer: HistoryFixtures.answer('valid/match-campaign'),
+          capturedAtOnPhone: capturedAt,
+          deferredIdempotencyKey: clipKey,
+          wasNotified: false,
+        ),
+        throwsA(isA<HistoryAnswerUnreadable>()),
+      );
+      expect(HistoryFixtures.readIndexEntries(folder), isEmpty);
+    });
+
+    test('a replay of the chooser after the listener chose never undoes the choice', () async {
+      final history = repository();
+      await save(history, 'valid/choose-station', chosenStationId: _stationBId);
+      await history.saveAwaitingChoice(
+        recognitionId: HistoryFixtures.fixtureRecognitionId,
+        answer: HistoryFixtures.answer('valid/choose-station'),
+        capturedAtOnPhone: capturedAt,
+        deferredIdempotencyKey: clipKey,
+        wasNotified: true,
+      );
+      final entry = (await history.readView()).entries.single as HistoryResultEntry;
+      expect(entry.result.stationId, _stationBId);
+    });
+
+    test('choosing a station later turns the waiting entry into its result, keeping the clip\'s '
+        'key and capture time', () async {
+      final history = repository();
+      await history.saveAwaitingChoice(
+        recognitionId: HistoryFixtures.fixtureRecognitionId,
+        answer: HistoryFixtures.answer('valid/choose-station'),
+        capturedAtOnPhone: capturedAt,
+        deferredIdempotencyKey: clipKey,
+        wasNotified: true,
+      );
+      await save(history, 'valid/choose-station', chosenStationId: _stationBId);
+      final entry = (await history.readView()).entries.single as HistoryResultEntry;
+      expect(entry.result.stationId, _stationBId);
+      expect(entry.deferredIdempotencyKey, clipKey);
+      expect(entry.capturedAtOnPhone, capturedAt);
+      expect(await history.wasNotified(HistoryFixtures.fixtureRecognitionId), isTrue);
+    });
+
+    for (final reason in DeferredClipNotIdentifiedReason.values) {
+      test('not identified (${reason.name}) is kept with why, and read back', () async {
+        await repository().saveNotIdentified(
+          entryId: clipKey,
+          capturedAtOnPhone: capturedAt,
+          reason: reason,
+          deferredIdempotencyKey: clipKey,
+          wasNotified: false,
+        );
+        final entry = (await repository().readView()).entries.single as HistoryNotIdentifiedEntry;
+        expect(entry.entryId, clipKey);
+        expect(entry.reason, reason);
+        expect(
+          HistoryFixtures.readIndexEntries(folder).single['not_identified_reason'],
+          reason.storedName,
+        );
+      });
+    }
+
+    test('a live result was never notified; a launch id may not open it', () async {
+      await save(repository(), 'valid/match-campaign');
+      expect(await repository().wasNotified(HistoryFixtures.fixtureRecognitionId), isFalse);
+      expect(await repository().wasNotified('0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f99'), isFalse);
+    });
+  });
+
+  group('the clips still waiting (P6 design §2.9, §3.9)', () {
+    const clipKey = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c21';
+
+    test('come with the view, and a change to them gives the view again', () async {
+      var waiting = [
+        HistoryWaitingClip(
+          idempotencyKey: clipKey,
+          capturedAtOnPhone: DateTime.utc(2026, 10, 13, 12, 40),
+          status: HistoryWaitingClipStatus.waitingForSignal,
+        ),
+      ];
+      final changes = StreamController<void>.broadcast();
+      addTearDown(changes.close);
+      final history = HistoryRepository(
+        store: HistoryStore(
+          locateFolder: () async => folder,
+          lockOwner: _owner,
+          lockTakeOver: LocalLockTakeOver(attachedEngineIds: {_owner.engineId}),
+          clock: clock,
+          clientErrorReporter: reporter,
+        ),
+        answerReader: const HistoryAnswerReader(),
+        clientErrorReporter: reporter,
+        clock: clock,
+        readWaitingClips: () async => waiting,
+        waitingClipsChanged: changes.stream,
+      );
+
+      final views = <HistoryView>[];
+      final subscription = history.watchView().listen(views.add);
+      addTearDown(subscription.cancel);
+      await pumpEventQueue();
+      expect(views.last.waitingClips.single.idempotencyKey, clipKey);
+
+      waiting = [];
+      changes.add(null);
+      await pumpEventQueue();
+      expect(views.last.waitingClips, isEmpty);
     });
   });
 }

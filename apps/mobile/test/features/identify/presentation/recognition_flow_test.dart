@@ -5,6 +5,7 @@ import 'dart:io' show File, FileSystemException;
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/app/history_answer_reader.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/outbox/outbox_store.dart';
@@ -18,6 +19,8 @@ import 'package:lookup_listener/features/identify/presentation/recognition_flow.
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/settings/data/my_station_store.dart';
 import 'package:lookup_listener/features/settings/domain/listener_station.dart';
+import 'package:lookup_listener/features/identify/data/recognize_request_builder.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 
 import '../../../support/contract_fixtures.dart';
 import '../../../support/example_app_configurations.dart';
@@ -49,6 +52,17 @@ class _BrokenOutboxStore implements OutboxStore {
   Future<bool> queueStationChoice({
     required String recognitionId,
     required String stationId,
+  }) async => throw const FileSystemException('The phone is full');
+
+  @override
+  Future<QueuedDeferredClip> queueDeferredClip({
+    required String idempotencyKey,
+    required DateTime capturedAt,
+    required int clipDurationMilliseconds,
+    required String codec,
+    required String? stationHintId,
+    required List<int> audioBytes,
+    required DeferredClipSavedReason savedReason,
   }) async => throw const FileSystemException('The phone is full');
 
   @override
@@ -573,7 +587,7 @@ void main() {
       });
     }
 
-    test('T19 an unknown status, and 426: error(newer app needed)', () {
+    test('T19 an unknown status: error(newer app needed); a 426: please update the app', () {
       runFlowTest((harness) {
         identifyAndAnswer(
           harness,
@@ -587,7 +601,7 @@ void main() {
             'error': {'code': 'APP_UPDATE_REQUIRED', 'message': 'Update the app.'},
           }),
         );
-        expect(_failureOf(harness.state), const NewerAppNeededFailure());
+        expect(_failureOf(harness.state), const AppUpdateRequiredFailure(), reason: 'T26′');
         expect(harness.flow.hasKeptClip, isFalse);
         expect(harness.reporter.reports, isEmpty);
       });
@@ -618,7 +632,7 @@ void main() {
       });
     });
 
-    test('T21 the 4th send still busy: error(server failure), the clip deleted', () {
+    test('T21′ the 4th send still busy: Saved offline (busy), the clip handed to the outbox', () {
       runFlowTest((harness) {
         for (var send = 0; send < 4; send++) {
           harness.answerWithEnvelopeFixture('recognition-busy', retryAfter: '5');
@@ -629,19 +643,21 @@ void main() {
           harness.wait(const Duration(seconds: 5));
         }
         expect(
-          _failureOf(harness.state),
-          ServerFailure(requestId: RecognitionFlowHarness.envelopeRequestId('recognition-busy')),
+          harness.state,
+          const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
         );
         expect(harness.recognizeRequests, hasLength(4));
         expect(harness.sentIdempotencyKeys.toSet(), hasLength(1));
         expect(harness.sentRequestIds.toSet(), hasLength(4), reason: 'a new request id per send');
-        expect(harness.flow.hasKeptClip, isFalse);
+        expect(harness.flow.hasKeptClip, isFalse, reason: 'it is in the outbox now, not in memory');
+        _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.busy);
+        expect(harness.reporter.reports, isEmpty);
         harness.wait(const Duration(minutes: 1));
-        expect(harness.recognizeRequests, hasLength(4));
+        expect(harness.recognizeRequests, hasLength(4), reason: 'the live flow sends no more');
       });
     });
 
-    test('T21 the 4th busy answer with no API id: error(phone failure), reported', () {
+    test('T21′ the 4th busy answer with no API id is kept for later too, with no report', () {
       runFlowTest((harness) {
         for (var send = 0; send < 4; send++) {
           harness.adapter.answerText(502, '<html>Bad gateway</html>');
@@ -650,12 +666,9 @@ void main() {
         for (var resend = 0; resend < 3; resend++) {
           harness.tap((flow) => flow.tryNow());
         }
-        final failure = _failureOf(harness.state) as PhoneFailure;
-        final report = harness.reporter.reports.single;
-        expect(report.reportRequestId, failure.reportRequestId);
-        expect(report.relatedRequestId, isNull);
-        expect(report.location, '/identifying');
-        expect(harness.flow.hasKeptClip, isFalse);
+        expect(harness.state, isA<SavedOfflineState>());
+        expect(harness.reporter.reports, isEmpty);
+        _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.busy);
       });
     });
 
@@ -784,17 +797,34 @@ void main() {
       });
     });
 
-    test('T24 429 RATE_LIMITED: error(too many tries), the clip deleted', () {
+    test(
+      'T24′ 429 RATE_LIMITED: Saved offline (too many tries), the clip handed to the outbox',
+      () {
+        runFlowTest((harness) {
+          identifyAndAnswer(
+            harness,
+            () => harness.answerWithEnvelopeFixture('rate-limited', retryAfter: '120'),
+          );
+          expect(
+            harness.state,
+            const SavedOfflineState(
+              reason: SavedClipReason.tooManyTries,
+              wasOldestClipDeleted: false,
+            ),
+          );
+          expect(harness.flow.hasKeptClip, isFalse);
+          _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.tooManyTries);
+          expect(harness.reporter.reports, isEmpty);
+        });
+      },
+    );
+
+    test('T26′ 426 APP_UPDATE_REQUIRED: "Please update the app", the clip dropped, not kept', () {
       runFlowTest((harness) {
-        identifyAndAnswer(harness, () => harness.answerWithEnvelopeFixture('rate-limited'));
-        expect(_failureOf(harness.state), const TooManyTriesFailure(isShortWait: true));
+        identifyAndAnswer(harness, () => harness.answerWithEnvelopeFixture('app-update-required'));
+        expect(_failureOf(harness.state), const AppUpdateRequiredFailure());
         expect(harness.flow.hasKeptClip, isFalse);
-        harness.tap((flow) => flow.backToHome());
-        identifyAndAnswer(
-          harness,
-          () => harness.answerWithEnvelopeFixture('rate-limited', retryAfter: '120'),
-        );
-        expect(_failureOf(harness.state), const TooManyTriesFailure(isShortWait: false));
+        expect(harness.outboxItems, isEmpty);
         expect(harness.reporter.reports, isEmpty);
       });
     });
@@ -844,11 +874,19 @@ void main() {
       DioExceptionType.connectionTimeout,
       DioExceptionType.receiveTimeout,
     ]) {
-      test('T27 no answer (${type.name}): error(no connection), the clip kept', () {
+      test('T27′ no answer (${type.name}): Saved offline, and the outbox holds the clip with its '
+          'original key, recording and capture time (P6-STATE-04, P6-OFFLINE-01)', () {
         runFlowTest((harness) {
           identifyAndAnswer(harness, () => harness.adapter.failWithDioType(type));
-          expect(_failureOf(harness.state), const ConnectionFailure());
-          expect(harness.flow.hasKeptClip, isTrue);
+          expect(
+            harness.state,
+            const SavedOfflineState(
+              reason: SavedClipReason.noConnection,
+              wasOldestClipDeleted: false,
+            ),
+          );
+          expect(harness.flow.hasKeptClip, isFalse);
+          _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.noConnection);
           expect(harness.reporter.reports, isEmpty);
         });
       });
@@ -973,23 +1011,31 @@ void main() {
       });
     });
 
-    test('T31 app hidden: the countdown pauses, and resumes on return', () {
-      runFlowTest((harness) {
-        reachBusy(harness);
-        harness.wait(const Duration(seconds: 2));
-        harness.moveAppTo(AppLifecycleState.hidden);
-        harness.wait(const Duration(minutes: 5));
-        expect(harness.state, const BusyState(retryDelaySeconds: 12, secondsUntilRetry: 10));
-        expect(harness.recognizeRequests, hasLength(1), reason: 'no send from the background');
-        harness.moveAppTo(AppLifecycleState.resumed);
-        harness.answerWithResponseFixture('valid/no-match');
-        harness.wait(const Duration(seconds: 9));
-        expect(harness.state, const BusyState(retryDelaySeconds: 12, secondsUntilRetry: 1));
-        harness.wait(const Duration(seconds: 1));
-        expect(harness.state, const NoMatchState());
-        expect(harness.recognizeRequests, hasLength(2));
-      });
-    });
+    test(
+      'T31′ app hidden during Busy: Saved offline (busy), the clip handed to the outbox (P6-LISTENING-02)',
+      () {
+        runFlowTest((harness) {
+          reachBusy(harness);
+          harness.wait(const Duration(seconds: 2));
+          harness.moveAppTo(AppLifecycleState.hidden);
+          harness.wait(const Duration(minutes: 5));
+          expect(
+            harness.state,
+            const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
+          );
+          expect(
+            harness.recognizeRequests,
+            hasLength(1),
+            reason: 'no live send from the background',
+          );
+          _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.busy);
+          harness.moveAppTo(AppLifecycleState.resumed);
+          harness.wait(const Duration(minutes: 1));
+          expect(harness.state, isA<SavedOfflineState>());
+          expect(harness.recognizeRequests, hasLength(1));
+        });
+      },
+    );
 
     test('T31 inactive alone keeps the countdown going', () {
       runFlowTest((harness) {
@@ -1020,14 +1066,14 @@ void main() {
         harness.moveAppTo(AppLifecycleState.hidden);
         release.complete();
         harness.settle();
-        expect(harness.state, const BusyState(retryDelaySeconds: 5, secondsUntilRetry: 5));
+        // T31′: Busy with the app away hands the clip to the outbox, rather than waiting for the app.
+        expect(
+          harness.state,
+          const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
+        );
         harness.wait(const Duration(minutes: 1));
-        expect(harness.state, const BusyState(retryDelaySeconds: 5, secondsUntilRetry: 5));
-        expect(harness.recognizeRequests, hasLength(1), reason: 'no send from the background');
-        harness.answerWithResponseFixture('valid/no-match');
-        harness.moveAppTo(AppLifecycleState.resumed);
-        harness.wait(const Duration(seconds: 5));
-        expect(harness.state, const NoMatchState());
+        expect(harness.recognizeRequests, hasLength(1), reason: 'no live send from the background');
+        _expectTheClipInTheOutbox(harness, savedReason: DeferredClipSavedReason.busy);
       });
     });
 
@@ -1136,39 +1182,50 @@ void main() {
       }
     });
 
-    test('T37 "Send again" on no connection: the kept clip, same key, new request id', () {
-      runFlowTest((harness) {
-        identifyAndAnswer(
-          harness,
-          () => harness.adapter.failWithDioType(DioExceptionType.connectionError),
-        );
-        harness.answerWithResponseFixture('valid/match-campaign');
-        harness.wait(const Duration(seconds: 30));
-        harness.tap((flow) => flow.sendAgain());
-        expect(harness.state, isA<MatchedState>());
-        expect(harness.states.whereType<UploadingState>(), hasLength(2));
-        expect(harness.sentIdempotencyKeys.toSet(), hasLength(1));
-        expect(harness.sentRequestIds.toSet(), hasLength(2));
-        final sentTimes = harness.recognizeRequests
-            .map((request) => ReceivedMultipartForm.of(request).fieldValues['sent_at'])
-            .toList();
-        expect(sentTimes.last, '2026-10-08T12:00:38.000Z');
-        expect(harness.recorder.startedIdempotencyKeys, hasLength(1), reason: 'not re-recorded');
-      });
-    });
+    test(
+      'a sixth clip saved with no signal deletes the oldest waiting one, and says so (P6-D6)',
+      () {
+        runFlowTest((harness) {
+          for (var clip = 1; clip <= 6; clip++) {
+            identifyAndAnswer(
+              harness,
+              () => harness.adapter.failWithDioType(DioExceptionType.connectionError),
+            );
+            expect(
+              harness.state,
+              SavedOfflineState(
+                reason: SavedClipReason.noConnection,
+                wasOldestClipDeleted: clip == 6,
+              ),
+              reason: 'clip $clip',
+            );
+            harness.tap((flow) => flow.backToHome());
+            harness.wait(const Duration(minutes: 1));
+          }
+          final keys = harness.recorder.startedIdempotencyKeys;
+          expect(
+            harness.outboxItems.whereType<DeferredClipItem>().map((clip) => clip.idempotencyKey),
+            keys.skip(1).toList(),
+            reason: 'the first, the oldest, made room',
+          );
+        });
+      },
+    );
 
-    test('T37 "Send again" that still gets no answer stays on no connection, clip kept', () {
-      runFlowTest((harness) {
-        identifyAndAnswer(
-          harness,
-          () => harness.adapter.failWithDioType(DioExceptionType.connectionError),
-        );
-        harness.adapter.failWithDioType(DioExceptionType.connectionTimeout);
-        harness.tap((flow) => flow.sendAgain());
-        expect(_failureOf(harness.state), const ConnectionFailure());
-        expect(harness.flow.hasKeptClip, isTrue);
-      });
-    });
+    test(
+      'a clip the phone cannot keep is a failure on the phone, reported, and nothing is kept',
+      () {
+        runFlowTest(outboxStore: _BrokenOutboxStore(), (harness) {
+          identifyAndAnswer(
+            harness,
+            () => harness.adapter.failWithDioType(DioExceptionType.connectionError),
+          );
+          expect(_failureOf(harness.state), isA<PhoneFailure>());
+          expect(harness.reporter.reports.single.description, 'Keeping the clip for later failed');
+          expect(harness.flow.hasKeptClip, isFalse);
+        });
+      },
+    );
 
     for (final (name, scriptAnswer) in <(String, void Function(RecognitionFlowHarness))>[
       ('no match', (harness) => harness.answerWithResponseFixture('valid/no-match')),
@@ -1192,7 +1249,7 @@ void main() {
           harness.tap((flow) => flow.backToHome());
           expect(harness.state, const IdleState());
           expect(harness.flow.hasKeptClip, isFalse);
-          harness.tap((flow) => flow.sendAgain());
+          harness.wait(const Duration(minutes: 1));
           expect(harness.state, const IdleState());
           expect(harness.recognizeRequests.length, lessThanOrEqualTo(1));
         });
@@ -1498,6 +1555,82 @@ void main() {
     });
   });
 
+  group('a saved chooser opened from History or its notification (T51; P6 design §3.11)', () {
+    Map<String, Object?> chooserAnswer() =>
+        (ContractFixtures.readFile('recognition/recognize-response/valid/choose-station.json')!
+                as Map<String, Object?>)['response']!
+            as Map<String, Object?>;
+    final capturedAt = DateTime.utc(2026, 10, 8, 9, 30);
+
+    void openSaved(RecognitionFlowHarness harness, {List<RecognitionResult>? candidates}) {
+      final answer = chooserAnswer();
+      harness.tap(
+        (flow) => flow.openSavedChooser(
+          recognitionId: _chooserRecognitionId,
+          candidates: candidates ?? const HistoryAnswerReader().readCandidates(answer)!,
+          answer: answer,
+          capturedAtOnPhone: capturedAt,
+        ),
+      );
+    }
+
+    test('opens "Which station?" from the stored candidates, with no request', () {
+      runFlowTest((harness) {
+        openSaved(harness);
+        final chooser = harness.state as ChooseStationState;
+        expect(chooser.origin, ChooserOrigin.savedRecognition);
+        expect(chooser.recognitionId, _chooserRecognitionId);
+        expect(chooser.candidates.map((candidate) => candidate.stationId), [
+          _stationAId,
+          _stationBId,
+        ]);
+        expect(harness.adapter.requests, isEmpty);
+      });
+    });
+
+    test('a row shows that station\'s result at once, queues the choice, and History keeps the '
+        'result with the clip\'s capture time', () {
+      runFlowTest((harness) {
+        openSaved(harness);
+        harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: false));
+
+        final shown = harness.state as MatchedState;
+        expect(shown.result.stationName, 'Station B');
+        final choice = harness.outboxItems.single as StationChoiceItem;
+        expect(choice.recognitionId, _chooserRecognitionId);
+        expect(choice.stationId, _stationBId);
+        final kept = harness.historyView.resultFor(_chooserRecognitionId)!;
+        expect(kept.result.stationId, _stationBId);
+        expect(kept.capturedAtOnPhone, capturedAt);
+        expect(harness.adapter.requests, isEmpty, reason: 'the choice goes through the outbox');
+      });
+    });
+
+    test('Cancel goes back with nothing queued and nothing kept', () {
+      runFlowTest((harness) {
+        openSaved(harness);
+        harness.tap((flow) => flow.backToHome());
+        expect(harness.state, const IdleState());
+        expect(harness.outboxItems, isEmpty);
+        expect(harness.historyView.entries, isEmpty);
+      });
+    });
+
+    test('ignored during an identify, and with fewer than two stations', () {
+      runFlowTest((harness) {
+        harness.tap((flow) => flow.identify());
+        expect(harness.state, isA<RecordingState>());
+        openSaved(harness);
+        expect(harness.state, isA<RecordingState>());
+        harness.tap((flow) => flow.backToHome());
+
+        final candidates = const HistoryAnswerReader().readCandidates(chooserAnswer())!;
+        openSaved(harness, candidates: candidates.take(1).toList());
+        expect(harness.state, const IdleState());
+      });
+    });
+  });
+
   group('History (P6 design §2.7, §3.14; P6-HISTORY-01, -14)', () {
     test('T16 a match is saved to History with its card and the phone\'s capture time', () {
       runFlowTest((harness) {
@@ -1609,4 +1742,26 @@ void main() {
       });
     });
   });
+}
+
+/// The outbox holds exactly the clip the flow recorded: its key, its recording byte for byte, the
+/// capture time and hint the live send carried, and why it was kept (contract R1).
+void _expectTheClipInTheOutbox(
+  RecognitionFlowHarness harness, {
+  required DeferredClipSavedReason savedReason,
+}) {
+  final clip = harness.outboxItems.whereType<DeferredClipItem>().single;
+  final firstSend = ReceivedMultipartForm.of(harness.recognizeRequests.first);
+  expect(clip.idempotencyKey, firstSend.fieldValues['idempotency_key']);
+  expect(
+    RecognizeRequestBuilder.formatUtcTimestamp(clip.capturedAt),
+    firstSend.fieldValues['captured_at'],
+  );
+  expect(clip.stationHintId, firstSend.fieldValues['station_hint']);
+  expect(clip.savedReason, savedReason);
+  final recording = File(
+    '${harness.outboxFolder.path}/clips/${clip.audioFileName}',
+  ).readAsBytesSync();
+  expect(recording, firstSend.fileParts.single.bytes);
+  expect(clip.audioSizeBytes, recording.length);
 }

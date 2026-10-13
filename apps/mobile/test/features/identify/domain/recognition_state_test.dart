@@ -5,6 +5,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_failure.dar
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/result/domain/read_action_card.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 
 void main() {
   const recognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
@@ -43,24 +44,29 @@ void main() {
     FallbackState(result: result),
     const NoMatchState(),
     const BusyState(retryDelaySeconds: 12, secondsUntilRetry: 12),
-    const ErrorState(failure: ConnectionFailure()),
+    const SavedOfflineState(reason: SavedClipReason.noConnection, wasOldestClipDeleted: false),
+    const ErrorState(failure: AppUpdateRequiredFailure()),
   ];
 
-  test("there are exactly ten states: Step 4's nine and chooseStation (P6-STATE-01)", () {
-    // The switch below has no default branch: another state would not compile until it is added.
-    expect(oneOfEachState.map(_nameOf).toSet(), {
-      'idle',
-      'permissionNeeded',
-      'recording',
-      'uploading',
-      'chooseStation',
-      'matched',
-      'fallback',
-      'noMatch',
-      'busy',
-      'error',
-    });
-  });
+  test(
+    "there are exactly eleven states: Step 4's nine, chooseStation and savedOffline (P6-STATE-01)",
+    () {
+      // The switch below has no default branch: another state would not compile until it is added.
+      expect(oneOfEachState.map(_nameOf).toSet(), {
+        'idle',
+        'permissionNeeded',
+        'recording',
+        'uploading',
+        'chooseStation',
+        'matched',
+        'fallback',
+        'noMatch',
+        'busy',
+        'savedOffline',
+        'error',
+      });
+    },
+  );
 
   test('each state carries only its own data, non-null, as given', () {
     const permission = PermissionNeededState(microphoneAccess: MicrophoneAccess.refusedForGood);
@@ -79,6 +85,13 @@ void main() {
 
     const error = ErrorState(failure: ServerFailure(requestId: 'x'));
     expect(error.failure, const ServerFailure(requestId: 'x'));
+
+    const saved = SavedOfflineState(
+      reason: SavedClipReason.tooManyTries,
+      wasOldestClipDeleted: true,
+    );
+    expect(saved.reason, SavedClipReason.tooManyTries);
+    expect(saved.wasOldestClipDeleted, isTrue);
   });
 
   group('chooseStation (P6-STATE-02)', () {
@@ -166,6 +179,7 @@ void main() {
         'fallback': false,
         'noMatch': false,
         'busy': true,
+        'savedOffline': false,
         'error': false,
       },
     );
@@ -185,12 +199,18 @@ void main() {
       isNot(const BusyState(retryDelaySeconds: 10, secondsUntilRetry: 9)),
     );
     expect(
-      const ErrorState(failure: TooManyTriesFailure(isShortWait: true)),
-      const ErrorState(failure: TooManyTriesFailure(isShortWait: true)),
+      const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
+      const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
     );
     expect(
-      const ErrorState(failure: TooManyTriesFailure(isShortWait: true)),
-      isNot(const ErrorState(failure: TooManyTriesFailure(isShortWait: false))),
+      const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
+      isNot(const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: true)),
+    );
+    expect(
+      const SavedOfflineState(reason: SavedClipReason.busy, wasOldestClipDeleted: false),
+      isNot(
+        const SavedOfflineState(reason: SavedClipReason.noConnection, wasOldestClipDeleted: false),
+      ),
     );
     expect(MatchedState(result: result), MatchedState(result: result));
     expect(MatchedState(result: result), isNot(FallbackState(result: result)));
@@ -265,5 +285,6 @@ String _nameOf(RecognitionState state) => switch (state) {
   FallbackState() => 'fallback',
   NoMatchState() => 'noMatch',
   BusyState() => 'busy',
+  SavedOfflineState() => 'savedOffline',
   ErrorState() => 'error',
 };

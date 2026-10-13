@@ -1,3 +1,4 @@
+import 'package:lookup_listener/core/outbox/outbox_item.dart';
 import 'package:lookup_listener/features/identify/domain/captured_clip.dart';
 
 /// Builds the parts of one `POST /recognize` from a clip (§3.10, S4-REQUEST-01 to -06, S4-D8), as
@@ -5,8 +6,9 @@ import 'package:lookup_listener/features/identify/domain/captured_clip.dart';
 /// order, then the audio file part last.
 ///
 /// The contract's own shape (`recognize-request-fields.schema.json`): every field is text,
-/// `is_deferred` is `false` because the live flow sends it (the outbox's deferred sends come with
-/// its clips), `station_hint` is the clip's hint when it has one and is left out otherwise
+/// `is_deferred` is `false` for the live flow's sends and `true` for the outbox's ([buildDeferred],
+/// contract R2), both built by one method so the two cannot drift; `station_hint` is the clip's
+/// hint when it has one and is left out otherwise
 /// (P6-MYSTATION-05), and nothing else at all: no install id, token, fingerprint or device detail
 /// (S3-ARCHITECTURE-09). The token travels only in the `Authorization` header, which the API client
 /// adds; it never passes through here.
@@ -21,20 +23,56 @@ final class RecognizeRequestBuilder {
   /// The parts of one send of [clip]. [sentAt] is the wall-clock time taken immediately before
   /// this send, so a resend after Busy says when it was really sent and the server can correct the
   /// phone's clock from it (S3-D15).
-  RecognizeRequestParts build(CapturedClip clip, {required DateTime sentAt}) =>
-      RecognizeRequestParts(
-        textFields: List.unmodifiable([
-          MapEntry('clip_duration_milliseconds', '${clip.clipDurationMilliseconds}'),
-          MapEntry('codec', clip.codec.wireName),
-          MapEntry('idempotency_key', clip.idempotencyKey.toLowerCase()),
-          MapEntry('captured_at', formatUtcTimestamp(clip.capturedAt)),
-          MapEntry('sent_at', formatUtcTimestamp(sentAt)),
-          const MapEntry('is_deferred', 'false'),
-          if (clip.stationHintId case final stationHintId? when _isUuid(stationHintId))
-            MapEntry('station_hint', stationHintId.toLowerCase()),
-        ]),
-        audioPart: RecognizeAudioPart(bytes: clip.audioBytes),
-      );
+  RecognizeRequestParts build(CapturedClip clip, {required DateTime sentAt}) => _parts(
+    clipDurationMilliseconds: clip.clipDurationMilliseconds,
+    codec: clip.codec.wireName,
+    idempotencyKey: clip.idempotencyKey,
+    capturedAt: clip.capturedAt,
+    stationHintId: clip.stationHintId,
+    audioBytes: clip.audioBytes,
+    sentAt: sentAt,
+    isDeferred: false,
+  );
+
+  /// The parts of one send of a clip the outbox kept (contract R2; P6-OUTBOX-07): `is_deferred`
+  /// `"true"`, the stored key, capture time and hint, and [sentAt] taken just before this attempt.
+  RecognizeRequestParts buildDeferred(
+    DeferredClipItem clip, {
+    required List<int> audioBytes,
+    required DateTime sentAt,
+  }) => _parts(
+    clipDurationMilliseconds: clip.clipDurationMilliseconds,
+    codec: clip.codec,
+    idempotencyKey: clip.idempotencyKey,
+    capturedAt: clip.capturedAt,
+    stationHintId: clip.stationHintId,
+    audioBytes: audioBytes,
+    sentAt: sentAt,
+    isDeferred: true,
+  );
+
+  RecognizeRequestParts _parts({
+    required int clipDurationMilliseconds,
+    required String codec,
+    required String idempotencyKey,
+    required DateTime capturedAt,
+    required String? stationHintId,
+    required List<int> audioBytes,
+    required DateTime sentAt,
+    required bool isDeferred,
+  }) => RecognizeRequestParts(
+    textFields: List.unmodifiable([
+      MapEntry('clip_duration_milliseconds', '$clipDurationMilliseconds'),
+      MapEntry('codec', codec),
+      MapEntry('idempotency_key', idempotencyKey.toLowerCase()),
+      MapEntry('captured_at', formatUtcTimestamp(capturedAt)),
+      MapEntry('sent_at', formatUtcTimestamp(sentAt)),
+      MapEntry('is_deferred', isDeferred ? 'true' : 'false'),
+      if (stationHintId case final hint? when _isUuid(hint))
+        MapEntry('station_hint', hint.toLowerCase()),
+    ]),
+    audioPart: RecognizeAudioPart(bytes: audioBytes),
+  );
 
   /// A station id the contract accepts as a hint: a UUID of version 1 to 8 (its schema's pattern).
   /// Anything else is left out, so a stored value the server would refuse can never fail every

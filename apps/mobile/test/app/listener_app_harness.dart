@@ -14,6 +14,7 @@ import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:lookup_listener/core/outbox/outbox_store.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/history/data/history_store.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
@@ -31,6 +32,7 @@ import '../features/result/support/fake_clipboard_writer.dart';
 import '../support/contract_fixtures.dart';
 import '../support/example_app_configurations.dart';
 import '../support/fake_clip_recorder.dart';
+import '../support/fake_device_services.dart';
 import '../support/fake_http_client_adapter.dart';
 import '../support/fake_microphone_permission.dart';
 import '../support/phone_screen.dart';
@@ -39,8 +41,9 @@ import '../support/recording_client_error_reporter.dart';
 
 /// The whole listener app — `LookUpApp`, its router, the real recognition flow and the app's own
 /// service wiring (`appServiceOverrides`) — with only the edges replaced by fakes (design §4.1):
-/// the HTTP transport, the microphone, the permission, the crash reporter, the launcher and the
-/// clipboard; History and the station list live in temporary folders of their own. Journey, router
+/// the HTTP transport, the microphone, its permission, the crash reporter, the launcher, the
+/// clipboard and the `device_services` plugin; the outbox, History and the station list live in
+/// temporary folders of their own. Journey, router
 /// and transition tests drive it by tapping, as a listener would.
 ///
 /// The app starts as on a later launch, with Home's first-open note already shown, unless
@@ -69,6 +72,7 @@ final class ListenerAppHarness {
   final RecordingClientErrorReporter reporter = RecordingClientErrorReporter();
   final FakeActionLauncher launcher = FakeActionLauncher();
   final FakeClipboardWriter clipboard = FakeClipboardWriter();
+  final FakeDeviceServices deviceServices = FakeDeviceServices();
 
   /// The install every send uses: stored, with a token good for 30 days unless [hasStoredToken]
   /// is false.
@@ -77,6 +81,9 @@ final class ListenerAppHarness {
   /// The app's support folder in this test: History's and the station list's folders are made in
   /// it. A new temporary one per started app, deleted when the test ends.
   late final Directory supportFolder = _makeSupportFolder();
+
+  /// The outbox's folder (`outbox/` of [supportFolder]).
+  Directory get outboxFolder => OutboxStore.folderIn(supportFolder);
 
   /// History's folder (`history/` of [supportFolder]).
   Directory get historyFolder => HistoryStore.folderIn(supportFolder);
@@ -108,6 +115,8 @@ final class ListenerAppHarness {
     microphonePermissionProvider.overrideWithValue(permission),
     actionLauncherProvider.overrideWithValue(launcher),
     clipboardWriterProvider.overrideWithValue(clipboard),
+    deviceServicesProvider.overrideWithValue(deviceServices),
+    outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
     historyFolderLocatorProvider.overrideWithValue(() async => historyFolder),
     stationListFolderLocatorProvider.overrideWithValue(() async => stationListFolder),
     ...appServiceOverrides,

@@ -1,13 +1,18 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/app/app_providers.dart';
+import 'package:lookup_listener/app/notification_launch_handler.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
 import '../features/identify/presentation/identify_screen_harness.dart' show disableAnimations;
 import '../support/expect_no_technical_text.dart';
+import '../support/received_multipart_form.dart';
 import 'listener_app_harness.dart';
+import 'test_time_clock.dart';
 import '../support/english_words.dart';
 
 /// The listener's journeys through the whole app with the flow's fakes (design §4.3, §4.7 step 3
@@ -94,27 +99,86 @@ void main() {
     expect(keys[1], keys[0]);
   });
 
-  testWidgets('no connection, then "Send again" sends the kept clip and shows the Result', (
-    tester,
-  ) async {
-    final harness = ListenerAppHarness();
-    harness.adapter.failWithDioType(DioExceptionType.connectionError);
-    harness.answerWithResponseFixture('valid/match-campaign');
-    await harness.pumpApp(tester);
+  testWidgets(
+    'airplane mode: Saved, Pending in History, nothing sent until the network is back; then the '
+    'clip goes once as deferred, its result is in History, and the notification opens it '
+    '(P6-TESTS-08 in widget form; P6-OFFLINE-01, -02, -21)',
+    (tester) async {
+      final harness = ListenerAppHarness();
+      harness.deviceServices.setNetwork(isUp: false);
+      harness.adapter.failWithDioType(DioExceptionType.connectionError);
+      await harness.pumpApp(
+        tester,
+        extraOverrides: [
+          // The outbox's waits are wall-clock times: the clock follows the test's fake time.
+          clockProvider.overrideWithValue(TestTimeClock(tester)),
+          outboxRandomProvider.overrideWithValue(Random(3)),
+        ],
+      );
+      // What bootstrap() starts after the first frame.
+      final container = harness.container(tester);
+      container.read(networkWatcherProvider).start();
+      container.read(outboxRunSchedulerProvider).start();
+      unawaited(container.read(notificationLaunchHandlerProvider).start());
+      await tester.pump();
 
-    await tester.tap(find.text(englishWords.identifyButtonLabel));
-    await harness.pumpTransition(tester);
-    await harness.recordWholeClip(tester);
-    expect(harness.location(tester), '/error');
-    expect(find.text('No connection'), findsOneWidget);
-    expect(find.text('Reference code'), findsNothing);
-    expectNoTechnicalText(tester);
+      await tester.tap(find.text(englishWords.identifyButtonLabel));
+      await harness.pumpTransition(tester);
+      await harness.recordWholeClip(tester);
+      expect(harness.location(tester), '/saved-offline');
+      expect(find.text(englishWords.savedOfflineHeadingNoConnection), findsOneWidget);
+      expect(find.text(englishWords.savedOfflineBodyNoConnection), findsOneWidget);
+      expectNoTechnicalText(tester);
 
-    await tester.tap(find.text('Send again'));
-    await harness.pumpTransition(tester);
-    expect(harness.location(tester), '/result');
-    expect(find.text('Brand A'), findsOneWidget);
-    expect(harness.recognizeRequests, hasLength(2));
-    expect(harness.sentIdempotencyKeys[1], harness.sentIdempotencyKeys[0]);
-  });
+      await tester.tap(find.text(englishWords.savedOfflineSeeInHistoryButton));
+      await harness.pumpTransition(tester);
+      expect(harness.location(tester), '/history');
+      expect(find.text(englishWords.historyWaitingHeading.toUpperCase()), findsOneWidget);
+      expect(find.text(englishWords.historyWaitingForSignal), findsOneWidget);
+      expect(find.text(englishWords.historyPendingBadge), findsOneWidget);
+
+      // With no network the outbox does not even try.
+      await tester.pump(const Duration(minutes: 10));
+      expect(harness.recognizeRequests, hasLength(1));
+
+      // The network comes back while the app is open: a run starts, and after the sending delay
+      // the clip goes, once.
+      harness.answerWithResponseFixture('valid/match-campaign');
+      harness.deviceServices.setNetwork(isUp: true);
+      await tester.pump(const Duration(seconds: 121));
+      await tester.pump();
+      expect(harness.recognizeRequests, hasLength(2));
+      final liveSend = ReceivedMultipartForm.of(harness.recognizeRequests.first).fieldValues;
+      final laterSend = ReceivedMultipartForm.of(harness.recognizeRequests.last).fieldValues;
+      expect(laterSend['is_deferred'], 'true');
+      expect(laterSend['idempotency_key'], liveSend['idempotency_key']);
+      expect(laterSend['captured_at'], liveSend['captured_at']);
+      expect(
+        DateTime.parse(laterSend['sent_at']!).isAfter(DateTime.parse(liveSend['sent_at']!)),
+        isTrue,
+      );
+
+      // History has the result; the Pending row is gone.
+      await tester.pump();
+      expect(find.text(englishWords.historyPendingBadge), findsNothing);
+      expect(find.text('Brand A — Summer service offer'), findsOneWidget);
+
+      // The notification says nothing of the ad (amendment A6), and its tap opens the result.
+      final notification = harness.deviceServices.posted.single;
+      expect(notification.title, englishWords.savedClipNotificationTitle);
+      expect(notification.text, englishWords.savedClipNotificationText);
+      expect(notification.recognitionId, _matchRecognitionId);
+      harness.deviceServices.tapNotification(_matchRecognitionId);
+      await harness.pumpTransition(tester);
+      expect(harness.location(tester), '/r/$_matchRecognitionId');
+      expect(find.text('Call us'), findsOneWidget);
+
+      await tester.pump(const Duration(minutes: 30));
+      expect(harness.recognizeRequests, hasLength(2), reason: 'answered, so never sent again');
+      expect(harness.reporter.reports, isEmpty);
+    },
+  );
 }
+
+/// The recognition id of `valid/match-campaign.json`.
+const String _matchRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';

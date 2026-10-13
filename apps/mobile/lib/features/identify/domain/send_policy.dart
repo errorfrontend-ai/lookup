@@ -4,6 +4,7 @@ import 'package:lookup_listener/features/identify/domain/recognition_failure.dar
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_problem_report.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
+import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 
 /// The rules of S4-D10 and S4-D11 for one clip: which answer leads to which state (§3.11), and how
@@ -43,9 +44,6 @@ final class SendPolicy {
   /// The wait when a 409 has no readable `Retry-After`.
   static const int defaultInProgressRetryAfterSeconds = 3;
 
-  /// A 429 whose `Retry-After` is at most this is a short wait: "Please wait a minute" is true.
-  static const int longestShortWaitSeconds = 60;
-
   /// Sends of this clip answered busy so far.
   final int busyAnswerCount;
 
@@ -68,7 +66,8 @@ final class SendPolicy {
   /// failure's, when that is the outcome).
   RecognitionOutcome decide(RecognitionAnswer answer, {required String reportRequestId}) =>
       switch (answer) {
-        NoAnswer() => const ConnectionLostOutcome(),
+        // T27′: no answer (to the clip or the registration before it) keeps the clip for later.
+        NoAnswer() => const SaveForLaterOutcome(reason: SavedClipReason.noConnection),
         PhoneFaultAnswer(:final answeredRequest, :final problem) => _reportedPhoneFailure(
           reportRequestId,
           '${_requestName(answeredRequest)} request stopped on the phone: $problem.',
@@ -106,15 +105,10 @@ final class SendPolicy {
     400 when answer.errorCode == _invalidAudioCode => _recordingUnusable(answer, reportRequestId),
     401 => _afterRefusedToken(answer, reportRequestId),
     409 => _afterInProgress(answer, reportRequestId),
-    426 => const FinishedOutcome(ErrorState(failure: NewerAppNeededFailure())),
-    429 => FinishedOutcome(
-      ErrorState(
-        failure: TooManyTriesFailure(
-          isShortWait:
-              (answer.retryAfterSeconds ?? defaultBusyRetryAfterSeconds) <= longestShortWaitSeconds,
-        ),
-      ),
-    ),
+    // T26′: this version is too old; the clip is dropped (contract §1.2).
+    426 => const FinishedOutcome(ErrorState(failure: AppUpdateRequiredFailure())),
+    // T24′: too many tries keeps the clip for later, to the clip or to the registration before it.
+    429 => const SaveForLaterOutcome(reason: SavedClipReason.tooManyTries),
     502 || 503 || 504 => _afterBusy(answer, reportRequestId),
     >= 500 && < 600 => _serverFailure(
       answer,
@@ -185,13 +179,9 @@ final class SendPolicy {
 
   RecognitionOutcome _afterBusy(ErrorStatusAnswer answer, String reportRequestId) {
     final busySendCount = busyAnswerCount + 1;
+    // T21′: still busy on the fourth send: the clip is kept for later, with no report.
     if (busySendCount >= maximumSendsOnBusyAnswers) {
-      return _serverFailure(
-        answer,
-        reportRequestId,
-        isReported: false,
-        explanation: 'still busy after $busySendCount sends of the clip',
-      );
+      return const SaveForLaterOutcome(reason: SavedClipReason.busy);
     }
     return BusyOutcome(
       retryDelaySeconds: retryDelaySecondsFrom(

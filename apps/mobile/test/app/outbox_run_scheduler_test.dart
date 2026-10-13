@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/widgets.dart' show AppLifecycleState;
@@ -33,10 +34,11 @@ void main() {
     TestWidgetsFlutterBinding.instance.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   });
 
-  OutboxRunScheduler startScheduler(OutboxSenderHarness harness) {
+  OutboxRunScheduler startScheduler(OutboxSenderHarness harness, {Stream<void>? networkBack}) {
     final scheduler = OutboxRunScheduler(
       sender: harness.sender,
       itemsQueued: harness.store.itemsQueued,
+      networkBack: networkBack,
       clock: harness.clock,
     )..start();
     addTearDown(scheduler.dispose);
@@ -159,6 +161,49 @@ void main() {
       harness.queueChoice(recognitionOne, stationB);
       harness.wait(const Duration(minutes: 5));
       expect(harness.sentChoices, isEmpty);
+    });
+  });
+
+  group('the network coming back (P6 design §3.9 point 7; P6-OFFLINE-07)', () {
+    test('with the app open, starts a run at once, which sends after the drawn wait', () {
+      runSenderTest(random: ScriptedRandom(integers: [0, 20]), (harness) {
+        final networkBack = StreamController<void>.broadcast(sync: true);
+        addTearDown(networkBack.close);
+        harness.isNetworkUp = false;
+        harness.queueChoice(recognitionOne, stationB);
+        startScheduler(harness, networkBack: networkBack.stream);
+        harness.wait(const Duration(minutes: 10));
+        expect(harness.sentChoices, isEmpty, reason: 'no network, no try');
+
+        harness.isNetworkUp = true;
+        harness.answerChoice(204);
+        networkBack.add(null);
+        harness.wait(const Duration(seconds: 19));
+        expect(harness.sentChoices, isEmpty);
+        harness.wait(const Duration(seconds: 1));
+        expect(harness.sentChoices, hasLength(1));
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('with the app hidden, starts nothing: the next resume does', () {
+      runSenderTest(random: ScriptedRandom(integers: [0, 0]), (harness) {
+        final networkBack = StreamController<void>.broadcast(sync: true);
+        addTearDown(networkBack.close);
+        harness.isNetworkUp = false;
+        harness.queueChoice(recognitionOne, stationB);
+        startScheduler(harness, networkBack: networkBack.stream);
+        _moveAppTo(harness, AppLifecycleState.hidden);
+
+        harness.isNetworkUp = true;
+        harness.answerChoice(204);
+        networkBack.add(null);
+        harness.wait(const Duration(minutes: 5));
+        expect(harness.sentChoices, isEmpty);
+
+        _moveAppTo(harness, AppLifecycleState.resumed);
+        expect(harness.sentChoices, hasLength(1));
+      });
     });
   });
 }

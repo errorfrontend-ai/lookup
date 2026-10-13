@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/device/notification_permission.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
@@ -23,6 +24,7 @@ import '../../result/support/fake_action_launcher.dart';
 import '../../result/support/fake_clipboard_writer.dart';
 import '../../result/support/result_screen_harness.dart' show expectNoClippedText;
 import 'recording_recognition_flow.dart';
+import '../../../support/fake_notification_permission.dart';
 
 /// Shows one identify screen the way the app does — in the app's theme, under a `ProviderScope`
 /// whose flow records the calls the screen makes, with a fake launcher and clipboard and the
@@ -37,7 +39,9 @@ final class IdentifyScreenHarness {
     AppConfiguration? configuration,
     bool launcherOpens = true,
     this.preferences = const {HowItWorksNoteStore.shownKey: true},
-  }) : flow = RecordingRecognitionFlow(state),
+    FakeNotificationPermission? notificationPermission,
+  }) : notificationPermission = notificationPermission ?? FakeNotificationPermission(),
+       flow = RecordingRecognitionFlow(state),
        configuration = configuration ?? ExampleAppConfigurations.production(),
        launcher = FakeActionLauncher(opens: launcherOpens);
 
@@ -45,6 +49,9 @@ final class IdentifyScreenHarness {
   final Map<String, Object> preferences;
 
   final RecordingRecognitionFlow flow;
+
+  /// What the Saved screen's bell panel reads; notifications allowed unless a test says otherwise.
+  final FakeNotificationPermission notificationPermission;
   final AppConfiguration configuration;
   final FakeActionLauncher launcher;
   final FakeClipboardWriter clipboard = FakeClipboardWriter();
@@ -65,6 +72,7 @@ final class IdentifyScreenHarness {
           appConfigurationProvider.overrideWithValue(configuration),
           actionLauncherProvider.overrideWithValue(launcher),
           clipboardWriterProvider.overrideWithValue(clipboard),
+          notificationPermissionProvider.overrideWithValue(notificationPermission),
         ],
         retry: (retryCount, error) => null,
         child: MaterialApp(
@@ -157,6 +165,9 @@ List<Rect> _tapTargetsOf(WidgetTester tester) {
   final targets = <Rect>[];
   void collect(SemanticsNode node) {
     final data = node.getSemanticsData();
+    // A control scrolled out of view (under a pinned footer, or past the end of the screen) is
+    // hidden: it cannot be tapped where it is, and comes into view apart from the others.
+    if (data.flagsCollection.isHidden) return;
     if (data.hasAction(SemanticsAction.tap) && !node.isMergedIntoParent) {
       final physical = _globalRectOf(node);
       targets.add(
