@@ -391,11 +391,18 @@ def problems_with_sends(new_requests: Sequence[dict[str, Any]], expected_scenari
     return problems
 
 
+def measured_recognize_requests(log: dict[str, Any]) -> list[dict[str, Any]]:
+    """The recognize requests the fake read: one cut off by "No signal", or turned away by the update gate, was
+    never read, so it has no sizes."""
+    return [request for request in requests_to(log, RECOGNIZE_PATH)
+            if 'dropped' not in request and not request.get('update_required')]
+
+
 def problems_with_request_sizes(log: dict[str, Any]) -> list[str]:
     """Checks every recognize request the fake accepted (S4-REQUEST-02; design §3.10): the whole body at most
     LARGEST_RECOGNIZE_BODY_BYTES, so "about 25 KB of data" on Home is true, and the audio at least
     SMALLEST_CLIP_BYTES, so a small body cannot pass because the recorder sent next to nothing."""
-    recognize_requests = requests_to(log, RECOGNIZE_PATH)
+    recognize_requests = measured_recognize_requests(log)
     if not recognize_requests:
         return ['the fake received no recognize request to measure']
     problems = []
@@ -1311,8 +1318,8 @@ def airplane_mode_with_the_app_open(context: RunContext) -> str:
 
 
 def two_notifications_open_their_own_results(context: RunContext) -> str:
-    """Step 18 (P6-OFFLINE-21): two clips saved with no signal get two results; each notification opens its own,
-    the older Station A's, the newer Station B's."""
+    """Step 18 (P6-OFFLINE-21): two clips saved with no signal get two results; each notification opens its own:
+    the one answered first Station A's, the other Station B's."""
     driver, fake_api, device = context.driver, context.fake_api, context.device
     station_a, station_b = CHOOSER_STATIONS[0], CHOOSER_STATIONS[1]
     count_before = context.recognize_count()
@@ -1329,10 +1336,12 @@ def two_notifications_open_their_own_results(context: RunContext) -> str:
     driver.wait_until(lambda: len([send for send in context.recognize_requests_since(count_before)
                                    if send.get('is_deferred') == 'true' and send.get('scenario')]) >= 2,
                       2 * SECONDS_FOR_AN_OUTBOX_RETRY, 'both saved clips to be sent')
+    # The stand-in answers in the order the sends come: Station A's match to the first, Station B's to
+    # the second. With "No signal" Android still reports a network, so each clip keeps the wait its
+    # own failed send left, and the newer may go first; oldest first holds among the clips that are
+    # due (P6-OFFLINE-11, unit-tested), and when Android reports the network back (step 16).
     older = answered_deferred_sends(context, count_before, 'match')[0]
     newer = answered_deferred_sends(context, count_before, 'match-station-b')[0]
-    if str(older.get('captured_at')) >= str(newer.get('captured_at')):
-        raise StepFailed('the clips were not sent oldest first')
     notifications = driver.wait_until(
         lambda: (lambda new: new if len(new) >= 2 else None)(device.notifications_of(context.app_package)[notifications_before:]),
         20, 'two notifications')
@@ -1958,7 +1967,7 @@ def check_recognize_request_sizes(fake_api: FakeApiControl) -> str:
     problems = problems_with_request_sizes(log)
     if problems:
         raise StepFailed('; '.join(problems))
-    requests = requests_to(log, RECOGNIZE_PATH)
+    requests = measured_recognize_requests(log)
     bodies = [request['body_bytes'] for request in requests]
     clips = [request['audio_bytes'] for request in requests]
     return (f'{len(requests)} recognize requests: bodies {min(bodies):,}-{max(bodies):,} bytes (at most '

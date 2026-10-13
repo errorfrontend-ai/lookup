@@ -322,6 +322,17 @@ class RequestSizeTest(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn('15999 bytes of audio, under 16,000', problems[0])
 
+    def test_a_request_cut_off_by_no_signal_or_the_update_gate_is_not_measured(self) -> None:
+        log = {'requests': [
+            {'path': runner.RECOGNIZE_PATH, 'body_bytes': 27_000, 'audio_bytes': 26_000, 'scenario': 'match'},
+            {'path': runner.RECOGNIZE_PATH, 'dropped': 'offline'},
+            {'path': runner.RECOGNIZE_PATH, 'request_id': 'id-2', 'update_required': True},
+        ]}
+        self.assertEqual(problems_with_request_sizes(log), [])
+        fake_api = ScriptedFakeApi()
+        fake_api.requests = log['requests']
+        self.assertIn('1 recognize requests: bodies 27,000-27,000 bytes', runner.check_recognize_request_sizes(fake_api))
+
     def test_a_request_with_no_sizes_or_no_request_at_all_fails(self) -> None:
         self.assertIn('no recognize request', problems_with_request_sizes({'requests': []})[0])
         unmeasured = {'requests': [recognize_request('match', 'key-1', 'id-1')]}
