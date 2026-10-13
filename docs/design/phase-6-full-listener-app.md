@@ -2899,3 +2899,79 @@ Left for the lead:
 - `+260971234567` in `test/support/example_app_configurations.dart`;
 - the 45 fixture files and 49 other files counted in Correction 2 of the P4 design.
 
+
+## Step 2 record (13 October 2026): P4 piece 3 and P6 pieces 1 and 2
+
+**Built:**
+- The listener's station choice and the station list on the server (`0b4370d`, the P4 design's piece 3): the choice
+  route, `GET /stations`, the follow-up allowance, the wider listener-route ceiling, and the stand-in's choice and
+  station-list routes with the scenarios the walkthroughs use.
+- "Which station?" in the app, with the outbox's first item (`9555993`, this design's piece 1).
+- The tab bar, History and Settings (`1c2137b`, piece 2).
+- The emulator journeys of §4.8 steps 1 to 5 and 17 (`b519dd4`).
+- Alongside: the app stays English only (`5499b50`, the user's decision); a never-assigned number in the start-up
+  tests (`0de7cda`).
+
+**Suites at the end of the step:**
+
+| Suite | Result |
+|---|---|
+| API | 873, in 54 files (typecheck clean) |
+| Flutter | 2,303 (analyze and format clean) |
+| Tool tests | 142 (the stand-in 56, the emulator runner 86) |
+| Contracts, portal, Python fingerprinter | unchanged by this step, not run again |
+
+The evidence checker was green.
+
+**Reviews and fixes.**
+- **Piece 3 and piece 1 (one reviewer, five lenses):** nothing on the server; five findings in the outbox, one medium.
+  - The medium one: a wait stored while the phone's clock was ahead was cut to an hour only when it was read, so the
+    cut moved forward with the clock and a choice could wait days. Fixed in `7684836`: the clean-up before each run
+    writes the cut (an hour for an item or a group, 6 hours for a 426 probe).
+  - A 426 probe with no answer ended the pause. Fixed in `7684836`: only an answer from the server ends it.
+  - A storage that cannot be written led to a resend loop. Fixed in `7684836`: the folder is tried again, failed runs
+    back off up to 30 minutes, and a settled item is never sent again in that app session.
+  - A Zambian-format number in a test. Fixed in `0de7cda`.
+  - An empty lock file could be taken over once a second engine exists. Carried into piece 3 (`a8d61df`).
+  - A check of the fixes found four rules no test held (a probe's registration with no answer; probes answered 500,
+    429 or a twice-refused token; the cut-off points; the failure ceiling). Tests in `a97106d`, each failing when its
+    rule is broken on purpose.
+- **Piece 2:** its review run was stopped when the user asked, on 13 October 2026, that the rest of the system be
+  built without helper agents; the lead then reviewed the riskiest parts (the station list kept for 24 hours, the
+  History store, navigation, what crash reports record) and found one defect: History, like the outbox before it,
+  kept a folder that could not be made as failed until the app restarted. Fixed in `f9d3322`.
+
+**Emulator run (13 October 2026, Docker closed): 24 of 24 steps passed.** The eight Step 4 journeys, the six new ones
+(the chooser with no signal and the choice arriving once after it; "Remember my station"; Cancel; History with no
+signal; the station list asked for once; the first-open note), the request sizes, the device log (17,883 lines, no
+private value), the clip, the production build's refusal of plain http, and the emulator commands of fact 8:
+airplane mode, `svc wifi` and `svc data`, and `dumpsys notification` all work; the test image has **no notification
+shade**, so step 18 (two notifications opened through the shade) is shown on the phone in piece 3 (b), as §4.8 says.
+This also closes the step 1 review's leftover on fact 8. P6-MYSTATION-02 is ticked on this run; P6-TESTS-07,
+P6-CHOOSER-15, P6-HISTORY-02 and ALL-USABILITY-04 record their emulator halves and wait for the phone check (or, for
+ALL-USABILITY-04, the portal).
+
+**Deviations and readings, recorded for the gate:**
+- **Built later, by design:** the update gate (426) and the hashed `actor` on listener log lines come with the P4
+  design's piece 4; a 426 pause ending because a live identify got another answer, the chooser opened from a saved
+  recognition, History's waiting rows, and "Clear history" deleting waiting clips come with piece 3; the Privacy
+  page's points on saved clips and "Report this" come with pieces 3 and 4.
+- **The outbox:** after "no answer", the next run never starts before the failed item's own wait (this design's
+  reading of A1, so untried items are not sent into the same silence); a registration that fails counts as a failure
+  of the item and ends the run, and a 429 on a registration marks the item limited without pausing its group.
+- **The answer reader is stricter than Step 4's:** a `MATCH` without a version-7 recognition id is unreadable.
+- **The station list:** the ETag is compared exactly (a weak `W/"…"` copy, or `*`, gets the list); Express's own weak
+  ETags remain on the other answers, which all say `no-store`; a list naming the nil or the max UUID is refused whole.
+- **The stand-in** answers a choice on another install's recognition with a refusal (400), as contract §4's
+  "refuse" column says, where the real API answers 404.
+- **Screens:** the "Remember" checkbox is Material's 18 dp (the wireframe draws 22) and its label 16 sp (15); rows
+  that touch by design (the chooser, Settings, the picker) are not given the 8 dp gap check; the Home chip takes the
+  room the title leaves and moves under it when even half its width does not fit; the first-open note keeps "Tap to
+  identify" on screen at 320 × 640; day names come from `DayLabelWords`, since the domain layer may not import
+  `intl`; P6-ACCESSIBILITY-06 is ticked on a widget test of the selected tab's bold label and pill, while the
+  greyscale golden review stays with P6-ACCESSIBILITY-04 at the gate.
+- **Q15's wordings** ("This ad is played on more than one station.", "These are [client]'s usual contact details.")
+  are used as the recommended answers the user accepted on 11 October 2026.
+- **`development:show-recognitions`** prints "Chosen by the listener: Station B" and "Decided by: the listener's
+  "My station" (Station B)" where the P4 design's piece 3 walkthrough expects "Decided by: the listener's choice" and
+  "Decided by: My station"; the walkthrough uses the tool's words.
