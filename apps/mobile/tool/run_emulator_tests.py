@@ -631,6 +631,8 @@ class Device(Protocol):
     def take_network_away(self) -> str: ...
     def bring_network_back(self) -> None: ...
     def press_home(self) -> None: ...
+    def set_window_size(self, width_pixels: int, height_pixels: int, density: int) -> None: ...
+    def reset_window_size(self) -> None: ...
     def use_mobile_data_only(self) -> str: ...
     def use_wifi_again(self) -> None: ...
 
@@ -1869,6 +1871,38 @@ def answers_lost_still_count_once(context: RunContext) -> str:
             f'{len([request for request in sent if "engagement" in request])} times, and the stand-in keeps one of each')
 
 
+# ---- Piece 6: window sizes (P6 design §4.8 step 15) --------------------------------------------------------
+
+# The tablet sizes of step 15, in pixels at 320 dpi (2 px per dp): 800 × 1280 dp upright, 1280 × 800 dp on its side.
+TABLET_DENSITY = 320
+TABLET_UPRIGHT_PIXELS = (1600, 2560)
+TABLET_ON_ITS_SIDE_PIXELS = (2560, 1600)
+
+
+def window_sizes_show_the_tablet_layouts(context: RunContext) -> str:
+    """Step 15 (P6-RESPONSIVE-04, -05, P6-RESULT-02 on the device): at 800 × 1280 dp an identify's Result sits beside
+    Home, with the rail; at 1280 × 800 dp Home and History are side by side. Screenshots of both go to the run's
+    evidence for the gate review; the screen is set back to the phone's size whatever happens."""
+    driver, device = context.driver, context.device
+    try:
+        device.set_window_size(*TABLET_UPRIGHT_PIXELS, TABLET_DENSITY)
+        driver.wait_for(LABELS['home heading'], 20)
+        identify_a_match(context)
+        driver.expect_all([LABELS['result header'], LABELS['home heading'], LABELS['tab history']], swipes=0)
+        upright = device.save_evidence('15-tablet-800x1280-result-beside-home', driver.read_screen())
+        driver.tap(LABELS['result back'])
+        driver.wait_for(LABELS['home heading'], 15)
+        device.set_window_size(*TABLET_ON_ITS_SIDE_PIXELS, TABLET_DENSITY)
+        driver.wait_for(LABELS['home heading'], 20)
+        driver.expect_all([LABELS['home heading'], LABELS['history earlier']], swipes=0)
+        on_its_side = device.save_evidence('15-tablet-1280x800-home-beside-history', driver.read_screen())
+    finally:
+        device.reset_window_size()
+    driver.wait_for(LABELS['home heading'], 20)
+    return (f'800 × 1280 dp: the Result beside Home, with the rail ({", ".join(upright)}); 1280 × 800 dp: Home beside '
+            f'History ({", ".join(on_its_side)})')
+
+
 def a_saved_clip_is_sent_with_the_app_closed(context: RunContext) -> str:
     """Step 7 (P6-OFFLINE-08): with the network away, a clip is saved and the app closed; when the network comes
     back, WorkManager's job sends it with no activity open, and History holds the result at the next start."""
@@ -1985,6 +2019,9 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
      taps_are_counted_once_and_wait_for_the_signal),
     ('answers lost on the way: one recognition, one choice and one tap however often sent',
      answers_lost_still_count_once),
+    # Piece 6 (P6 design §4.8 step 15).
+    ('a tablet upright shows the Result beside Home; on its side, Home beside History',
+     window_sizes_show_the_tablet_layouts),
     # Last: clearing the app's data forgets the install and the microphone grant the journeys above rely on.
     ('"How Look Up works" shows on the first start only', first_open_shows_how_look_up_works_once),
 ]
@@ -2243,6 +2280,19 @@ class AdbDevice:
     def press_home(self) -> None:
         self.adb('shell', 'input', 'keyevent', 'KEYCODE_HOME', check=False)
         time.sleep(1)
+
+    def set_window_size(self, width_pixels: int, height_pixels: int, density: int) -> None:
+        """The screen as a tablet's: `wm size` and `wm density` (dp = pixels × 160 / density)."""
+        self.adb('shell', 'wm', 'size', f'{width_pixels}x{height_pixels}')
+        self.adb('shell', 'wm', 'density', str(density))
+        self.forget_screen_size()
+        time.sleep(3)
+
+    def reset_window_size(self) -> None:
+        self.adb('shell', 'wm', 'size', 'reset', check=False)
+        self.adb('shell', 'wm', 'density', 'reset', check=False)
+        self.forget_screen_size()
+        time.sleep(3)
 
     def use_mobile_data_only(self) -> str:
         """Wi-Fi off and mobile data on; returns once Android's default network is a metered mobile one (P6 design

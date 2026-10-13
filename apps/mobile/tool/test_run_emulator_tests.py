@@ -776,6 +776,7 @@ class ScriptedPhone:
         self.stops: list[str] = []
         self.cleared: list[str] = []
         self.home_presses = 0
+        self.window_sizes: list[tuple[int, int, int] | None] = []
         self.evidence: list[str] = []
         self.device_log = ''
         self.is_device_log_readable = True
@@ -815,6 +816,12 @@ class ScriptedPhone:
 
     def press_home(self) -> None:
         self.home_presses += 1
+
+    def set_window_size(self, width_pixels: int, height_pixels: int, density: int) -> None:
+        self.window_sizes.append((width_pixels, height_pixels, density))
+
+    def reset_window_size(self) -> None:
+        self.window_sizes.append(None)
 
     def clear_app_data(self, package_name: str) -> None:
         self.cleared.append(package_name)
@@ -1448,7 +1455,7 @@ class FullListenerAppJourneyTest(unittest.TestCase):
 
     def test_the_new_journeys_run_after_step_4s_and_the_first_open_one_last(self) -> None:
         names = [journey for _, journey in runner.JOURNEYS]
-        self.assertEqual(names[-20:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
+        self.assertEqual(names[-21:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
                                        runner.cancel_on_the_sheet_chooses_nothing,
                                        runner.history_keeps_a_result_that_works_with_no_data,
                                        runner.station_list_is_asked_for_once,
@@ -1469,6 +1476,8 @@ class FullListenerAppJourneyTest(unittest.TestCase):
                                        # Piece 5.
                                        runner.taps_are_counted_once_and_wait_for_the_signal,
                                        runner.answers_lost_still_count_once,
+                                       # Piece 6.
+                                       runner.window_sizes_show_the_tablet_layouts,
                                        runner.first_open_shows_how_look_up_works_once])
         self.assertLess(names.index(runner.send_test_error), names.index(runner.a_crash_report_waits_for_the_signal))
 
@@ -1674,6 +1683,40 @@ class PieceFourTest(unittest.TestCase):
         ]
         context, _ = context_for(ScriptedPhone(screens={'home': HOME}, taps={}), fake_api)
         self.assertEqual([tap['action_id'] for tap in runner.tap_requests_since(context, 1)], ['new'])
+
+
+class TabletWindowSizesTest(unittest.TestCase):
+    """Step 15 (P6-RESPONSIVE-04, -05): the tablet sizes, and the phone's size back whatever happens."""
+
+    def tablet_phone(self, fake_api: ScriptedFakeApi, *, is_home_beside_the_result: bool = True) -> ScriptedPhone:
+        result = [*RESULT, *([app(LABELS['home heading'])] if is_home_beside_the_result else []), *TABS]
+        return ScriptedPhone(
+            screens={'home': [*HOME, app(LABELS['history earlier']), *TABS], 'listening': LISTENING, 'result': result},
+            taps={('home', LABELS['identify control']): 'listening', ('result', LABELS['result back']): 'home'},
+            moves_after_reads={'listening': (1, 'result')},
+            on_enter={'result': lambda: fake_api.receive_recognize()},
+        )
+
+    def test_the_result_beside_home_upright_and_home_beside_history_on_its_side(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = self.tablet_phone(fake_api)
+        context, _ = context_for(phone, fake_api)
+
+        detail = runner.window_sizes_show_the_tablet_layouts(context)
+
+        self.assertEqual(phone.window_sizes, [(1600, 2560, 320), (2560, 1600, 320), None])
+        self.assertEqual(phone.evidence, ['15-tablet-800x1280-result-beside-home', '15-tablet-1280x800-home-beside-history'])
+        self.assertIn('the Result beside Home', detail)
+
+    def test_a_result_with_no_home_beside_it_fails_and_the_size_is_set_back(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = self.tablet_phone(fake_api, is_home_beside_the_result=False)
+        context, _ = context_for(phone, fake_api)
+
+        with self.assertRaises(StepFailed):
+            runner.window_sizes_show_the_tablet_layouts(context)
+
+        self.assertEqual(phone.window_sizes[-1], None, 'the phone size is set back')
 
 
 class StandInControlTest(unittest.TestCase):
