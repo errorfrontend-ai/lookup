@@ -165,7 +165,10 @@ void main() {
 
   group('each control (T48, T49; P6-OFFLINE-23, -28, -29)', () {
     testWidgets('"OK", Close and system Back go Home, the clip still waiting', (tester) async {
+      final semantics = tester.ensureSemantics();
       final harness = await show(tester);
+      expect(find.bySemanticsLabel('Close'), findsOneWidget, reason: 'the × is read as "Close"');
+      semantics.dispose();
       await tester.tap(find.text('OK'));
       await tester.tap(find.byType(ScreenExitButton));
       expect(calls, ['backToHome', 'backToHome']);
