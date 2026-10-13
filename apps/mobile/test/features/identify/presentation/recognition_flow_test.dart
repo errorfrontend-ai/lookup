@@ -975,6 +975,112 @@ void main() {
     });
   });
 
+  group('a slow connection (P6 design §2.5; P6-LISTENING-01)', () {
+    /// The match answer, held until [release] completes.
+    void answerMatchWhen(RecognitionFlowHarness harness, Future<void> release) {
+      final content =
+          ContractFixtures.readFile('recognition/recognize-response/valid/match-campaign.json')!
+              as Map<String, Object?>;
+      harness.adapter.answerWith((request, cancelFuture) async {
+        await release;
+        return ResponseBody.fromString(
+          jsonEncode(content['response']),
+          200,
+          headers: {
+            'content-type': ['application/json'],
+          },
+        );
+      });
+    }
+
+    test('an answer within 5 seconds: Identifying never says the connection is slow', () {
+      runFlowTest((harness) {
+        final release = Completer<void>();
+        answerMatchWhen(harness, release.future);
+        harness.identifyAndRecord();
+        harness.wait(const Duration(milliseconds: 4900));
+        expect(harness.state, const UploadingState());
+        release.complete();
+        harness.settle();
+        expect(harness.state, isA<MatchedState>());
+        expect(harness.states.whereType<UploadingState>().where((state) => state.isSlow), isEmpty);
+      });
+    });
+
+    test('5 seconds with no answer and the clip all sent: slow, 100% sent, then the result', () {
+      runFlowTest((harness) {
+        final release = Completer<void>();
+        answerMatchWhen(harness, release.future);
+        harness.identifyAndRecord();
+        harness.wait(RecognitionFlow.slowSendAfter);
+        expect(harness.state, const UploadingState(isSlow: true, sentPercent: 100));
+        release.complete();
+        harness.settle();
+        expect(harness.state, isA<MatchedState>());
+      });
+    });
+
+    test('a clip still on its way: the share sent shows, and grows as the connection takes it', () {
+      runFlowTest((harness) {
+        final bodyGoesOn = Completer<void>();
+        final release = Completer<void>();
+        harness.adapter.holdNextBodyAfter(1, bodyGoesOn.future);
+        answerMatchWhen(harness, release.future);
+        harness.identifyAndRecord();
+        harness.wait(RecognitionFlow.slowSendAfter);
+        final held = harness.state as UploadingState;
+        expect(held.isSlow, isTrue);
+        expect(held.sentPercent, lessThan(100));
+
+        bodyGoesOn.complete();
+        harness.settle();
+        expect(harness.state, const UploadingState(isSlow: true, sentPercent: 100));
+        final shown = harness.states.whereType<UploadingState>().where((state) => state.isSlow);
+        expect(
+          shown.map((state) => state.sentPercent),
+          orderedEquals([...shown.map((state) => state.sentPercent)]..sort()),
+          reason: 'the share only grows',
+        );
+        release.complete();
+        harness.settle();
+        expect(harness.state, isA<MatchedState>());
+      });
+    });
+
+    test(
+      'each send starts plain again: a resend after Busy is slow only after its own 5 seconds',
+      () {
+        runFlowTest((harness) {
+          harness.answerWithEnvelopeFixture('recognition-busy', retryAfter: '2');
+          final release = Completer<void>();
+          answerMatchWhen(harness, release.future);
+          harness.identifyAndRecord();
+          expect(harness.state, isA<BusyState>());
+          harness.wait(const Duration(seconds: 2));
+          expect(harness.state, const UploadingState());
+          harness.wait(const Duration(milliseconds: 4900));
+          expect(harness.state, const UploadingState());
+          harness.wait(const Duration(milliseconds: 100));
+          expect(harness.state, const UploadingState(isSlow: true, sentPercent: 100));
+          release.complete();
+          harness.settle();
+        });
+      },
+    );
+
+    test('Cancel on a slow send goes Home, and nothing turns slow afterwards', () {
+      runFlowTest((harness) {
+        harness.adapter.waitUntilCancelled();
+        harness.identifyAndRecord();
+        harness.wait(RecognitionFlow.slowSendAfter);
+        expect(harness.state, isA<UploadingState>());
+        harness.tap((flow) => flow.backToHome());
+        harness.wait(const Duration(minutes: 1));
+        expect(harness.state, const IdleState());
+      });
+    });
+  });
+
   group('Busy', () {
     void reachBusy(RecognitionFlowHarness harness, {String retryAfter = '12'}) => identifyAndAnswer(
       harness,

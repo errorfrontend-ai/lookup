@@ -332,6 +332,24 @@ abstract class AppLocalizations {
   /// **'This usually takes a few seconds.'**
   String get identifyingExplanation;
 
+  /// Identifying, once a send has had no answer for 5 seconds (P6 design §2.5); announced once.
+  ///
+  /// In en, this message translates to:
+  /// **'Still working — the connection is slow.'**
+  String get identifyingSlow;
+
+  /// Under the bar on a slow send: how much of the clip has gone.
+  ///
+  /// In en, this message translates to:
+  /// **'Clip {percent}% sent'**
+  String identifyingClipPercentSent(int percent);
+
+  /// Under the full bar on a slow send, once all of the clip has gone.
+  ///
+  /// In en, this message translates to:
+  /// **'Clip sent — waiting for the answer'**
+  String get identifyingClipSent;
+
   /// What screen readers announce for the Close × while identifying.
   ///
   /// In en, this message translates to:
@@ -704,6 +722,54 @@ abstract class AppLocalizations {
   /// **'Not set — used when an ad is on more than one station'**
   String get settingsMyStationNotSet;
 
+  /// The Settings section about data use (P6 design §2.11).
+  ///
+  /// In en, this message translates to:
+  /// **'Data'**
+  String get settingsDataHeading;
+
+  /// A Data row: what one identify sends and receives.
+  ///
+  /// In en, this message translates to:
+  /// **'Each identify uses'**
+  String get settingsEachIdentifyUses;
+
+  /// The value of "Each identify uses", Home's figure (S4-D31).
+  ///
+  /// In en, this message translates to:
+  /// **'about 25 KB'**
+  String get settingsEachIdentifyUsesAmount;
+
+  /// A Data row: what the app has used in the phone's current month.
+  ///
+  /// In en, this message translates to:
+  /// **'Used this month'**
+  String get settingsUsedThisMonth;
+
+  /// An amount of data below a megabyte; 1 KB = 1,000 bytes.
+  ///
+  /// In en, this message translates to:
+  /// **'{kilobytes} KB'**
+  String dataAmountKilobytes(int kilobytes);
+
+  /// An amount of data from a megabyte, with one decimal.
+  ///
+  /// In en, this message translates to:
+  /// **'{megabytes} MB'**
+  String dataAmountMegabytes(String megabytes);
+
+  /// The data saver's switch (P6-DATASAVER-04).
+  ///
+  /// In en, this message translates to:
+  /// **'Load ad pictures on mobile data'**
+  String get settingsLoadPictures;
+
+  /// Under the data saver's switch.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off to save data; buttons still work'**
+  String get settingsLoadPicturesNote;
+
   /// The heading of the Settings section about the app itself; drawn in capitals, read normally.
   ///
   /// In en, this message translates to:
@@ -836,11 +902,83 @@ abstract class AppLocalizations {
   /// **'The clip is sent to Look Up to find the ad, and is not kept after it has been checked.'**
   String get privacyClipNotKept;
 
+  /// The privacy summary's point on clips saved with no signal (P6 design §2.13).
+  ///
+  /// In en, this message translates to:
+  /// **'With no signal, the clip waits on this phone for up to 24 hours and is deleted once it\'s sent.'**
+  String get privacyClipWaitsOffline;
+
   /// The privacy summary's point on History.
   ///
   /// In en, this message translates to:
   /// **'Your History stays on this phone. You can clear it in Settings.'**
   String get privacyHistoryStaysOnPhone;
+
+  /// The privacy summary's point on "Report this" (P6 design §2.13, §2.14).
+  ///
+  /// In en, this message translates to:
+  /// **'If you report an ad, the report is kept with an anonymous code for this phone, so Look Up can tell many reports from one phone apart from reports by many people. Only Look Up\'s own team can see it; stations never do.'**
+  String get privacyReports;
+
+  /// The small link at the bottom of a result that opens the report sheet (P6-RESULT-04, -05).
+  ///
+  /// In en, this message translates to:
+  /// **'Report this'**
+  String get resultReportThis;
+
+  /// In place of "Report this" once the listener has reported the result.
+  ///
+  /// In en, this message translates to:
+  /// **'Reported'**
+  String get resultReported;
+
+  /// The report sheet's title (P6 design §2.14).
+  ///
+  /// In en, this message translates to:
+  /// **'Report this ad'**
+  String get reportSheetTitle;
+
+  /// Under the report sheet's title.
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s wrong? Stations never see who reported it.'**
+  String get reportSheetText;
+
+  /// A report reason: WRONG_OR_MISLEADING_BUTTONS.
+  ///
+  /// In en, this message translates to:
+  /// **'The buttons are wrong or misleading'**
+  String get reportReasonWrongOrMisleadingButtons;
+
+  /// A report reason: NUMBER_OR_LINK_DOES_NOT_WORK.
+  ///
+  /// In en, this message translates to:
+  /// **'A number or link doesn\'t work'**
+  String get reportReasonNumberOrLinkDoesNotWork;
+
+  /// A report reason: LOOKS_LIKE_A_SCAM.
+  ///
+  /// In en, this message translates to:
+  /// **'It looks like a scam'**
+  String get reportReasonLooksLikeAScam;
+
+  /// A report reason: SOMETHING_ELSE.
+  ///
+  /// In en, this message translates to:
+  /// **'Something else'**
+  String get reportReasonSomethingElse;
+
+  /// The report sheet's primary button, enabled once a reason is chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Send report'**
+  String get reportSendButton;
+
+  /// The snackbar after a report is sent (or queued with no signal).
+  ///
+  /// In en, this message translates to:
+  /// **'Thanks — we\'ll check this ad.'**
+  String get reportThanks;
 
   /// Under the privacy summary: it is not the full notice yet.
   ///

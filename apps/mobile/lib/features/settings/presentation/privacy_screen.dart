@@ -10,9 +10,8 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 /// ("Back") and "Privacy", then each point after a tick, which screen readers skip, and a line
 /// saying it is a short summary.
 ///
-/// Only what is true of this version is said. The point on clips kept with no signal joins when
-/// offline capture makes it true (piece 3), and the point on reports when "Report this" exists
-/// (piece 4).
+/// Only what is true of this version is said: clips kept with no signal (piece 3) and reports
+/// (piece 4) are there now that the app does both.
 class PrivacyScreen extends StatelessWidget {
   const PrivacyScreen({super.key, required this.onBack});
 
@@ -23,8 +22,10 @@ class PrivacyScreen extends StatelessWidget {
   static List<String> pointsOf(AppLocalizations words) => [
     words.privacyListensOnlyWhenYouTap(ClipSettings.standard.clipDurationSeconds),
     words.privacyClipNotKept,
+    words.privacyClipWaitsOffline,
     words.permissionPromiseNeverWhoYouAre,
     words.privacyHistoryStaysOnPhone,
+    words.privacyReports,
   ];
 
   @override

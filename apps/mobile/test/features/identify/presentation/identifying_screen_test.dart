@@ -77,6 +77,87 @@ void main() {
     }
   });
 
+  group('a slow connection (P6 design §2.5; P6-LISTENING-01)', () {
+    IdentifyScreenHarness slowHarness(int sentPercent) =>
+        IdentifyScreenHarness(state: UploadingState(isSlow: true, sentPercent: sentPercent));
+
+    testWidgets('part of the clip sent: "Still working", the share in words and in the bar', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await slowHarness(40).pump(tester, const IdentifyingScreen());
+      expect(find.text('Still working — the connection is slow.').hitTestable(), findsOneWidget);
+      expect(find.text('This usually takes a few seconds.').hitTestable(), findsNothing);
+      expect(find.text('Clip 40% sent').hitTestable(), findsOneWidget);
+      expect(tester.widget<ProgressTrack>(find.byType(ProgressTrack)).fraction, 0.4);
+      final line = tester.getSemantics(
+        find.text('Still working — the connection is slow.').hitTestable(),
+      );
+      expect(find.bySemanticsLabel('Still working — the connection is slow.'), findsOneWidget);
+      expect(
+        line.getSemanticsData().flagsCollection.isLiveRegion,
+        isTrue,
+        reason: 'announced once',
+      );
+      expect(find.text('Cancel'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('all of it sent: a full bar and "Clip sent — waiting for the answer"', (
+      tester,
+    ) async {
+      await slowHarness(100).pump(tester, const IdentifyingScreen());
+      expect(find.text('Clip sent — waiting for the answer').hitTestable(), findsOneWidget);
+      expect(tester.widget<ProgressTrack>(find.byType(ProgressTrack)).fraction, 1.0);
+    });
+
+    testWidgets('the first 5 seconds: the usual words, an unknown wait, no share', (tester) async {
+      await _harness().pump(tester, const IdentifyingScreen());
+      expect(find.text('This usually takes a few seconds.').hitTestable(), findsOneWidget);
+      expect(tester.widget<ProgressTrack>(find.byType(ProgressTrack)).fraction, isNull);
+      expect(find.textContaining('% sent').hitTestable(), findsNothing);
+    });
+
+    for (final phoneScreen in [
+      ...PhoneScreen.layoutChecks,
+      const PhoneScreen(width: 320, height: 800, textScale: 1),
+    ]) {
+      testWidgets('on $phoneScreen nothing moves when a send turns slow, or as Listening ends', (
+        tester,
+      ) async {
+        await IdentifyScreenHarness(
+          state: const RecordingState(levelFraction: 0.5, secondsLeft: 0),
+        ).pump(
+          tester,
+          const ListeningScreen(levelFraction: 0.5, secondsLeft: 0),
+          phoneScreen: phoneScreen,
+        );
+        final ringOnListening = tester.getCenter(find.byType(LevelRing));
+        await tester.pumpWidget(const SizedBox());
+        await _harness().pump(tester, const IdentifyingScreen(), phoneScreen: phoneScreen);
+        final ringAtFirst = tester.getCenter(find.byType(LevelRing));
+        final barAtFirst = tester.getRect(find.byType(ProgressTrack));
+        for (final sentPercent in [0, 40, 100]) {
+          await tester.pumpWidget(const SizedBox());
+          await slowHarness(
+            sentPercent,
+          ).pump(tester, const IdentifyingScreen(), phoneScreen: phoneScreen);
+          expect(tester.takeException(), isNull);
+          expect(tester.getCenter(find.byType(LevelRing)), ringAtFirst, reason: '$sentPercent%');
+          expect(tester.getRect(find.byType(ProgressTrack)), barAtFirst, reason: '$sentPercent%');
+        }
+        expect(ringAtFirst, ringOnListening);
+      });
+    }
+
+    testWidgets('fits at 360 and 320 dp, text scale 1.0 and 2.0, with no technical text', (
+      tester,
+    ) async {
+      await slowHarness(40).expectFitsEveryPhone(tester, const IdentifyingScreen());
+      await slowHarness(100).expectFitsEveryPhone(tester, const IdentifyingScreen());
+    });
+  });
+
   group('the bar of an unknown wait', () {
     testWidgets('breathes by opacity while animations are on', (tester) async {
       await _harness().pump(tester, const IdentifyingScreen());

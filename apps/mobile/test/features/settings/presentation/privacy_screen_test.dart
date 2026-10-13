@@ -41,8 +41,12 @@ void main() {
       const points = [
         'Look Up listens only when you tap Identify, for about 8 seconds.',
         'The clip is sent to Look Up to find the ad, and is not kept after it has been checked.',
+        "With no signal, the clip waits on this phone for up to 24 hours and is deleted once it's sent.",
         'Radio stations see how many people used their buttons — never who you are.',
         'Your History stays on this phone. You can clear it in Settings.',
+        'If you report an ad, the report is kept with an anonymous code for this phone, so Look Up can '
+            'tell many reports from one phone apart from reports by many people. Only Look Up\'s own '
+            'team can see it; stations never do.',
       ];
       final tops = [for (final point in points) tester.getTopLeft(find.text(point)).dy];
       expect(tops, [...tops]..sort());
@@ -62,12 +66,12 @@ void main() {
     },
   );
 
-  testWidgets('says nothing this version does not do yet: no clips kept offline, no reports', (
-    tester,
-  ) async {
+  testWidgets('says what this version does with clips kept offline and with reports (P6 design '
+      '§2.13)', (tester) async {
     await show(tester);
-    expect(find.textContaining('24 hours'), findsNothing);
-    expect(find.textContaining('report'), findsNothing);
+    expect(find.textContaining('up to 24 hours'), findsOneWidget);
+    expect(find.textContaining('If you report an ad'), findsOneWidget);
+    expect(find.textContaining('stations never do'), findsOneWidget);
   });
 
   testWidgets('Back returns to Settings', (tester) async {

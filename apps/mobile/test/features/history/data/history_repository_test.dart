@@ -533,4 +533,29 @@ void main() {
       expect(views.last.waitingClips, isEmpty);
     });
   });
+
+  group('a reported result ("Report this", P6 design §2.14)', () {
+    test('is remembered as reported, and stays so when it is saved again', () async {
+      final history = repository();
+      await save(history, 'valid/choose-station', chosenStationId: _stationBId);
+      expect(((await history.readView()).entries.single as HistoryResultEntry).isReported, isFalse);
+      await history.markReported(HistoryFixtures.fixtureRecognitionId);
+      expect(
+        ((await repository().readView()).entries.single as HistoryResultEntry).isReported,
+        isTrue,
+      );
+      await save(history, 'valid/choose-station', chosenStationId: _stationBId);
+      expect(
+        ((await history.readView()).entries.single as HistoryResultEntry).isReported,
+        isTrue,
+        reason: 'a replay never forgets the report',
+      );
+    });
+
+    test('a recognition History does not hold changes nothing', () async {
+      final history = repository();
+      await history.markReported(HistoryFixtures.fixtureRecognitionId);
+      expect((await history.readView()).entries, isEmpty);
+    });
+  });
 }

@@ -234,4 +234,41 @@ void main() {
       expect(identical(index.withNoAnswerWaitsCleared(), index), isTrue);
     });
   });
+
+  group('a report ("Report this", P6 design §2.14)', () {
+    RecognitionReportItem report({String reason = 'LOOKS_LIKE_A_SCAM', DateTime? queuedAt}) =>
+        RecognitionReportItem(
+          itemId: 'report-1',
+          queuedAt: queuedAt ?? _now,
+          recognitionId: '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70',
+          stationId: _stationHint,
+          reason: reason,
+        );
+
+    test('keeps its recognition, station and reason, in the follow-ups group', () {
+      final back =
+          _roundTrip(OutboxIndex(items: [report()])).index.items.single as RecognitionReportItem;
+      expect(back.kind.group.name, 'followUps');
+      expect(back.recognitionId, '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70');
+      expect(back.stationId, _stationHint);
+      expect(back.reason, 'LOOKS_LIKE_A_SCAM');
+      expect(back.idempotencyKey, back.recognitionId, reason: 'one report per recognition');
+    });
+
+    test('a reason the contract does not name is left out', () {
+      final json = OutboxIndex(items: [report()]).toJson();
+      final tampered = jsonDecode(jsonEncode(json)) as Map<String, Object?>;
+      ((tampered['items']! as List<Object?>).single! as Map<String, Object?>)['reason'] = 'SPAM';
+      expect(OutboxIndex.fromJson(tampered).unreadableItemCount, 1);
+    });
+
+    test('runs out 7 days after it was queued, as every follow-up does', () {
+      final lifetime = const Duration(seconds: OutboxTimingRules.followUpItemLifetimeSeconds);
+      final due = report(queuedAt: _now.subtract(lifetime));
+      expect(
+        OutboxIndex(items: [due]).withoutExpired(now: _now, appVersion: '0.3.0').items,
+        isEmpty,
+      );
+    });
+  });
 }

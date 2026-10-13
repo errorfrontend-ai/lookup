@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -10,6 +12,11 @@ import 'package:lookup_listener/features/settings/data/my_station_store.dart';
 import 'package:lookup_listener/features/settings/presentation/settings_row.dart';
 import 'package:lookup_listener/features/settings/presentation/settings_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/station_picker_row.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:lookup_listener/features/settings/data/picture_setting_store.dart';
+import 'package:lookup_listener/features/settings/data/settings_providers.dart';
+import 'package:lookup_listener/features/settings/presentation/settings_switch_row.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../support/expect_no_technical_text.dart';
 import '../../../support/history_fixtures.dart';
@@ -40,9 +47,10 @@ void main() {
     Map<String, Object> preferences = const {},
     PhoneScreen phoneScreen = PhoneScreen.standard,
     ThemeData? theme,
+    List<Override> extraOverrides = const [],
   }) async {
     opened.clear();
-    final harness = TabScreenHarness(preferences: preferences);
+    final harness = TabScreenHarness(preferences: preferences, extraOverrides: extraOverrides);
     await harness.pump(
       tester,
       SettingsScreen(
@@ -172,11 +180,100 @@ void main() {
       await tester.tap(_row('About Look Up'));
       expect(opened, ['about']);
     });
+  });
 
-    testWidgets('no Data section before its switch works (piece 4)', (tester) async {
+  group('Data (P6 design §2.11, §3.16; P6-DATASAVER-02 to -04)', () {
+    testWidgets('"Each identify uses" — "about 25 KB", not a control (P6-DATASAVER-02)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
       await show(tester);
-      expect(find.text('DATA'), findsNothing);
-      expect(find.byType(Switch), findsNothing);
+      expect(find.text('DATA'), findsOneWidget);
+      expect(find.text('Each identify uses'), findsOneWidget);
+      expect(find.text('about 25 KB'), findsOneWidget);
+      final row = tester.getSemantics(_row('Each identify uses'));
+      expect(row.label, 'Each identify uses\nabout 25 KB');
+      expect(row.getSemanticsData().hasAction(SemanticsAction.tap), isFalse);
+      semantics.dispose();
+    });
+
+    for (final (bytes, shown) in [(0, '0 KB'), (86497, '86 KB'), (1234567, '1.2 MB')]) {
+      testWidgets('"Used this month" — "$shown" for $bytes bytes (P6-DATASAVER-03)', (
+        tester,
+      ) async {
+        await show(
+          tester,
+          extraOverrides: [bytesUsedThisMonthProvider.overrideWith((ref) => Stream.value(bytes))],
+        );
+        expect(find.text('Used this month'), findsOneWidget);
+        expect(find.text(shown), findsOneWidget);
+      });
+    }
+
+    testWidgets('"Used this month" follows the count as it changes', (tester) async {
+      final counts = StreamController<int>();
+      addTearDown(counts.close);
+      await show(
+        tester,
+        extraOverrides: [bytesUsedThisMonthProvider.overrideWith((ref) => counts.stream)],
+      );
+      counts.add(28000);
+      await tester.pump();
+      expect(find.text('28 KB'), findsOneWidget);
+      counts.add(57000);
+      await tester.pump();
+      expect(find.text('57 KB'), findsOneWidget);
+    });
+
+    testWidgets(
+      '"Load ad pictures on mobile data" is on at first launch, with its note, read as one '
+      'switch (P6-DATASAVER-04)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        await show(tester);
+        await tester.ensureVisible(find.text('Load ad pictures on mobile data'));
+        expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+        expect(find.text('Turn off to save data; buttons still work'), findsOneWidget);
+        final row = tester.getSemantics(find.byType(SettingsSwitchRow));
+        final data = row.getSemanticsData();
+        expect(
+          data.label,
+          'Load ad pictures on mobile data\nTurn off to save data; buttons still work',
+        );
+        expect(data.flagsCollection.isToggled, Tristate.isTrue);
+        expect(data.hasAction(SemanticsAction.tap), isTrue);
+        expect(
+          tester.getSize(find.byType(SettingsSwitchRow)).height,
+          greaterThanOrEqualTo(SettingsSwitchRow.minimumHeight),
+        );
+        semantics.dispose();
+      },
+    );
+
+    testWidgets('a tap anywhere on the row toggles the switch, and the choice is kept', (
+      tester,
+    ) async {
+      await show(tester);
+      await tester.ensureVisible(find.text('Turn off to save data; buttons still work'));
+      await tester.tap(find.text('Turn off to save data; buttons still work'));
+      await tester.pump();
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+      expect(
+        (await SharedPreferences.getInstance()).getBool(
+          PictureSettingStore.loadsPicturesOnMobileDataKey,
+        ),
+        isFalse,
+      );
+
+      await tester.tap(find.byType(Switch));
+      await tester.pump();
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+
+    testWidgets('a switch turned off before stays off at the next launch', (tester) async {
+      await show(tester, preferences: {PictureSettingStore.loadsPicturesOnMobileDataKey: false});
+      await tester.ensureVisible(find.byType(Switch));
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     });
   });
 

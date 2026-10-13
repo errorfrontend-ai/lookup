@@ -6,9 +6,11 @@ import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_frame.dart';
 import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/settings/data/settings_providers.dart';
+import 'package:lookup_listener/features/settings/domain/data_saver_rule.dart';
 import 'package:lookup_listener/features/settings/domain/listener_station.dart';
 import 'package:lookup_listener/features/settings/presentation/settings_row.dart';
 import 'package:lookup_listener/features/settings/presentation/settings_section.dart';
+import 'package:lookup_listener/features/settings/presentation/settings_switch_row.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// The Settings tab at `/settings` (P6 design §2.11; wireframe Settings; P6-SETTINGS-01 to -07):
@@ -51,6 +53,12 @@ class SettingsScreen extends ConsumerWidget {
     AsyncLoading() => null,
   };
 
+  /// [bytes] in the Data section's words: "86 KB", "1.2 MB" (P6 design §2.11).
+  static String dataAmountOf(int bytes, AppLocalizations words) => switch (DataAmount.of(bytes)) {
+    DataAmountInKilobytes(:final kilobytes) => words.dataAmountKilobytes(kilobytes),
+    DataAmountInMegabytes(:final megabytes) => words.dataAmountMegabytes(megabytes),
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.lookUpTokens;
@@ -79,6 +87,30 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: onOpenMyStation,
                 showsChevron: true,
                 minimumHeight: myStationRowMinimumHeight,
+              ),
+            ],
+          ),
+          SizedBox(height: spacing.space6),
+          SettingsSection(
+            heading: words.settingsDataHeading,
+            rows: [
+              SettingsRow(
+                title: words.settingsEachIdentifyUses,
+                detail: words.settingsEachIdentifyUsesAmount,
+              ),
+              SettingsRow(
+                title: words.settingsUsedThisMonth,
+                detail: switch (ref.watch(bytesUsedThisMonthProvider)) {
+                  AsyncData(:final value) => dataAmountOf(value, words),
+                  _ => null,
+                },
+              ),
+              SettingsSwitchRow(
+                title: words.settingsLoadPictures,
+                note: words.settingsLoadPicturesNote,
+                isOn: ref.watch(loadsPicturesOnMobileDataProvider).value,
+                onChanged: (isOn) =>
+                    unawaited(ref.read(loadsPicturesOnMobileDataProvider.notifier).set(isOn)),
               ),
             ],
           ),

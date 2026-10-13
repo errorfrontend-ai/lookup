@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/core/widgets/screen_frame.dart';
+import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/level_ring.dart';
 import 'package:lookup_listener/features/identify/presentation/listening_layout.dart';
 import 'package:lookup_listener/features/identify/presentation/progress_track.dart';
@@ -26,6 +27,12 @@ class IdentifyingScreen extends ConsumerWidget {
     final colours = context.lookUpTokens.colours;
     final flow = ref.read(recognitionFlowProvider.notifier);
     final words = AppLocalizations.of(context);
+    // After 5 seconds with no answer: the connection is slow, and the bar shows the share sent
+    // (P6 design §2.5, P6-LISTENING-01).
+    final slow = switch (ref.watch(recognitionFlowProvider)) {
+      UploadingState(isSlow: true, :final sentPercent) => sentPercent,
+      _ => null,
+    };
     return SystemBackToHome(
       child: ScreenFrame(
         exitButton: ScreenExitButton.close(
@@ -39,9 +46,18 @@ class IdentifyingScreen extends ConsumerWidget {
             ring: const LevelRing(levelFraction: 0),
             heading: words.identifyingHeading,
             headingToFit: words.listeningHeading,
-            text: words.identifyingExplanation,
+            text: slow == null ? words.identifyingExplanation : words.identifyingSlow,
             textToFit: words.listeningInstruction,
-            progressTrack: ProgressTrack(fillColour: colours.accent),
+            isTextAnnounced: slow != null,
+            progressTrack: ProgressTrack(
+              fillColour: colours.accent,
+              fraction: slow == null ? null : slow / 100,
+            ),
+            countdown: switch (slow) {
+              null => null,
+              100 => words.identifyingClipSent,
+              final percent => words.identifyingClipPercentSent(percent),
+            },
             countdownToFit: words.listeningSecondsLeft(
               RecognitionFlow.clipSettings.clipDurationSeconds,
             ),

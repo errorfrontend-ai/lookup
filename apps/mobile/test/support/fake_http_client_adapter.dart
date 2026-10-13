@@ -89,6 +89,12 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
   /// Answers the next request with [answer].
   void answerWith(FakeHttpAnswer answer) => _script.add(answer);
 
+  /// The next request's body is read only up to [bytes], then the rest once [resume] completes,
+  /// as a slow connection takes it: the upload's progress stops part way until then.
+  void holdNextBodyAfter(int bytes, Future<void> resume) => _nextBodyHold = (bytes, resume);
+
+  (int, Future<void>)? _nextBodyHold;
+
   /// How many scripted answers are still waiting for a request.
   int get unusedAnswerCount => _script.length;
 
@@ -99,9 +105,16 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final bodyBytes = <int>[];
+    final hold = _nextBodyHold;
+    _nextBodyHold = null;
     if (requestStream != null) {
+      var isHeld = hold != null;
       await for (final chunk in requestStream) {
         bodyBytes.addAll(chunk);
+        if (isHeld && bodyBytes.length >= hold!.$1) {
+          isHeld = false;
+          await hold.$2;
+        }
       }
     }
     final request = FakeHttpRequest(options, Uint8List.fromList(bodyBytes));

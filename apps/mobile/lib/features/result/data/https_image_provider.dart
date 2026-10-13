@@ -35,6 +35,10 @@ final class HttpsImageProvider extends ImageProvider<HttpsImageProvider> {
   /// Whether [address] may be fetched: an absolute `https` address with a host.
   static bool isHttpsAddress(Uri address) => address.scheme == 'https' && address.host.isNotEmpty;
 
+  /// Hears the size of every picture downloaded, for "Used this month" (P6 design §3.16). Set once
+  /// at start-up; pictures are drawn by widgets that know nothing of the meter.
+  static void Function(int bytes)? onBytesDownloaded;
+
   static final HttpClient _sharedHttpClient = HttpClient()..autoUncompress = false;
 
   /// The app's one client; in tests, the one Flutter's own image hook gives, as for `NetworkImage`.
@@ -91,6 +95,7 @@ final class HttpsImageProvider extends ImageProvider<HttpsImageProvider> {
         throw NetworkImageLoadException(statusCode: statusCode, uri: address);
       }
       final bytes = await consolidateHttpClientResponseBytes(response);
+      onBytesDownloaded?.call(bytes.length);
       if (bytes.isEmpty) throw const _ImageNotLoaded('the answer was empty');
       return bytes;
     }

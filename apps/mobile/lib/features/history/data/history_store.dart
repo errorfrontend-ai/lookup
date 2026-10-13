@@ -281,6 +281,21 @@ final class StoredHistoryEntry {
   /// Whether the listener reported it (piece 4).
   final bool isReported;
 
+  /// This entry, reported by the listener.
+  StoredHistoryEntry markedReported() => StoredHistoryEntry(
+    entryId: entryId,
+    kind: kind,
+    capturedAtOnPhone: capturedAtOnPhone,
+    savedAt: savedAt,
+    answer: answer,
+    chosenStationId: chosenStationId,
+    notIdentifiedReason: notIdentifiedReason,
+    wasDeferred: wasDeferred,
+    deferredIdempotencyKey: deferredIdempotencyKey,
+    wasNotified: wasNotified,
+    isReported: true,
+  );
+
   Map<String, Object?> toJson() => {
     'entry_id': entryId,
     'kind': kind,

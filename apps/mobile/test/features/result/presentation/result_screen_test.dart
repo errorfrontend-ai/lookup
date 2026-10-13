@@ -19,6 +19,10 @@ import 'package:lookup_listener/features/result/presentation/client_logo.dart';
 import 'package:lookup_listener/features/result/presentation/launch_failure_sheet.dart';
 import 'package:lookup_listener/features/result/presentation/more_options_button.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lookup_listener/features/result/data/recognition_reporting_provider.dart';
+import 'package:lookup_listener/features/result/domain/recognition_reporting.dart';
+import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 import '../../../support/contract_fixtures.dart';
 import '../../../support/expect_no_technical_text.dart';
@@ -84,21 +88,37 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('no "Report this" yet: it comes with piece 4 (P6 design §2.7, §2.14)', (
-      tester,
-    ) async {
-      final semantics = tester.ensureSemantics();
+    testWidgets('"Report this" with a flag, at the bottom right, under the last button, on every '
+        'kind of result and on a saved one (P6-RESULT-04, -05)', (tester) async {
       for (final kind in RecognitionResultKind.values) {
-        await ResultScreenHarness().pumpResultScreen(
-          tester,
-          resultWith(kind: kind, card: fixtureCard('action-card/valid/six-actions.json')),
-        );
-        for (final missing in ['Report this', 'Reported']) {
-          expect(find.textContaining(missing), findsNothing, reason: '${kind.name}: $missing');
-          expect(find.bySemanticsLabel(RegExp(missing)), findsNothing, reason: kind.name);
+        for (final isSaved in [false, true]) {
+          final result = resultWith(
+            kind: kind,
+            card: fixtureCard('action-card/valid/six-actions.json'),
+          );
+          await ResultScreenHarness().pump(
+            tester,
+            isSaved
+                ? ResultScreen.saved(result: result, onBack: () {})
+                : ResultScreen(result: result, onBackToHome: () {}),
+          );
+          final link = find.widgetWithText(TextButton, 'Report this');
+          await tester.ensureVisible(link);
+          await tester.pump();
+          final reason = '${kind.name}${isSaved ? ', saved' : ''}';
+          expect(link, findsOneWidget, reason: reason);
+          expect(
+            find.descendant(of: link, matching: find.byIcon(Icons.outlined_flag)),
+            findsOneWidget,
+            reason: reason,
+          );
+          final lastButton = tester.getRect(find.byType(ActionButton).last);
+          final linkRect = tester.getRect(link);
+          expect(linkRect.top, greaterThanOrEqualTo(lastButton.bottom), reason: reason);
+          expect(linkRect.right, closeTo(lastButton.right, 1), reason: '$reason: at the right');
+          await tester.pumpWidget(const SizedBox());
         }
       }
-      semantics.dispose();
     });
 
     testWidgets('the Back arrow and the system Back gesture both lead Home (T35)', (tester) async {
@@ -848,4 +868,137 @@ void main() {
       }
     }
   });
+
+  group('Report this (P6 design §2.14; Q6)', () {
+    Future<_RecordingReporting> showResult(
+      WidgetTester tester, {
+      bool isReported = false,
+      bool keepsReports = true,
+    }) async {
+      final reporting = _RecordingReporting(keepsReports: keepsReports);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [recognitionReportingProvider.overrideWithValue(reporting)],
+          child: MaterialApp(
+            theme: LookUpTheme.light(),
+            localizationsDelegates: FallbackLocalizations.delegates,
+            supportedLocales: FallbackLocalizations.supportedLocales,
+            home: ResultScreen(
+              result: resultWith(stationId: '0192a6c4-1111-4000-8000-000000000002'),
+              onBackToHome: () {},
+              isReported: isReported,
+            ),
+          ),
+        ),
+      );
+      return reporting;
+    }
+
+    Future<void> openSheet(WidgetTester tester) async {
+      final link = find.widgetWithText(TextButton, 'Report this');
+      await tester.ensureVisible(link);
+      await tester.pump();
+      await tester.tap(link);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the sheet: its title, words and four reasons; "Send report" waits for a reason', (
+      tester,
+    ) async {
+      PhoneScreen.standard.applyTo(tester);
+      await showResult(tester);
+      await openSheet(tester);
+      expect(find.text('Report this ad'), findsOneWidget);
+      expect(find.text("What's wrong? Stations never see who reported it."), findsOneWidget);
+      for (final reason in [
+        'The buttons are wrong or misleading',
+        "A number or link doesn't work",
+        'It looks like a scam',
+        'Something else',
+      ]) {
+        expect(find.text(reason), findsOneWidget);
+      }
+      expect(find.byType(TextField), findsNothing, reason: 'no free text');
+      final send = find.widgetWithText(FilledButton, 'Send report');
+      expect(tester.widget<FilledButton>(send).onPressed, isNull);
+      await tester.tap(find.text('It looks like a scam'));
+      await tester.pump();
+      expect(tester.widget<FilledButton>(send).onPressed, isNotNull);
+    });
+
+    testWidgets('"Send report": the report with the station shown and the reason, thanks, then '
+        '"Reported"', (tester) async {
+      PhoneScreen.standard.applyTo(tester);
+      final reporting = await showResult(tester);
+      await openSheet(tester);
+      await tester.tap(find.text('It looks like a scam'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Send report'));
+      await tester.pumpAndSettle();
+
+      expect(reporting.reports, [
+        (fixtureRecognitionId, '0192a6c4-1111-4000-8000-000000000002', 'LOOKS_LIKE_A_SCAM'),
+      ]);
+      expect(find.text("Thanks — we'll check this ad."), findsOneWidget);
+      expect(find.text('Reported'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Report this'), findsNothing);
+    });
+
+    testWidgets('Cancel sends nothing, and the link stays', (tester) async {
+      PhoneScreen.standard.applyTo(tester);
+      final reporting = await showResult(tester);
+      await openSheet(tester);
+      await tester.tap(find.text('Something else'));
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(reporting.reports, isEmpty);
+      expect(find.widgetWithText(TextButton, 'Report this'), findsOneWidget);
+    });
+
+    testWidgets('a report the phone could not keep: no thanks, and the link stays', (tester) async {
+      PhoneScreen.standard.applyTo(tester);
+      await showResult(tester, keepsReports: false);
+      await openSheet(tester);
+      await tester.tap(find.text('Something else'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Send report'));
+      await tester.pumpAndSettle();
+      expect(find.text("Thanks — we'll check this ad."), findsNothing);
+      expect(find.widgetWithText(TextButton, 'Report this'), findsOneWidget);
+    });
+
+    testWidgets('a result reported before says "Reported", with no link', (tester) async {
+      await showResult(tester, isReported: true);
+      expect(find.text('Reported'), findsOneWidget);
+      expect(find.text('Report this'), findsNothing);
+    });
+
+    testWidgets('the sheet meets the tap target, label and contrast guidelines', (tester) async {
+      PhoneScreen.standard.applyTo(tester);
+      await showResult(tester);
+      await openSheet(tester);
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(textContrastGuideline));
+    });
+  });
+}
+
+/// "Send report" as the app does it, recorded: (recognition, station, reason).
+final class _RecordingReporting implements RecognitionReporting {
+  _RecordingReporting({required this.keepsReports});
+
+  final bool keepsReports;
+  final List<(String, String, String)> reports = [];
+
+  @override
+  Future<bool> report({
+    required String recognitionId,
+    required String stationId,
+    required RecognitionReportReason reason,
+  }) async {
+    if (!keepsReports) return false;
+    reports.add((recognitionId, stationId, reason.wireName));
+    return true;
+  }
 }

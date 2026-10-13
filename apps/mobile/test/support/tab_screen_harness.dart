@@ -49,12 +49,16 @@ final class TabScreenHarness {
     this.preferences = const {},
     AppConfiguration? configuration,
     bool launcherOpens = true,
+    this.extraOverrides = const [],
   }) : clock = FakeClock(startsAt: (now ?? DateTime(2026, 10, 13, 15)).toUtc()),
        configuration = configuration ?? ExampleAppConfigurations.production(),
        launcher = FakeActionLauncher(opens: launcherOpens);
 
   /// What `shared_preferences` holds besides the installed app's id and token.
   final Map<String, Object> preferences;
+
+  /// More providers a test replaces, e.g. the data-use count.
+  final List<Override> extraOverrides;
 
   final FakeClock clock;
   final AppConfiguration configuration;
@@ -125,6 +129,7 @@ final class TabScreenHarness {
     stationListRepositoryProvider.overrideWithValue(stationList),
     actionLauncherProvider.overrideWithValue(launcher),
     clipboardWriterProvider.overrideWithValue(clipboard),
+    ...extraOverrides,
   ];
 
   /// Answers the next station list request with a shared fixture, e.g. `valid/two-stations`, and

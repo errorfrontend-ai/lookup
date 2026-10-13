@@ -120,6 +120,88 @@ final class StationChoiceItem extends OutboxItem {
       'attempts $attemptCount)';
 }
 
+/// "Report this" (P6 design §2.14; Q6): `POST /recognitions/{recognition_id}/report` with
+/// `{"station_id": …, "reason": …}` (contract §1.6). One per recognition: the first report wins, here
+/// as on the server; no free text is ever kept or sent.
+final class RecognitionReportItem extends OutboxItem {
+  const RecognitionReportItem({
+    required super.itemId,
+    required super.queuedAt,
+    required this.recognitionId,
+    required this.stationId,
+    required this.reason,
+    super.attemptCount,
+    super.nextAttemptAt,
+    super.lastProblem,
+  });
+
+  /// The recognition reported (lower-case UUID).
+  final String recognitionId;
+
+  /// The station whose result was shown (the chosen one after "Which station?").
+  final String stationId;
+
+  /// The contract's reason, e.g. `LOOKS_LIKE_A_SCAM`.
+  final String reason;
+
+  /// The contract's four reasons (`RECOGNITION_REPORT_REASONS`).
+  static const Set<String> reasons = {
+    'WRONG_OR_MISLEADING_BUTTONS',
+    'NUMBER_OR_LINK_DOES_NOT_WORK',
+    'LOOKS_LIKE_A_SCAM',
+    'SOMETHING_ELSE',
+  };
+
+  @override
+  OutboxItemKind get kind => OutboxItemKind.recognitionReport;
+
+  /// One report per recognition: the server keeps the first.
+  @override
+  String get idempotencyKey => recognitionId;
+
+  @override
+  RecognitionReportItem retried({
+    required DateTime? nextAttemptAt,
+    required OutboxItemProblem? lastProblem,
+  }) => RecognitionReportItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    reason: reason,
+    attemptCount: attemptCount + 1,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  RecognitionReportItem withNextAttemptAt(DateTime nextAttemptAt) => RecognitionReportItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    reason: reason,
+    attemptCount: attemptCount,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  RecognitionReportItem withoutWait() => RecognitionReportItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    reason: reason,
+    attemptCount: attemptCount,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  String toString() =>
+      'RecognitionReportItem($itemId, recognition $recognitionId, attempts $attemptCount)';
+}
+
 /// A clip kept on the phone because the live send got no answer, stayed busy or was limited (T21′,
 /// T24′, T27′, T31′), sent later with `is_deferred` "true" (contract R1, R2). The recording itself
 /// is the file [audioFileName] in the outbox's `clips/` folder, written and flushed before the item

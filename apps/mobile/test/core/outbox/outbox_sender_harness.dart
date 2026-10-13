@@ -20,6 +20,7 @@ import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
 import 'package:lookup_listener/features/identify/data/deferred_clip_sender.dart';
 import 'package:lookup_listener/features/identify/data/station_choice_sender.dart';
 import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
+import 'package:lookup_listener/features/result/data/recognition_report_sender.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/contract_fixtures.dart';
@@ -126,6 +127,10 @@ final class OutboxSenderHarness {
           clock: clock,
         ),
         OutboxItemKind.clientErrorReport: ClientErrorReportSender(
+          apiClient: apiClient,
+          clock: clock,
+        ),
+        OutboxItemKind.recognitionReport: RecognitionReportSender(
           apiClient: apiClient,
           clock: clock,
         ),

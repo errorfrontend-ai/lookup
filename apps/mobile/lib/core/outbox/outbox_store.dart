@@ -142,6 +142,39 @@ class OutboxStore {
     return isQueued;
   }
 
+  /// Queues "Report this" for [recognitionId] (P6 design §2.14): the station whose result was shown
+  /// and the listener's [reason], one of [RecognitionReportItem.reasons]. The first report of a
+  /// recognition wins: a second changes nothing and the result is false (the server keeps the first
+  /// too). With 200 follow-ups waiting, the oldest follow-up is deleted first (P6-D44).
+  Future<bool> queueRecognitionReport({
+    required String recognitionId,
+    required String stationId,
+    required String reason,
+  }) async {
+    if (!RecognitionReportItem.reasons.contains(reason)) {
+      throw ArgumentError.value(reason, 'reason', 'not one of the contract\'s reasons');
+    }
+    var isQueued = false;
+    await modify((index) {
+      final isAlreadyReported = index.items.any(
+        (item) => item is RecognitionReportItem && item.recognitionId == recognitionId,
+      );
+      if (isAlreadyReported) return index;
+      isQueued = true;
+      return _withRoomForFollowUp(index).withItemAdded(
+        RecognitionReportItem(
+          itemId: _randomUuid.generate(),
+          queuedAt: _clock.now().toUtc(),
+          recognitionId: recognitionId,
+          stationId: stationId,
+          reason: reason,
+        ),
+      );
+    });
+    if (isQueued) _itemsQueued.add(null);
+    return isQueued;
+  }
+
   /// Keeps a clip the live send could not settle (T21′, T24′, T27′, T31′; contract R1): its
   /// recording is written to `clips/<idempotency key>.m4a` and flushed, then its item added, under
   /// `index.lock`, so "Saved" is true once this returns. With 5 clips already waiting, the oldest

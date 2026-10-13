@@ -18,6 +18,7 @@ import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
 import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
+import 'package:lookup_listener/features/result/data/https_image_provider.dart';
 import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
 /// Starts the app (design §3.1, §3.7, §3.19), in this order:
@@ -85,6 +86,9 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
             .registerEngine(container.read(engineIdentityProvider).engineId),
       );
       container.read(networkWatcherProvider).start();
+      // Pictures count towards "Used this month" too (P6 design §3.16).
+      final dataUseMeter = container.read(dataUseMeterProvider);
+      HttpsImageProvider.onBytesDownloaded = (bytes) => unawaited(dataUseMeter.add(bytes));
 
       // The route the listener is on, e.g. `/listening`, for each report's `location`: the top
       // page's route as declared, so a saved result reports `/r/:recognitionId`, never its id.

@@ -3,15 +3,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
+import 'package:lookup_listener/core/widgets/pictures_allowed.dart';
 import 'package:lookup_listener/core/widgets/screen_frame.dart';
 import 'package:lookup_listener/features/result/domain/read_action_card.dart';
+import 'package:lookup_listener/features/result/data/recognition_reporting_provider.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/result/presentation/action_button_list.dart';
 import 'package:lookup_listener/features/result/presentation/action_registry.dart';
 import 'package:lookup_listener/features/result/presentation/banner_box.dart';
 import 'package:lookup_listener/features/result/presentation/client_logo.dart';
+import 'package:lookup_listener/features/result/presentation/report_sheet.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// The Result screen (design §2.6 and §2.7; P6 design §2.7, §2.10; wireframes Result and
@@ -33,13 +37,14 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 ///
 /// It knows nothing of the recognition flow or of History: it is given the result, whether History
 /// holds it, and what Back does.
-class ResultScreen extends StatefulWidget {
+class ResultScreen extends ConsumerStatefulWidget {
   /// The result of the identify just made (or the station just chosen).
   const ResultScreen({
     super.key,
     required this.result,
     required VoidCallback onBackToHome,
     this.isSavedToHistory = false,
+    this.isReported = false,
     this.actionRegistry = ActionRegistry.standard,
   }) : onBack = onBackToHome,
        isSavedResult = false;
@@ -49,6 +54,7 @@ class ResultScreen extends StatefulWidget {
     super.key,
     required this.result,
     required this.onBack,
+    this.isReported = false,
     this.actionRegistry = ActionRegistry.standard,
   }) : isSavedResult = true,
        isSavedToHistory = true;
@@ -69,13 +75,56 @@ class ResultScreen extends StatefulWidget {
   /// Whether History holds this result, so the footer says "Saved to History" (P6-HISTORY-14).
   final bool isSavedToHistory;
 
+  /// The listener reported this result already: the footer says "Reported" instead of the link.
+  final bool isReported;
+
   final ActionRegistry actionRegistry;
 
   @override
-  State<ResultScreen> createState() => _ResultScreenState();
+  ConsumerState<ResultScreen> createState() => _ResultScreenState();
 }
 
-class _ResultScreenState extends State<ResultScreen> {
+class _ResultScreenState extends ConsumerState<ResultScreen> {
+  /// Reported here, or before.
+  late bool _isReported = widget.isReported;
+
+  /// "Report this" (P6 design §2.14): the sheet, then the outbox; "Thanks — we'll check this ad."
+  /// and "Reported" once the report is kept, with no signal too.
+  Future<void> _report() async {
+    final reason = await ReportSheet.show(context);
+    if (reason == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final thanks = AppLocalizations.of(context).reportThanks;
+    final motion = context.lookUpTokens.motion;
+    final disablesAnimations = MediaQuery.disableAnimationsOf(context);
+    final isKept = await ref
+        .read(recognitionReportingProvider)
+        .report(
+          recognitionId: widget.result.recognitionId,
+          stationId: widget.result.stationId,
+          reason: reason,
+        );
+    if (!isKept || !mounted) return;
+    setState(() => _isReported = true);
+    messenger.showSnackBar(
+      SnackBar(content: Text(thanks)),
+      // In and out over motion.base (S4-ACCESSIBILITY-04); none when the phone asks for less motion.
+      snackBarAnimationStyle: disablesAnimations
+          ? AnimationStyle.noAnimation
+          : AnimationStyle(duration: motion.base, reverseDuration: motion.base),
+    );
+  }
+
+  /// Whether the banner may load, decided before the first frame and kept (P6 design §3.16): with
+  /// pictures held back the card has no banner box, rather than one that appears later.
+  bool? _mayLoadPictures;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _mayLoadPictures ??= PicturesAllowed.of(context);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -117,6 +166,7 @@ class _ResultScreenState extends State<ResultScreen> {
           children: [
             _ResultCard(
               result: widget.result,
+              mayLoadPictures: _mayLoadPictures ?? true,
               cardWidth: cardWidth,
               isCompact: isCompact,
               hasUsableButton: widget.result.card.shownActions.any(
@@ -133,6 +183,18 @@ class _ResultScreenState extends State<ResultScreen> {
               SizedBox(height: sideSpace),
               const _SavedToHistoryLine(),
             ],
+            SizedBox(height: sideSpace),
+            // At the bottom right of every result (P6-RESULT-04, -05; G15).
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: _isReported
+                  ? const _ReportedLine()
+                  : TextButton.icon(
+                      onPressed: () => unawaited(_report()),
+                      icon: const Icon(Icons.outlined_flag),
+                      label: Text(words.resultReportThis),
+                    ),
+            ),
           ],
         ),
       ),
@@ -147,6 +209,33 @@ class _ResultScreenState extends State<ResultScreen> {
 /// Two semantics nodes, as in the identify screens' `StateHeading`: Flutter refuses a node that is
 /// both a live region and a status, so the outer node carries the status role and the inner one is
 /// the heading and the live region that Android's TalkBack announces.
+/// In place of "Report this" once the listener has reported the result.
+class _ReportedLine extends StatelessWidget {
+  const _ReportedLine();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.lookUpTokens;
+    final spacing = tokens.spacing;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: spacing.space3, vertical: spacing.space3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExcludeSemantics(
+            child: Icon(Icons.flag, size: spacing.space5, color: tokens.colours.muted),
+          ),
+          SizedBox(width: spacing.space1),
+          Text(
+            AppLocalizations.of(context).resultReported,
+            style: tokens.typeStyles.caption.copyWith(color: tokens.colours.muted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FoundItHeading extends StatelessWidget {
   const _FoundItHeading();
 
@@ -215,12 +304,14 @@ class _SavedToHistoryLine extends StatelessWidget {
 class _ResultCard extends StatelessWidget {
   const _ResultCard({
     required this.result,
+    required this.mayLoadPictures,
     required this.cardWidth,
     required this.isCompact,
     required this.hasUsableButton,
   });
 
   final RecognitionResult result;
+  final bool mayLoadPictures;
   final double cardWidth;
   final bool isCompact;
   final bool hasUsableButton;
@@ -236,7 +327,7 @@ class _ResultCard extends StatelessWidget {
     // Result320 draws 8.
     final innerGap = isCompact ? spacing.space2 : spacing.space3;
     final noteStyle = typeStyles.body.copyWith(color: colours.muted);
-    final headerImage = result.headerImage;
+    final headerImage = mayLoadPictures ? result.headerImage : null;
     final words = AppLocalizations.of(context);
     final notes = [
       // Amendment A7: true whatever made it the usual card (out of its slots, paused after the

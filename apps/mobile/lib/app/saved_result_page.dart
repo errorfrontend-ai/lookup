@@ -50,7 +50,11 @@ class _SavedResultPageState extends ConsumerState<SavedResultPage> {
     final view = ref.watch(historyViewProvider);
     final entry = view.value?.resultFor(widget.recognitionId) ?? _entryReadFromHistory;
     if (entry != null) {
-      return ResultScreen.saved(result: entry.result, onBack: widget.onBack);
+      return ResultScreen.saved(
+        result: entry.result,
+        onBack: widget.onBack,
+        isReported: entry.isReported,
+      );
     }
     if (view is! AsyncLoading && !_isLookingInHistory) {
       _isLookingInHistory = true;

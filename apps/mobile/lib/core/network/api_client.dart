@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' show HttpException, SocketException, TlsException;
 
 import 'package:dio/dio.dart';
@@ -40,7 +41,9 @@ class ApiClient {
     Clock? clock,
     DevelopmentLog developmentLog = const DevelopmentLog.off(),
     HttpClientAdapter? httpClientAdapter,
+    void Function(int bytes)? onBytesUsed,
   }) : _configuration = configuration,
+       _onBytesUsed = onBytesUsed,
        _randomUuid = randomUuid,
        _clock = clock ?? Clock(),
        _developmentLog = developmentLog,
@@ -95,6 +98,10 @@ class ApiClient {
   final Clock _clock;
   final DevelopmentLog _developmentLog;
   final Dio _dio;
+
+  /// Hears the bytes of each request body sent and answer body received, for "Used this month"
+  /// (P6 design §3.16): with no answer, only what was sent.
+  final void Function(int bytes)? _onBytesUsed;
 
   /// Sends [body] as JSON to [path].
   ///
@@ -154,6 +161,7 @@ class ApiClient {
     String? installToken,
     String? requestId,
     CancelToken? cancelToken,
+    void Function(int sentBytes, int totalBytes)? onSendProgress,
   }) => _send(
     'POST',
     path,
@@ -162,8 +170,11 @@ class ApiClient {
       ..files.add(
         MapEntry(
           file.fieldName,
-          MultipartFile.fromBytes(
-            file.bytes,
+          // In 4 KB pieces, so the progress the upload reports moves as the connection takes them,
+          // rather than all at once (P6 design §2.5).
+          MultipartFile.fromStream(
+            () => Stream.fromIterable(_piecesOf(file.bytes)),
+            file.bytes.length,
             filename: file.fileName,
             contentType: DioMediaType.parse(file.contentType),
           ),
@@ -174,6 +185,7 @@ class ApiClient {
     installToken: installToken,
     requestId: requestId,
     cancelToken: cancelToken,
+    onSendProgress: onSendProgress,
   );
 
   Future<ApiAnswer> _send(
@@ -185,6 +197,7 @@ class ApiClient {
     required String? requestId,
     required CancelToken? cancelToken,
     String? ifNoneMatch,
+    void Function(int sentBytes, int totalBytes)? onSendProgress,
   }) async {
     final sentRequestId = requestId != null && _versionFourUuid.hasMatch(requestId)
         ? requestId
@@ -199,6 +212,7 @@ class ApiClient {
       installToken: installToken,
       cancelToken: cancelToken,
       ifNoneMatch: ifNoneMatch,
+      onSendProgress: onSendProgress,
     );
     _developmentLog.recordRequest(
       method: method,
@@ -230,24 +244,33 @@ class ApiClient {
     required String? installToken,
     required CancelToken? cancelToken,
     required String? ifNoneMatch,
+    void Function(int sentBytes, int totalBytes)? onSendProgress,
   }) async {
     ApiAnswer noAnswer(ApiNoAnswerReason reason, {String? faultTypeName}) => ApiAnswerNotReceived(
       sentRequestId: sentRequestId,
       reason: reason,
       faultTypeName: faultTypeName,
     );
+    // What went before the connection failed, if it did.
+    var sentBytes = 0;
     try {
       if (!_relativePath.hasMatch(path)) return noAnswer(ApiNoAnswerReason.unexpectedFailure);
       final address = _addressFor(path);
       if (!_maySendTo(address)) return noAnswer(ApiNoAnswerReason.plainHttpRefused);
 
       final carriesInstallToken = installToken != null && ListenerRoute.mayCarryInstallToken(path);
+      final data = buildData();
+      final requestBytes = _bodyBytesOf(data);
       // `String`, not `Object?`: for any other type Dio switches itself to decoding JSON, and a
       // broken JSON body would then fail as if no answer had come.
       final response = await _dio.requestUri<String>(
         address,
-        data: buildData(),
+        data: data,
         cancelToken: cancelToken,
+        onSendProgress: (sent, total) {
+          sentBytes = sent;
+          onSendProgress?.call(sent, total);
+        },
         options: Options(
           method: method,
           contentType: contentType,
@@ -260,8 +283,9 @@ class ApiClient {
         ),
       );
       final status = response.statusCode;
-      if (status == null) return noAnswer(ApiNoAnswerReason.unexpectedFailure);
       final text = response.data;
+      _countBytes(requestBytes + utf8.encode(text ?? '').length);
+      if (status == null) return noAnswer(ApiNoAnswerReason.unexpectedFailure);
       final entityTag = _singleHeaderValue(response.headers, 'etag');
       return ApiAnswerReceived(
         sentRequestId: sentRequestId,
@@ -272,6 +296,7 @@ class ApiClient {
         body: ApiAnswerBody.fromText(text ?? ''),
       );
     } on DioException catch (exception) {
+      _countBytes(sentBytes);
       final reason = _reasonFor(exception);
       return noAnswer(
         reason,
@@ -307,6 +332,33 @@ class ApiClient {
   }
 
   static bool _acceptsEveryStatus(int? status) => true;
+
+  /// The size of a request's body as sent: a form's whole length, a JSON body's encoded bytes.
+  static int _bodyBytesOf(Object? data) => switch (data) {
+    FormData() => data.length,
+    Map<String, Object?>() => utf8.encode(jsonEncode(data)).length,
+    _ => 0,
+  };
+
+  void _countBytes(int bytes) {
+    final onBytesUsed = _onBytesUsed;
+    if (onBytesUsed == null || bytes <= 0) return;
+    try {
+      onBytesUsed(bytes);
+    } on Object {
+      // Counting never fails a request.
+    }
+  }
+
+  /// How large each piece of an uploaded file is.
+  static const int uploadPieceBytes = 4096;
+
+  static Iterable<List<int>> _piecesOf(List<int> bytes) sync* {
+    for (var start = 0; start < bytes.length; start += uploadPieceBytes) {
+      final end = start + uploadPieceBytes < bytes.length ? start + uploadPieceBytes : bytes.length;
+      yield bytes.sublist(start, end);
+    }
+  }
 
   /// A header's value when it came exactly once; a repeated header is not trusted.
   static String? _singleHeaderValue(Headers headers, String lowerCaseName) {

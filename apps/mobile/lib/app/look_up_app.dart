@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_router.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
+import 'package:lookup_listener/core/widgets/pictures_allowed.dart';
+import 'package:lookup_listener/features/settings/data/settings_providers.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
@@ -30,6 +32,12 @@ class LookUpApp extends ConsumerWidget {
       supportedLocales: FallbackLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       routerConfig: ref.watch(appRouterProvider),
+      // The data saver, above every screen: a picture asks it before it is requested (P6 design
+      // §3.16).
+      builder: (context, child) => PicturesAllowed(
+        mayLoad: ref.watch(mayLoadPicturesProvider),
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

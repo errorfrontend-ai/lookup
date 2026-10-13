@@ -62,11 +62,14 @@ class RecognitionRepository {
 
   /// Sends [clip] once and reads what came back. [cancellation] stops the send when the listener
   /// taps Cancel (T28), which gives [CancelledAnswer]. With [registersAgainFirst] (after a 401) the
-  /// install registers again, with the same install id, before the clip is sent.
+  /// install registers again, with the same install id, before the clip is sent. [onSentShare] hears
+  /// the share of the request sent so far, from 0 to 1, for the slow Identifying state (P6 design
+  /// §2.5).
   Future<RecognitionAnswer> send(
     CapturedClip clip, {
     required RecognitionCancellation cancellation,
     bool registersAgainFirst = false,
+    void Function(double sentShare)? onSentShare,
   }) async {
     final registration = await _registration(registersAgainFirst: registersAgainFirst);
     if (cancellation.isCancelled) return const CancelledAnswer();
@@ -86,6 +89,12 @@ class RecognitionRepository {
           ),
           installToken: installToken,
           cancelToken: cancellation._cancelToken,
+          onSendProgress: onSentShare == null
+              ? null
+              : (sentBytes, totalBytes) {
+                  // A total Dio cannot know is -1: no share can be told then.
+                  if (totalBytes > 0) onSentShare((sentBytes / totalBytes).clamp(0, 1).toDouble());
+                },
         );
         // 401: the API refused this token, which the next registration replaces (T23).
         if (answer case ApiAnswerReceived(status: 401)) _refusedInstallToken = installToken;

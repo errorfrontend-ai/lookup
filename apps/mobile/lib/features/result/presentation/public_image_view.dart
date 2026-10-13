@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lookup_listener/core/widgets/pictures_allowed.dart';
 import 'package:lookup_listener/features/result/data/https_image_provider.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 
@@ -61,7 +62,8 @@ class PublicImageView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!canShow(image)) return const SizedBox.shrink();
+    // The data saver: no request at all, and what is under the picture (a logo's initial) shows.
+    if (!canShow(image) || !PicturesAllowed.of(context)) return const SizedBox.shrink();
     final loadedBackgroundColour = this.loadedBackgroundColour;
     final decodeSize = decodeSizeFor(image, displaySize, MediaQuery.devicePixelRatioOf(context));
     return Image(

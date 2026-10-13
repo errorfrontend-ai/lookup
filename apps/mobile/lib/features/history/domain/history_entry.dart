@@ -37,10 +37,14 @@ final class HistoryResultEntry extends HistoryEntry {
     required super.capturedAtOnPhone,
     required this.result,
     super.deferredIdempotencyKey,
+    this.isReported = false,
   });
 
   /// The result, as the answer's reader reads the stored answer today.
   final RecognitionResult result;
+
+  /// Whether the listener reported it ("Report this", P6 design §2.14).
+  final bool isReported;
 
   @override
   String toString() => 'HistoryResultEntry($entryId: ${result.clientName}, ${result.title})';

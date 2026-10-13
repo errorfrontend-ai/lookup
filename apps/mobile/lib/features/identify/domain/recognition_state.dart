@@ -93,16 +93,27 @@ final class RecordingState extends RecognitionState {
 
 /// Identifying: registering when needed, sending, and the silent resends after a 409 or a 401.
 final class UploadingState extends RecognitionState {
-  const UploadingState();
+  /// [isSlow] once a send has had no answer for 5 seconds (P6 design §2.5, P6-LISTENING-01), with
+  /// [sentPercent] of the clip sent so far: the screen then says the connection is slow and shows
+  /// how much has gone.
+  const UploadingState({this.isSlow = false, this.sentPercent = 0})
+    : assert(sentPercent >= 0 && sentPercent <= 100);
+
+  /// No answer within 5 seconds of the send starting.
+  final bool isSlow;
+
+  /// How much of the request has been sent, in whole percent; 100 once it has all gone.
+  final int sentPercent;
 
   @override
-  bool operator ==(Object other) => other is UploadingState;
+  bool operator ==(Object other) =>
+      other is UploadingState && other.isSlow == isSlow && other.sentPercent == sentPercent;
 
   @override
-  int get hashCode => (UploadingState).hashCode;
+  int get hashCode => Object.hash(UploadingState, isSlow, sentPercent);
 
   @override
-  String toString() => 'UploadingState()';
+  String toString() => isSlow ? 'UploadingState(slow, $sentPercent% sent)' : 'UploadingState()';
 }
 
 /// "Which station?": the ad is on more than one station, so the listener picks theirs from the

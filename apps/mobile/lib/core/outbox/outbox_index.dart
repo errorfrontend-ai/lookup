@@ -131,6 +131,7 @@ final class OutboxIndex {
       final hasExpired = switch (item) {
         DeferredClipItem() => _clipExpiryOf(item, now) != null,
         StationChoiceItem() ||
+        RecognitionReportItem() ||
         ClientErrorReportItem() => !now.isBefore(item.queuedAt.add(followUpLifetime)),
       };
       if (hasExpired) {
@@ -240,7 +241,9 @@ final class OutboxIndex {
   /// R7).
   static DateTime _sendingOrderOf(OutboxItem item) => switch (item) {
     DeferredClipItem(:final capturedAt) => capturedAt,
-    StationChoiceItem(:final queuedAt) || ClientErrorReportItem(:final queuedAt) => queuedAt,
+    StationChoiceItem(:final queuedAt) ||
+    RecognitionReportItem(:final queuedAt) ||
+    ClientErrorReportItem(:final queuedAt) => queuedAt,
   };
 
   OutboxIndex _with({List<OutboxItem>? items, Map<OutboxItemGroup, DateTime>? groupPausedUntil}) =>
@@ -324,6 +327,11 @@ final class OutboxIndex {
         'audio_file': item.audioFileName,
         'audio_size_bytes': item.audioSizeBytes,
         'saved_reason': item.savedReason.storedName,
+      },
+      RecognitionReportItem(:final recognitionId, :final stationId, :final reason) => {
+        'recognition_id': recognitionId,
+        'station_id': stationId,
+        'reason': reason,
       },
       ClientErrorReportItem() => {
         'report_id': item.reportId,
@@ -416,8 +424,27 @@ final class OutboxIndex {
             },
           _ => null,
         },
-        // Kinds a later piece queues; this version cannot send them.
-        OutboxItemKind.engagement || OutboxItemKind.recognitionReport || null => null,
+        OutboxItemKind.recognitionReport => switch (json) {
+          {
+            'recognition_id': final String recognitionId,
+            'station_id': final String stationId,
+            'reason': final String reason,
+          }
+              when RecognitionReportItem.reasons.contains(reason) =>
+            RecognitionReportItem(
+              itemId: itemId,
+              queuedAt: queuedAt,
+              recognitionId: recognitionId,
+              stationId: stationId,
+              reason: reason,
+              attemptCount: attemptCount,
+              nextAttemptAt: nextAttemptAt,
+              lastProblem: lastProblem,
+            ),
+          _ => null,
+        },
+        // A kind a later piece queues; this version cannot send it.
+        OutboxItemKind.engagement || null => null,
       };
     }
     return null;

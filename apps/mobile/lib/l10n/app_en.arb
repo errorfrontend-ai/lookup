@@ -179,6 +179,24 @@
   "@identifyingExplanation": {
     "description": "Under the heading while the clip is sent and checked."
   },
+  "identifyingSlow": "Still working — the connection is slow.",
+  "@identifyingSlow": {
+    "description": "Identifying, once a send has had no answer for 5 seconds (P6 design §2.5); announced once."
+  },
+  "identifyingClipPercentSent": "Clip {percent}% sent",
+  "@identifyingClipPercentSent": {
+    "description": "Under the bar on a slow send: how much of the clip has gone.",
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "40"
+      }
+    }
+  },
+  "identifyingClipSent": "Clip sent — waiting for the answer",
+  "@identifyingClipSent": {
+    "description": "Under the full bar on a slow send, once all of the clip has gone."
+  },
   "cancelIdentifyingLabel": "Cancel identifying",
   "@cancelIdentifyingLabel": {
     "description": "What screen readers announce for the Close × while identifying."
@@ -554,6 +572,50 @@
   "@settingsMyStationNotSet": {
     "description": "Under \"My station\" in Settings when no station is chosen."
   },
+  "settingsDataHeading": "Data",
+  "@settingsDataHeading": {
+    "description": "The Settings section about data use (P6 design §2.11)."
+  },
+  "settingsEachIdentifyUses": "Each identify uses",
+  "@settingsEachIdentifyUses": {
+    "description": "A Data row: what one identify sends and receives."
+  },
+  "settingsEachIdentifyUsesAmount": "about 25 KB",
+  "@settingsEachIdentifyUsesAmount": {
+    "description": "The value of \"Each identify uses\", Home's figure (S4-D31)."
+  },
+  "settingsUsedThisMonth": "Used this month",
+  "@settingsUsedThisMonth": {
+    "description": "A Data row: what the app has used in the phone's current month."
+  },
+  "dataAmountKilobytes": "{kilobytes} KB",
+  "@dataAmountKilobytes": {
+    "description": "An amount of data below a megabyte; 1 KB = 1,000 bytes.",
+    "placeholders": {
+      "kilobytes": {
+        "type": "int",
+        "example": "86"
+      }
+    }
+  },
+  "dataAmountMegabytes": "{megabytes} MB",
+  "@dataAmountMegabytes": {
+    "description": "An amount of data from a megabyte, with one decimal.",
+    "placeholders": {
+      "megabytes": {
+        "type": "String",
+        "example": "1.2"
+      }
+    }
+  },
+  "settingsLoadPictures": "Load ad pictures on mobile data",
+  "@settingsLoadPictures": {
+    "description": "The data saver's switch (P6-DATASAVER-04)."
+  },
+  "settingsLoadPicturesNote": "Turn off to save data; buttons still work",
+  "@settingsLoadPicturesNote": {
+    "description": "Under the data saver's switch."
+  },
   "settingsAppHeading": "App",
   "@settingsAppHeading": {
     "description": "The heading of the Settings section about the app itself; drawn in capitals, read normally."
@@ -655,9 +717,57 @@
   "@privacyClipNotKept": {
     "description": "The privacy summary's point on the recording."
   },
+  "privacyClipWaitsOffline": "With no signal, the clip waits on this phone for up to 24 hours and is deleted once it's sent.",
+  "@privacyClipWaitsOffline": {
+    "description": "The privacy summary's point on clips saved with no signal (P6 design §2.13)."
+  },
   "privacyHistoryStaysOnPhone": "Your History stays on this phone. You can clear it in Settings.",
   "@privacyHistoryStaysOnPhone": {
     "description": "The privacy summary's point on History."
+  },
+  "privacyReports": "If you report an ad, the report is kept with an anonymous code for this phone, so Look Up can tell many reports from one phone apart from reports by many people. Only Look Up's own team can see it; stations never do.",
+  "@privacyReports": {
+    "description": "The privacy summary's point on \"Report this\" (P6 design §2.13, §2.14)."
+  },
+  "resultReportThis": "Report this",
+  "@resultReportThis": {
+    "description": "The small link at the bottom of a result that opens the report sheet (P6-RESULT-04, -05)."
+  },
+  "resultReported": "Reported",
+  "@resultReported": {
+    "description": "In place of \"Report this\" once the listener has reported the result."
+  },
+  "reportSheetTitle": "Report this ad",
+  "@reportSheetTitle": {
+    "description": "The report sheet's title (P6 design §2.14)."
+  },
+  "reportSheetText": "What's wrong? Stations never see who reported it.",
+  "@reportSheetText": {
+    "description": "Under the report sheet's title."
+  },
+  "reportReasonWrongOrMisleadingButtons": "The buttons are wrong or misleading",
+  "@reportReasonWrongOrMisleadingButtons": {
+    "description": "A report reason: WRONG_OR_MISLEADING_BUTTONS."
+  },
+  "reportReasonNumberOrLinkDoesNotWork": "A number or link doesn't work",
+  "@reportReasonNumberOrLinkDoesNotWork": {
+    "description": "A report reason: NUMBER_OR_LINK_DOES_NOT_WORK."
+  },
+  "reportReasonLooksLikeAScam": "It looks like a scam",
+  "@reportReasonLooksLikeAScam": {
+    "description": "A report reason: LOOKS_LIKE_A_SCAM."
+  },
+  "reportReasonSomethingElse": "Something else",
+  "@reportReasonSomethingElse": {
+    "description": "A report reason: SOMETHING_ELSE."
+  },
+  "reportSendButton": "Send report",
+  "@reportSendButton": {
+    "description": "The report sheet's primary button, enabled once a reason is chosen."
+  },
+  "reportThanks": "Thanks — we'll check this ad.",
+  "@reportThanks": {
+    "description": "The snackbar after a report is sent (or queued with no signal)."
   },
   "privacySummaryNote": "This is a short summary. The full privacy notice comes before Look Up's public release.",
   "@privacySummaryNote": {

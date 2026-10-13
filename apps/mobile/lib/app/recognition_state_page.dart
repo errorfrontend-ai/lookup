@@ -86,6 +86,9 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
       onBackToHome: ref.read(recognitionFlowProvider.notifier).backToHome,
       isSavedToHistory:
           ref.watch(historyViewProvider).value?.holdsResult(result.recognitionId) ?? false,
+      isReported:
+          ref.watch(historyViewProvider).value?.resultFor(result.recognitionId)?.isReported ??
+          false,
     ),
     NoMatchState() => const NoMatchScreen(),
     BusyState(:final retryDelaySeconds, :final secondsUntilRetry) => BusyScreen(

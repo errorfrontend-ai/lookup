@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Directory;
 import 'dart:math';
 
@@ -12,8 +13,10 @@ import 'package:lookup_listener/app/device_services_lock_take_over.dart';
 import 'package:lookup_listener/app/engine_identity.dart';
 import 'package:lookup_listener/app/history_answer_reader.dart';
 import 'package:lookup_listener/app/outbox_background_coordinator.dart';
+import 'package:lookup_listener/app/outbox_recognition_reporting.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
+import 'package:lookup_listener/core/data_use/data_use_meter.dart';
 import 'package:lookup_listener/core/device/network_watcher.dart';
 import 'package:lookup_listener/core/device/notification_permission.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_report_sender.dart';
@@ -39,6 +42,8 @@ import 'package:lookup_listener/features/identify/data/recognition_repository.da
 import 'package:lookup_listener/features/identify/data/station_choice_sender.dart';
 import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
+import 'package:lookup_listener/features/result/data/recognition_report_sender.dart';
+import 'package:lookup_listener/features/result/data/recognition_reporting_provider.dart';
 import 'package:lookup_listener/features/settings/data/settings_providers.dart';
 import 'package:lookup_listener/features/settings/data/station_list_cache.dart';
 import 'package:lookup_listener/features/settings/data/station_list_repository.dart';
@@ -75,9 +80,34 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>(
     randomUuid: ref.watch(randomUuidProvider),
     clock: ref.watch(clockProvider),
     developmentLog: ref.watch(developmentLogProvider),
+    // Read when counting, not when the client is made: the meter's crash reports go through this
+    // client (P6 design §3.16).
+    onBytesUsed: (bytes) => unawaited(ref.read(dataUseMeterProvider).add(bytes)),
   ),
   retry: (retryCount, error) => null,
 );
+
+/// "Used this month" (P6 design §3.16): the bytes the app's client and its pictures move, per
+/// calendar month, in the `data_use` folder of the app's support folder, under the outbox's
+/// lock-file rules. Tests point it at a temporary folder.
+final Provider<DataUseMeter> dataUseMeterProvider = Provider<DataUseMeter>(
+  (ref) => DataUseMeter(
+    locateFolder: ref.watch(dataUseFolderLocatorProvider),
+    lockOwner: ref.watch(engineIdentityProvider).lockOwner,
+    lockTakeOver: ref.watch(lockTakeOverProvider),
+    clock: ref.watch(clockProvider),
+    clientErrorReporter: ref.watch(clientErrorReporterProvider),
+  ),
+  retry: (retryCount, error) => null,
+);
+
+/// Where the meter keeps its count. Tests point it at a temporary folder.
+final Provider<Future<Directory> Function()> dataUseFolderLocatorProvider =
+    Provider<Future<Directory> Function()>(
+      (ref) =>
+          () async => DataUseMeter.folderIn(await getApplicationSupportDirectory()),
+      retry: (retryCount, error) => null,
+    );
 
 /// The listener install: its id, its token and when to register (design §3.9, S4-D14).
 final Provider<ListenerInstallRepository> listenerInstallRepositoryProvider =
@@ -219,6 +249,10 @@ final Provider<OutboxSender> outboxSenderProvider = Provider<OutboxSender>(
         apiClient: ref.watch(apiClientProvider),
         clock: ref.watch(clockProvider),
       ),
+      OutboxItemKind.recognitionReport: RecognitionReportSender(
+        apiClient: ref.watch(apiClientProvider),
+        clock: ref.watch(clockProvider),
+      ),
     },
     listenerInstallRepository: ref.watch(listenerInstallRepositoryProvider),
     clientErrorReporter: ref.watch(clientErrorReporterProvider),
@@ -339,6 +373,29 @@ List<Override> get appServiceOverrides => [
   notificationPermissionProvider.overrideWith(
     (ref) => NotificationPermission(deviceServices: ref.watch(deviceServicesProvider)),
   ),
+  // The data saver's two facts (P6 design §3.16): the network as Android reports it, and the
+  // meter's count, each followed as it changes.
+  // "Report this" (P6 design §2.14): through the outbox, then marked in History.
+  recognitionReportingProvider.overrideWith(
+    (ref) => OutboxRecognitionReporting(
+      outboxStore: ref.watch(outboxStoreProvider),
+      history: ref.watch(historyRepositoryProvider),
+      clientErrorReporter: ref.watch(clientErrorReporterProvider),
+    ),
+  ),
+  isNetworkMeteredProvider.overrideWith((ref) {
+    final watcher = ref.watch(networkWatcherProvider);
+    final changes = watcher.meteredChanged.listen((_) => ref.invalidateSelf());
+    ref.onDispose(changes.cancel);
+    return watcher.isMetered;
+  }),
+  bytesUsedThisMonthProvider.overrideWith((ref) async* {
+    final meter = ref.watch(dataUseMeterProvider);
+    yield await meter.bytesThisMonth();
+    await for (final _ in meter.changed) {
+      yield await meter.bytesThisMonth();
+    }
+  }),
   stationListRepositoryProvider.overrideWith(
     (ref) => StationListRepository(
       apiClient: ref.watch(apiClientProvider),

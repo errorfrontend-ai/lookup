@@ -155,6 +155,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get identifyingExplanation => 'This usually takes a few seconds.';
 
   @override
+  String get identifyingSlow => 'Still working — the connection is slow.';
+
+  @override
+  String identifyingClipPercentSent(int percent) {
+    return 'Clip $percent% sent';
+  }
+
+  @override
+  String get identifyingClipSent => 'Clip sent — waiting for the answer';
+
+  @override
   String get cancelIdentifyingLabel => 'Cancel identifying';
 
   @override
@@ -380,6 +391,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMyStationNotSet => 'Not set — used when an ad is on more than one station';
 
   @override
+  String get settingsDataHeading => 'Data';
+
+  @override
+  String get settingsEachIdentifyUses => 'Each identify uses';
+
+  @override
+  String get settingsEachIdentifyUsesAmount => 'about 25 KB';
+
+  @override
+  String get settingsUsedThisMonth => 'Used this month';
+
+  @override
+  String dataAmountKilobytes(int kilobytes) {
+    return '$kilobytes KB';
+  }
+
+  @override
+  String dataAmountMegabytes(String megabytes) {
+    return '$megabytes MB';
+  }
+
+  @override
+  String get settingsLoadPictures => 'Load ad pictures on mobile data';
+
+  @override
+  String get settingsLoadPicturesNote => 'Turn off to save data; buttons still work';
+
+  @override
   String get settingsAppHeading => 'App';
 
   @override
@@ -458,8 +497,46 @@ class AppLocalizationsEn extends AppLocalizations {
       'The clip is sent to Look Up to find the ad, and is not kept after it has been checked.';
 
   @override
+  String get privacyClipWaitsOffline =>
+      'With no signal, the clip waits on this phone for up to 24 hours and is deleted once it\'s sent.';
+
+  @override
   String get privacyHistoryStaysOnPhone =>
       'Your History stays on this phone. You can clear it in Settings.';
+
+  @override
+  String get privacyReports =>
+      'If you report an ad, the report is kept with an anonymous code for this phone, so Look Up can tell many reports from one phone apart from reports by many people. Only Look Up\'s own team can see it; stations never do.';
+
+  @override
+  String get resultReportThis => 'Report this';
+
+  @override
+  String get resultReported => 'Reported';
+
+  @override
+  String get reportSheetTitle => 'Report this ad';
+
+  @override
+  String get reportSheetText => 'What\'s wrong? Stations never see who reported it.';
+
+  @override
+  String get reportReasonWrongOrMisleadingButtons => 'The buttons are wrong or misleading';
+
+  @override
+  String get reportReasonNumberOrLinkDoesNotWork => 'A number or link doesn\'t work';
+
+  @override
+  String get reportReasonLooksLikeAScam => 'It looks like a scam';
+
+  @override
+  String get reportReasonSomethingElse => 'Something else';
+
+  @override
+  String get reportSendButton => 'Send report';
+
+  @override
+  String get reportThanks => 'Thanks — we\'ll check this ad.';
 
   @override
   String get privacySummaryNote =>

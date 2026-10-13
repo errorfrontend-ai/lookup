@@ -88,6 +88,7 @@ class HistoryRepository {
         wasDeferred: earlier?.wasDeferred ?? deferredIdempotencyKey != null,
         deferredIdempotencyKey: earlier?.deferredIdempotencyKey ?? deferredIdempotencyKey,
         wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+        isReported: earlier?.isReported ?? false,
       ),
       entryId: recognitionId,
     );
@@ -120,6 +121,7 @@ class HistoryRepository {
               wasDeferred: true,
               deferredIdempotencyKey: deferredIdempotencyKey,
               wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+              isReported: earlier?.isReported ?? false,
             ),
       entryId: recognitionId,
     );
@@ -144,6 +146,7 @@ class HistoryRepository {
       wasDeferred: true,
       deferredIdempotencyKey: deferredIdempotencyKey,
       wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+      isReported: earlier?.isReported ?? false,
     ),
     entryId: entryId,
   );
@@ -237,6 +240,20 @@ class HistoryRepository {
   }
 
   /// "Clear history": every saved result is deleted from the phone.
+  /// Remembers that the listener reported [recognitionId] (P6 design §2.14), so its footer says
+  /// "Reported" when it is opened again. Nothing changes when History does not hold it.
+  Future<void> markReported(String recognitionId) async {
+    await _store.modify(
+      (entries) => entries.any((entry) => entry.entryId == recognitionId && !entry.isReported)
+          ? [
+              for (final entry in entries)
+                entry.entryId == recognitionId ? entry.markedReported() : entry,
+            ]
+          : entries,
+    );
+    _changes.add(null);
+  }
+
   Future<void> clear() async {
     await _store.modify((entries) => entries.isEmpty ? entries : const <StoredHistoryEntry>[]);
     _changes.add(null);
@@ -255,6 +272,7 @@ class HistoryRepository {
           capturedAtOnPhone: stored.capturedAtOnPhone,
           result: result,
           deferredIdempotencyKey: stored.deferredIdempotencyKey,
+          isReported: stored.isReported,
         );
       case StoredHistoryEntry.awaitingChoiceKind:
         final candidates = _answerReader.readCandidates(stored.answer);

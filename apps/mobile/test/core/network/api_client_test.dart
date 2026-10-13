@@ -35,12 +35,14 @@ ApiClient _clientFor(
   AppConfiguration? configuration,
   DevelopmentLog developmentLog = const DevelopmentLog.off(),
   FakeClock? clock,
+  void Function(int bytes)? onBytesUsed,
 }) => ApiClient(
   configuration: configuration ?? ExampleAppConfigurations.production(),
   randomUuid: RandomUuid(),
   clock: clock ?? FakeClock(),
   developmentLog: developmentLog,
   httpClientAdapter: adapter,
+  onBytesUsed: onBytesUsed,
 );
 
 ApiMultipartFile _audio(List<int> bytes) => ApiMultipartFile(
@@ -437,7 +439,84 @@ void main() {
     expect(adapter.requests, isEmpty);
   });
 
+  group('the data it uses, for "Used this month" (P6 design §3.16; P6-DATASAVER-03)', () {
+    test("a JSON request counts its body and its answer's body", () async {
+      final counted = <int>[];
+      adapter.answerText(200, '{"accepted":true}');
+      await _clientFor(
+        adapter,
+        onBytesUsed: counted.add,
+      ).postJson('installs', {'platform': 'ANDROID'});
+      expect(counted, [adapter.requests.single.bodyBytes.length + '{"accepted":true}'.length]);
+    });
+
+    test('a clip counts the whole form sent and the answer', () async {
+      final counted = <int>[];
+      adapter.answerText(200, '{}');
+      await _clientFor(adapter, onBytesUsed: counted.add).postMultipart(
+        'recognize',
+        fields: const [MapEntry('codec', 'aac')],
+        file: _audio(List<int>.filled(24000, 7)),
+      );
+      expect(counted, [adapter.requests.single.bodyBytes.length + 2]);
+    });
+
+    test('a GET counts only its answer; a 304 with no body counts nothing', () async {
+      final counted = <int>[];
+      adapter
+        ..answerText(200, '{"stations":[]}')
+        ..answerText(304, '');
+      final client = _clientFor(adapter, onBytesUsed: counted.add);
+      await client.getJson('stations');
+      await client.getJson('stations');
+      expect(counted, ['{"stations":[]}'.length]);
+    });
+
+    test('with no answer, what was sent still counts', () async {
+      final counted = <int>[];
+      adapter.failWithDioType(DioExceptionType.receiveTimeout);
+      await _clientFor(adapter, onBytesUsed: counted.add).postMultipart(
+        'recognize',
+        fields: const [MapEntry('codec', 'aac')],
+        file: _audio(List<int>.filled(9000, 7)),
+      );
+      expect(counted.single, adapter.requests.single.bodyBytes.length);
+    });
+
+    test('a meter that fails never fails the request', () async {
+      adapter.answerText(200, '{}');
+      final answer = await _clientFor(
+        adapter,
+        onBytesUsed: (bytes) => throw StateError('the meter broke'),
+      ).postJson('installs', {});
+      expect(answer, isA<ApiAnswerReceived>());
+    });
+  });
+
   group('multipart sending', () {
+    test('the file goes in pieces of 4 KB, whole, and the share sent is reported as it goes '
+        '(P6 design §2.5)', () async {
+      final shares = <(int, int)>[];
+      final audioBytes = List<int>.generate(10000, (index) => index % 256);
+      adapter.answerJson(200, {});
+      await _clientFor(adapter).postMultipart(
+        'recognize',
+        fields: const [MapEntry('codec', 'aac')],
+        file: _audio(audioBytes),
+        onSendProgress: (sent, total) => shares.add((sent, total)),
+      );
+      final body = adapter.requests.single.bodyBytes;
+      expect(shares.length, greaterThanOrEqualTo(3), reason: '10,000 bytes are three pieces');
+      expect(shares.last, (body.length, body.length));
+      expect(
+        shares.map((share) => share.$1),
+        orderedEquals([...shares.map((share) => share.$1)]..sort()),
+      );
+      final text = latin1.decode(body);
+      final start = text.indexOf('$_lineBreak$_lineBreak', text.indexOf('name="audio"')) + 4;
+      expect(body.sublist(start, start + audioBytes.length), audioBytes);
+    });
+
     test(
       'sends the text fields first, in order, then the file part with its name and type',
       () async {

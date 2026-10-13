@@ -62,6 +62,10 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   /// The clip every identify records: 8 seconds of AAC-LC (S4-LISTENING-03).
   static const ClipSettings clipSettings = ClipSettings.standard;
 
+  /// How long a send may go unanswered before Identifying says the connection is slow (P6 design
+  /// §2.5).
+  static const Duration slowSendAfter = Duration(seconds: 5);
+
   late ClipRecorder _clipRecorder;
   late MicrophonePermission _microphonePermission;
   late RecognitionRepository _recognitionRepository;
@@ -91,6 +95,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   Timer? _recordingCountdown;
   Timer? _busyCountdown;
   Timer? _inProgressWait;
+  Timer? _slowSendTimer;
 
   /// Whole seconds left of the wait after a 409 (T22); 0 when there is no such wait. Kept apart
   /// from its timer, so the wait can pause while the app is hidden and go on when it is shown.
@@ -440,19 +445,38 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     await _send(identifyNumber);
   }
 
-  /// One send of the kept clip (T15 to T27), and what `SendPolicy` makes of its answer.
+  /// One send of the kept clip (T15 to T27), and what `SendPolicy` makes of its answer. With no
+  /// answer after [slowSendAfter], Identifying says the connection is slow and shows how much of
+  /// the clip has gone (P6 design §2.5, P6-LISTENING-01).
   Future<void> _send(int identifyNumber, {bool registersAgainFirst = false}) async {
     final clip = _clip;
     if (clip == null || !_isCurrent(identifyNumber)) return;
     state = const UploadingState();
     final cancellation = RecognitionCancellation();
     _sendCancellation = cancellation;
+    var sentPercent = 0;
+    void showSlow() {
+      if (_isCurrent(identifyNumber) &&
+          state is UploadingState &&
+          _sendCancellation == cancellation) {
+        state = UploadingState(isSlow: true, sentPercent: sentPercent);
+      }
+    }
+
+    _slowSendTimer?.cancel();
+    _slowSendTimer = Timer(slowSendAfter, showSlow);
     final RecognitionAnswer answer;
     try {
       answer = await _recognitionRepository.send(
         clip,
         cancellation: cancellation,
         registersAgainFirst: registersAgainFirst,
+        onSentShare: (sentShare) {
+          final percent = (sentShare * 100).floor();
+          if (percent == sentPercent) return;
+          sentPercent = percent;
+          if (state case UploadingState(isSlow: true)) showSlow();
+        },
       );
     } on Object catch (error, stackTrace) {
       _failOnPhone(
@@ -462,6 +486,11 @@ class RecognitionFlow extends Notifier<RecognitionState> {
         description: 'Sending the clip failed on the phone',
       );
       return;
+    } finally {
+      if (_sendCancellation == cancellation) {
+        _slowSendTimer?.cancel();
+        _slowSendTimer = null;
+      }
     }
     if (!_isCurrent(identifyNumber)) return;
     _sendCancellation = null;
@@ -877,6 +906,8 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _inProgressWait?.cancel();
     _inProgressWait = null;
     _inProgressSecondsLeft = 0;
+    _slowSendTimer?.cancel();
+    _slowSendTimer = null;
     _sendCancellation?.cancel();
     _sendCancellation = null;
     _stopListeningToRecording();

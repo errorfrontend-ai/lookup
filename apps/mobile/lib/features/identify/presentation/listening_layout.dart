@@ -3,6 +3,7 @@ import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/identify/presentation/level_bars.dart';
 import 'package:lookup_listener/features/identify/presentation/state_heading.dart';
+import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// The layout Listening and Identifying share (design §2.4, §2.5; wireframe Listening), centred
 /// between the header and the footer: the ring, the heading, a line of text, the level bars, the
@@ -12,7 +13,9 @@ import 'package:lookup_listener/features/identify/presentation/state_heading.dar
 /// it is when Listening becomes Identifying. The column is centred, so everything in it counts:
 /// the heading and the line of text each keep the room of the other screen's words there
 /// ([headingToFit], [textToFit]), and a screen without level bars or a countdown keeps their rows
-/// empty. What only keeps room is laid out but never drawn, touched or read by a screen reader.
+/// empty. Both screens also keep the room of Identifying's slow lines (P6 design §2.5), so nothing
+/// moves when a send turns slow. What only keeps room is laid out but never drawn, touched or read
+/// by a screen reader.
 class ListeningLayout extends StatelessWidget {
   const ListeningLayout({
     super.key,
@@ -25,6 +28,7 @@ class ListeningLayout extends StatelessWidget {
     this.levelBars,
     this.countdown,
     this.countdownToFit,
+    this.isTextAnnounced = false,
   });
 
   /// The `LevelRing`, live on Listening and still on Identifying.
@@ -54,6 +58,9 @@ class ListeningLayout extends StatelessWidget {
   /// Words whose room the countdown row keeps, on a screen without a countdown.
   final String? countdownToFit;
 
+  /// Whether [text] is a polite live region, announced when it changes (Identifying's slow line).
+  final bool isTextAnnounced;
+
   @override
   Widget build(BuildContext context) {
     final tokens = context.lookUpTokens;
@@ -67,6 +74,12 @@ class ListeningLayout extends StatelessWidget {
     );
     final countdown = this.countdown;
     final countdownToFit = this.countdownToFit;
+    final words = AppLocalizations.of(context);
+    Widget roomOf(List<String> lines, TextStyle style) => Stack(
+      alignment: Alignment.topCenter,
+      children: [for (final line in lines) Text(line, textAlign: TextAlign.center, style: style)],
+    );
+    final shownText = Text(text, textAlign: TextAlign.center, style: textStyle);
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -84,8 +97,8 @@ class ListeningLayout extends StatelessWidget {
           ),
           SizedBox(height: spacing.space2),
           _WithRoomFor(
-            roomFor: Text(textToFit, textAlign: TextAlign.center, style: textStyle),
-            shown: Text(text, textAlign: TextAlign.center, style: textStyle),
+            roomFor: roomOf([textToFit, words.identifyingSlow], textStyle),
+            shown: isTextAnnounced ? Semantics(liveRegion: true, child: shownText) : shownText,
           ),
           SizedBox(height: spacing.space6),
           levelBars ?? SizedBox(height: LevelBars.rowHeight(spacing)),
@@ -97,9 +110,11 @@ class ListeningLayout extends StatelessWidget {
           ),
           SizedBox(height: spacing.space2),
           _WithRoomFor(
-            roomFor: countdownToFit == null
-                ? null
-                : Text(countdownToFit, textAlign: TextAlign.center, style: countdownStyle),
+            roomFor: roomOf([
+              ?countdownToFit,
+              words.identifyingClipSent,
+              words.identifyingClipPercentSent(100),
+            ], countdownStyle),
             shown: countdown == null
                 ? null
                 : Text(countdown, textAlign: TextAlign.center, style: countdownStyle),

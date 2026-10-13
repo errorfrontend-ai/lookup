@@ -506,4 +506,57 @@ void main() {
       expect(ids.last, 'report-20');
     });
   });
+
+  group('reports ("Report this", P6 design §2.14)', () {
+    test('a report is queued with its station and reason, and announced', () async {
+      final store = storeFor(_engineA);
+      var announced = 0;
+      store.itemsQueued.listen((_) => announced++);
+      expect(
+        await store.queueRecognitionReport(
+          recognitionId: _recognitionOne,
+          stationId: _stationB,
+          reason: 'NUMBER_OR_LINK_DOES_NOT_WORK',
+        ),
+        isTrue,
+      );
+      expect(announced, 1);
+      final item = (await store.read()).items.single as RecognitionReportItem;
+      expect(item.recognitionId, _recognitionOne);
+      expect(item.stationId, _stationB);
+      expect(item.reason, 'NUMBER_OR_LINK_DOES_NOT_WORK');
+    });
+
+    test('the first report of a recognition wins: a second changes nothing', () async {
+      final store = storeFor(_engineA);
+      await store.queueRecognitionReport(
+        recognitionId: _recognitionOne,
+        stationId: _stationB,
+        reason: 'LOOKS_LIKE_A_SCAM',
+      );
+      expect(
+        await store.queueRecognitionReport(
+          recognitionId: _recognitionOne,
+          stationId: _stationB,
+          reason: 'SOMETHING_ELSE',
+        ),
+        isFalse,
+      );
+      final items = (await store.read()).items.cast<RecognitionReportItem>();
+      expect(items.single.reason, 'LOOKS_LIKE_A_SCAM');
+    });
+
+    test('a reason the contract does not name is refused, and nothing is queued', () async {
+      final store = storeFor(_engineA);
+      await expectLater(
+        store.queueRecognitionReport(
+          recognitionId: _recognitionOne,
+          stationId: _stationB,
+          reason: 'I do not like it',
+        ),
+        throwsArgumentError,
+      );
+      expect((await store.read()).items, isEmpty);
+    });
+  });
 }
