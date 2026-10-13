@@ -359,10 +359,12 @@ void main() {
       });
     });
 
-    test('a wait stored more than an hour away (the clock went back) counts as an hour', () {
+    test('a wait stored more than an hour away (the clock went back) is cut to an hour, and the '
+        'item goes then', () {
       runSenderTest(random: ScriptedRandom(), (harness) {
         harness.queueChoice(recognitionOne, stationB);
         final waiting = harness.items.single;
+        // Set while the phone's clock was 3 days ahead; the clock has since been put right.
         harness.store.modify(
           (index) => index.withItemReplaced(
             waiting.retried(
@@ -372,8 +374,71 @@ void main() {
           ),
         );
         harness.settle();
+        harness.answerChoice(204);
         harness.startRun(OutboxRunReason.appResumed);
         expect(harness.lastWakeUpAt, harness.clock.now().add(const Duration(hours: 1)));
+
+        harness.followWakeUps(runs: 3);
+        expect(harness.sentChoices.map((sent) => sent.at), [const Duration(hours: 1)]);
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('a group pause stored more than an hour away (the clock went back) is cut to an hour, and '
+        'the group goes on then', () {
+      runSenderTest(random: ScriptedRandom(), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.store.modify(
+          (index) => index.withGroupPausedUntil(
+            OutboxItemGroup.followUps,
+            harness.clock.now().add(const Duration(days: 3)),
+          ),
+        );
+        harness.settle();
+        harness.answerChoice(204);
+        harness.startRun(OutboxRunReason.appResumed);
+        expect(harness.sentChoices, isEmpty, reason: 'the follow-ups are paused');
+
+        harness.followWakeUps(runs: 3);
+        expect(harness.sentChoices.map((sent) => sent.at), [const Duration(hours: 1)]);
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('the cuts are written to the outbox, so a restart keeps them: an item\'s wait and a '
+        'group\'s pause an hour away, a probe 6 hours away, and no attempt counted', () {
+      runSenderTest(random: ScriptedRandom(), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        final waiting = harness.items.single;
+        final threeDaysAhead = harness.clock.now().add(const Duration(days: 3));
+        harness.store.modify(
+          (index) => index
+              .withItemReplaced(
+                waiting.retried(nextAttemptAt: threeDaysAhead, lastProblem: OutboxItemProblem.busy),
+              )
+              .withGroupPausedUntil(OutboxItemGroup.followUps, threeDaysAhead)
+              .withUpdatePause(
+                OutboxUpdatePause(
+                  appVersion: harness.appVersion,
+                  pausedAt: harness.clock.now(),
+                  nextProbeAt: threeDaysAhead,
+                ),
+              ),
+        );
+        harness.settle();
+        harness.startRun(OutboxRunReason.appResumed);
+
+        final now = harness.clock.now();
+        expect(harness.sentChoices, isEmpty);
+        final stored = harness.items.single;
+        expect(stored.nextAttemptAt, now.add(const Duration(hours: 1)));
+        expect(stored.attemptCount, 1, reason: 'a cut is not an attempt');
+        expect(stored.lastProblem, OutboxItemProblem.busy);
+        expect(
+          harness.index.groupPausedUntil[OutboxItemGroup.followUps],
+          now.add(const Duration(hours: 1)),
+        );
+        expect(harness.index.updatePause?.nextProbeAt, now.add(const Duration(hours: 6)));
       });
     });
   });
@@ -504,6 +569,195 @@ void main() {
         expect(harness.sentChoices, hasLength(1));
         expect(harness.index.updatePause, isNull);
         expect(harness.items, isEmpty);
+      });
+    });
+
+    test('a probe with no answer keeps the pause, and the next probe is 6 hours later', () {
+      runSenderTest(random: ScriptedRandom(), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.queueChoice(recognitionTwo, stationA);
+        harness.answerChoice(426, code: 'APP_UPDATE_REQUIRED');
+        harness.startRun(OutboxRunReason.itemQueued);
+        // The app is closed past the time of the next probe, and starts again with no signal.
+        harness.wait(const Duration(hours: 7));
+        harness.answerChoiceWithNothing();
+        harness.startRun(OutboxRunReason.appStarted);
+        expect(harness.sentChoices, hasLength(2));
+        expect(harness.index.updatePause, isNotNull, reason: 'no answer says nothing of the gate');
+        expect(harness.items.first.lastProblem, OutboxItemProblem.noAnswer);
+        expect(harness.lastWakeUpAt, harness.clock.now().add(const Duration(hours: 6)));
+
+        harness.answerChoice(204);
+        harness.answerChoice(204);
+        harness.followWakeUps(runs: 1);
+        expect(harness.sentChoices.map((sent) => sent.at), [
+          Duration.zero,
+          const Duration(hours: 7),
+          const Duration(hours: 13),
+          const Duration(hours: 13),
+        ]);
+        expect(harness.index.updatePause, isNull);
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('a probe stopped by a fault on the phone keeps the pause: that item is deleted and '
+        'reported, and the others wait for the next probe, 6 hours later', () {
+      runSenderTest(random: ScriptedRandom(), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.queueChoice(recognitionTwo, stationA);
+        harness.answerChoice(426, code: 'APP_UPDATE_REQUIRED');
+        harness.startRun(OutboxRunReason.itemQueued);
+        harness.answerChoiceWithPhoneFault();
+        harness.answerChoice(204);
+        harness.startRun(OutboxRunReason.appStarted);
+        expect(harness.index.updatePause, isNotNull, reason: 'the server never answered');
+        expect(harness.sentChoices, hasLength(2));
+        expect(harness.items.map((item) => (item as StationChoiceItem).recognitionId), [
+          recognitionTwo,
+        ]);
+        expect('${harness.reporter.reports.single.error}', contains('STATION_CHOICE'));
+        expect(harness.lastWakeUpAt, harness.clock.now().add(const Duration(hours: 6)));
+
+        harness.followWakeUps(runs: 1);
+        expect(harness.sentChoices.last.at, const Duration(hours: 6));
+        expect(harness.index.updatePause, isNull);
+        expect(harness.items, isEmpty);
+      });
+    });
+
+    test('a probe time stored more than 6 hours away (the clock went back) is cut to 6 hours, and '
+        'the probe goes then', () {
+      runSenderTest(random: ScriptedRandom(), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.store.modify(
+          (index) => index.withUpdatePause(
+            OutboxUpdatePause(
+              appVersion: harness.appVersion,
+              pausedAt: harness.clock.now(),
+              nextProbeAt: harness.clock.now().add(const Duration(days: 3)),
+            ),
+          ),
+        );
+        harness.settle();
+        harness.answerChoice(204);
+        harness.startRun(OutboxRunReason.appResumed);
+        expect(harness.sentChoices, isEmpty, reason: 'a resume is not a probe');
+
+        harness.followWakeUps(runs: 3);
+        expect(harness.sentChoices.map((sent) => sent.at), [const Duration(hours: 6)]);
+        expect(harness.index.updatePause, isNull);
+        expect(harness.items, isEmpty);
+      });
+    });
+  });
+
+  group('a failure on the phone: the storage full', () {
+    test('runs that fail one after another wait longer each time: 30, 60, then 120 s; a run that '
+        'does not fail starts the count again', () {
+      // The largest factor each time, so the waits are exactly 30, 60 and 120 seconds.
+      runSenderTest(random: ScriptedRandom(doubles: [0.999999]), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.fillStorage();
+        for (var answer = 0; answer < 4; answer++) {
+          harness.answerChoice(500, code: 'INTERNAL');
+        }
+        harness.startRun(OutboxRunReason.itemQueued);
+        harness.followWakeUps(runs: 3);
+        // No 500 could be written down, so each run sent the choice again.
+        final times = [for (final sent in harness.sentChoices) sent.at.inMilliseconds / 1000];
+        expect(
+          [
+            for (var index = 1; index < times.length; index++)
+              (times[index] - times[index - 1]).round(),
+          ],
+          [30, 60, 120],
+        );
+
+        harness.freeStorage();
+        harness.answerChoice(204);
+        harness.followWakeUps(runs: 1);
+        expect(harness.items, isEmpty);
+        expect(harness.lastWakeUpAt, isNull);
+
+        harness.queueChoice(recognitionTwo, stationA);
+        harness.fillStorage();
+        harness.answerChoice(500, code: 'INTERNAL');
+        harness.startRun(OutboxRunReason.itemQueued);
+        expect(harness.lastWakeUpAt, harness.clock.now().add(const Duration(seconds: 30)));
+      });
+    });
+
+    test('a development build\'s failed runs wait from its own first wait: 5, then 10 s', () {
+      runSenderTest(
+        random: ScriptedRandom(doubles: [0.999999]),
+        timingRules: const OutboxTimingRules(
+          sendingDelayMaximumSeconds: 5,
+          backoffFirstWaitSeconds: 5,
+        ),
+        (harness) {
+          harness.queueChoice(recognitionOne, stationB);
+          harness.fillStorage();
+          for (var answer = 0; answer < 3; answer++) {
+            harness.answerChoice(500, code: 'INTERNAL');
+          }
+          harness.startRun(OutboxRunReason.itemQueued);
+          harness.followWakeUps(runs: 2);
+          final times = [for (final sent in harness.sentChoices) sent.at.inMilliseconds / 1000];
+          expect(
+            [
+              for (var index = 1; index < times.length; index++)
+                (times[index] - times[index - 1]).round(),
+            ],
+            [5, 10],
+          );
+        },
+      );
+    });
+
+    test('a choice the server took whose deletion cannot be written is not sent again; the next '
+        'write that succeeds deletes it', () {
+      runSenderTest(random: ScriptedRandom(doubles: [0.999999]), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.answerChoice(204, whileAnswering: harness.fillStorage);
+        // What a second send would get. None may go: the server already has the choice.
+        harness.answerChoice(204);
+        harness.startRun(OutboxRunReason.itemQueued);
+        expect(harness.items, hasLength(1), reason: 'its deletion could not be written');
+
+        harness.followWakeUps(runs: 3);
+        expect(harness.sentChoices, hasLength(1));
+        expect(harness.items, hasLength(1));
+
+        harness.freeStorage();
+        harness.followWakeUps(runs: 1);
+        expect(harness.sentChoices, hasLength(1));
+        expect(harness.items, isEmpty);
+        expect(harness.lastWakeUpAt, isNull);
+      });
+    });
+
+    test('a refused choice whose deletion cannot be written is reported once, and not sent '
+        'again', () {
+      runSenderTest(random: ScriptedRandom(doubles: [0.999999]), (harness) {
+        harness.queueChoice(recognitionOne, stationB);
+        harness.answerChoice(
+          422,
+          code: 'STATION_ALREADY_CHOSEN',
+          whileAnswering: harness.fillStorage,
+        );
+        // What a second send would get. None may go: the server refused the choice for good.
+        harness.answerChoice(422, code: 'STATION_ALREADY_CHOSEN');
+        harness.startRun(OutboxRunReason.itemQueued);
+        harness.freeStorage();
+        harness.followWakeUps(runs: 2);
+
+        expect(harness.sentChoices, hasLength(1));
+        expect(harness.items, isEmpty);
+        expect([
+          for (final report in harness.reporter.reports)
+            if ('${report.error}'.contains('422 STATION_ALREADY_CHOSEN')) report,
+        ], hasLength(1));
       });
     });
   });

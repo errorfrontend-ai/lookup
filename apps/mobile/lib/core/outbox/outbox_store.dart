@@ -78,6 +78,8 @@ class OutboxStore {
 
   final StreamController<void> _itemsQueued = StreamController<void>.broadcast(sync: true);
 
+  /// The outbox folder, once made or while it is being made; null before that, and again after an
+  /// attempt that failed.
   Future<_OutboxFolder>? _folder;
 
   /// The last call this engine started, which the next one waits for.
@@ -204,15 +206,31 @@ class OutboxStore {
     );
   }
 
-  Future<_OutboxFolder> _openFolder() => _folder ??= _locateFolder().then((directory) {
-    directory.createSync(recursive: true);
-    return _OutboxFolder(
-      directory: directory,
-      indexFile: OutboxIndexFile(directory),
-      indexLock: _lockFile(directory, 'index.lock'),
-      sendingLock: _lockFile(directory, 'sending.lock'),
+  /// The outbox folder, made the first time it is needed and kept, so every call shares one set of
+  /// lock files. A folder that could not be made (the storage full at start-up) is not kept: the
+  /// next call tries again, rather than every call failing until the app restarts.
+  Future<_OutboxFolder> _openFolder() {
+    final opened = _folder;
+    if (opened != null) return opened;
+    final opening = _locateFolder().then((directory) {
+      directory.createSync(recursive: true);
+      return _OutboxFolder(
+        directory: directory,
+        indexFile: OutboxIndexFile(directory),
+        indexLock: _lockFile(directory, 'index.lock'),
+        sendingLock: _lockFile(directory, 'sending.lock'),
+      );
+    });
+    _folder = opening;
+    // Runs before the caller hears of the failure, so its next call already tries again.
+    opening.then<void>(
+      (_) {},
+      onError: (Object error) {
+        if (identical(_folder, opening)) _folder = null;
+      },
     );
-  });
+    return opening;
+  }
 
   OwnedLockFile _lockFile(Directory directory, String name) => OwnedLockFile(
     file: File('${directory.path}/$name'),

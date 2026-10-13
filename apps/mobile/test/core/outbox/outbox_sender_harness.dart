@@ -231,6 +231,23 @@ final class OutboxSenderHarness {
     });
   }
 
+  /// Stops the next choice request with a fault on the phone itself, which the API client reads as
+  /// a fault in the app and the outbox as a phone fault.
+  void answerChoiceWithPhoneFault() {
+    adapter.answerWith((request, cancelFuture) async {
+      sentChoices.add(SentChoice(request, fakeAsync.elapsed));
+      throw StateError('fake: a fault in the app');
+    });
+  }
+
+  /// The phone's storage is full from now on: every write of the outbox index fails, while reading
+  /// it still works. (A folder stands where the store writes the next index, and no file write can
+  /// open a folder.)
+  void fillStorage() => Directory('${folder.path}/index.json.writing').createSync();
+
+  /// The storage has room again: the outbox index can be written.
+  void freeStorage() => Directory('${folder.path}/index.json.writing').deleteSync(recursive: true);
+
   /// Answers the next registration with a new token.
   void answerRegistration(String token) => adapter.answerJson(200, {
     'install_token': token,

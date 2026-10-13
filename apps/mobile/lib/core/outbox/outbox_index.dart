@@ -9,8 +9,9 @@ import 'outbox_timing_rules.dart';
 ///
 /// It also answers the sender's questions about time: which item is due, which may probe a 426
 /// pause, and when the next one falls due. Waits are wall-clock times, because they must survive a
-/// restart; one stored further away than an hour (the phone's clock went back) counts as an hour
-/// away, and a probe time as at most 6 hours away (§3.9 point 9).
+/// restart; [withoutExpired] cuts one stored further away than an hour (the phone's clock went
+/// back) to an hour from now, and a probe time to 6 hours from now, and the sender writes the cut
+/// (§3.9 point 9).
 final class OutboxIndex {
   OutboxIndex({
     List<OutboxItem> items = const [],
@@ -45,6 +46,17 @@ final class OutboxIndex {
     ],
   );
 
+  /// This index without the items named in [itemIds]; this same index when it holds none of them.
+  OutboxIndex withItemsRemoved(Set<String> itemIds) {
+    if (!items.any((item) => itemIds.contains(item.itemId))) return this;
+    return _with(
+      items: [
+        for (final item in items)
+          if (!itemIds.contains(item.itemId)) item,
+      ],
+    );
+  }
+
   OutboxIndex withItemReplaced(OutboxItem replacement) => _with(
     items: [for (final item in items) item.itemId == replacement.itemId ? replacement : item],
   );
@@ -55,6 +67,12 @@ final class OutboxIndex {
   OutboxIndex withUpdatePause(OutboxUpdatePause? updatePause) =>
       OutboxIndex(items: items, groupPausedUntil: groupPausedUntil, updatePause: updatePause);
 
+  /// This index with the 426 pause's next probe at [nextProbeAt]; unchanged when no pause holds.
+  OutboxIndex withNextProbeAt(DateTime nextProbeAt) => switch (updatePause) {
+    final pause? => withUpdatePause(pause.withNextProbeAt(nextProbeAt)),
+    null => this,
+  };
+
   /// The item with [itemId], or null when it is no longer queued.
   OutboxItem? itemWithId(String itemId) {
     for (final item in items) {
@@ -63,23 +81,59 @@ final class OutboxIndex {
     return null;
   }
 
-  /// This index without what has run out at [now]: follow-up items queued 7 days ago or more
-  /// (§3.8; contract R5), group pauses that have ended, and a 426 pause made by another version of
-  /// the app than [appVersion] (amendment A2).
+  /// This index as it should be at [now] (§3.8, §3.9 point 9; contract R5; amendment A2):
+  /// - without what has run out: follow-up items queued 7 days ago or more, group pauses that have
+  ///   ended, and a 426 pause made by another version of the app than [appVersion];
+  /// - with every wait cut to what the clock allows. An item's wait or a group's pause ending more
+  ///   than an hour after [now], or a probe due more than 6 hours after it, was set while the
+  ///   phone's clock was ahead, and the clock has gone back since: it is cut to an hour (a probe to
+  ///   6 hours) from [now]. The sender writes the cut, so the wait then really ends, rather than
+  ///   staying an hour away each time it is looked at.
+  ///
+  /// This same index when nothing has run out or been cut, so a caller can tell with `identical`
+  /// whether there is anything to write.
   OutboxIndex withoutExpired({required DateTime now, required String appVersion}) {
     final followUpLifetime = const Duration(seconds: OutboxTimingRules.followUpItemLifetimeSeconds);
+    final latestWaitEnd = now.toUtc().add(OutboxTimingRules.longestStoredWait);
+    final latestProbeAt = now.toUtc().add(OutboxTimingRules.updatePauseProbeInterval);
+    var isChanged = false;
+    final keptItems = <OutboxItem>[];
+    for (final item in items) {
+      if (item.kind.group == OutboxItemGroup.followUps &&
+          !now.isBefore(item.queuedAt.add(followUpLifetime))) {
+        isChanged = true;
+      } else if (item.nextAttemptAt case final nextAttemptAt?
+          when nextAttemptAt.isAfter(latestWaitEnd)) {
+        keptItems.add(item.withNextAttemptAt(latestWaitEnd));
+        isChanged = true;
+      } else {
+        keptItems.add(item);
+      }
+    }
+    final keptGroupPauses = <OutboxItemGroup, DateTime>{};
+    for (final MapEntry(key: group, value: until) in groupPausedUntil.entries) {
+      if (!now.isBefore(until)) {
+        isChanged = true;
+      } else if (until.isAfter(latestWaitEnd)) {
+        keptGroupPauses[group] = latestWaitEnd;
+        isChanged = true;
+      } else {
+        keptGroupPauses[group] = until;
+      }
+    }
+    final keptUpdatePause = switch (updatePause) {
+      final pause? when pause.appVersion != appVersion => null,
+      final pause? when pause.nextProbeAt.isAfter(latestProbeAt) => pause.withNextProbeAt(
+        latestProbeAt,
+      ),
+      final pause => pause,
+    };
+    if (!identical(keptUpdatePause, updatePause)) isChanged = true;
+    if (!isChanged) return this;
     return OutboxIndex(
-      items: [
-        for (final item in items)
-          if (item.kind.group != OutboxItemGroup.followUps ||
-              now.isBefore(item.queuedAt.add(followUpLifetime)))
-            item,
-      ],
-      groupPausedUntil: {
-        for (final MapEntry(key: group, value: until) in groupPausedUntil.entries)
-          if (now.isBefore(until)) group: until,
-      },
-      updatePause: updatePause?.appVersion == appVersion ? updatePause : null,
+      items: keptItems,
+      groupPausedUntil: keptGroupPauses,
+      updatePause: keptUpdatePause,
     );
   }
 
@@ -91,7 +145,7 @@ final class OutboxIndex {
     for (final item in items) {
       if (_isGroupPaused(item.kind.group, now)) continue;
       final nextAttemptAt = item.nextAttemptAt;
-      if (nextAttemptAt != null && _cutWait(nextAttemptAt, now).isAfter(now)) continue;
+      if (nextAttemptAt != null && nextAttemptAt.isAfter(now)) continue;
       if (oldest == null || _sendingOrderOf(item).isBefore(_sendingOrderOf(oldest))) oldest = item;
     }
     return oldest;
@@ -116,36 +170,24 @@ final class OutboxIndex {
 
   /// When the next run should start by itself, seen from [now] (amendment A1): the earliest time
   /// an item falls due, after its own wait and its group's pause; while a 426 pause holds, its next
-  /// probe. Null when nothing is queued.
+  /// probe. Null when nothing is queued. Asked of an index [withoutExpired] has cleaned, so no wait
+  /// in it is further away than the clock allows.
   DateTime? nextWakeUpAt(DateTime now) {
     if (items.isEmpty) return null;
     final updatePause = this.updatePause;
-    if (updatePause != null) return updatePause.nextProbeAtSeenFrom(now);
+    if (updatePause != null) return updatePause.nextProbeAt;
     DateTime? earliest;
     for (final item in items) {
-      final itemDueAt = switch (item.nextAttemptAt) {
-        final nextAttemptAt? => _cutWait(nextAttemptAt, now),
-        null => now,
-      };
-      final pausedUntil = groupPausedUntil[item.kind.group];
-      final groupDueAt = pausedUntil == null ? now : _cutWait(pausedUntil, now);
+      final itemDueAt = item.nextAttemptAt ?? now;
+      final groupDueAt = groupPausedUntil[item.kind.group] ?? now;
       final dueAt = itemDueAt.isAfter(groupDueAt) ? itemDueAt : groupDueAt;
       if (earliest == null || dueAt.isBefore(earliest)) earliest = dueAt;
     }
     return earliest;
   }
 
-  bool _isGroupPaused(OutboxItemGroup group, DateTime now) {
-    final pausedUntil = groupPausedUntil[group];
-    return pausedUntil != null && _cutWait(pausedUntil, now).isAfter(now);
-  }
-
-  /// [at], or an hour from [now] when [at] is further away: the clock went back after the wait was
-  /// set.
-  static DateTime _cutWait(DateTime at, DateTime now) {
-    final latest = now.add(OutboxTimingRules.longestStoredWait);
-    return at.isAfter(latest) ? latest : at;
-  }
+  bool _isGroupPaused(OutboxItemGroup group, DateTime now) =>
+      groupPausedUntil[group]?.isAfter(now) ?? false;
 
   /// What "oldest" means for [item]: its queued time (clips will go by capture time, piece 3).
   static DateTime _sendingOrderOf(OutboxItem item) => switch (item) {
@@ -270,7 +312,8 @@ final class OutboxIndex {
 }
 
 /// The pause a 426 `APP_UPDATE_REQUIRED` puts on the whole outbox (contract R11, amendment A2). It
-/// ends when the app's version differs from [appVersion], or when a probe gets any answer but 426.
+/// ends when the app's version differs from [appVersion], or when the server answers a probe with
+/// anything but 426; a probe with no answer, or stopped by a fault on the phone, leaves it.
 final class OutboxUpdatePause {
   const OutboxUpdatePause({
     required this.appVersion,
@@ -287,11 +330,12 @@ final class OutboxUpdatePause {
   /// When the next probe may go (UTC): 6 hours after the last; one also goes at every app start.
   final DateTime nextProbeAt;
 
-  /// [nextProbeAt], or 6 hours from [now] when it is further away: the clock went back.
-  DateTime nextProbeAtSeenFrom(DateTime now) {
-    final latest = now.add(OutboxTimingRules.updatePauseProbeInterval);
-    return nextProbeAt.isAfter(latest) ? latest : nextProbeAt;
-  }
+  /// This pause with its next probe at [nextProbeAt].
+  OutboxUpdatePause withNextProbeAt(DateTime nextProbeAt) => OutboxUpdatePause(
+    appVersion: appVersion,
+    pausedAt: pausedAt,
+    nextProbeAt: nextProbeAt.toUtc(),
+  );
 
   Map<String, Object?> toJson() => {
     'app_version': appVersion,

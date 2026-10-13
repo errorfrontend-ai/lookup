@@ -41,6 +41,10 @@ sealed class OutboxItem {
 
   /// This item after a send that did not settle it: one attempt more, and when it may go again.
   OutboxItem retried({required DateTime? nextAttemptAt, required OutboxItemProblem? lastProblem});
+
+  /// This item waiting until [nextAttemptAt] instead, with no attempt counted: a wait the phone's
+  /// clock stretched, cut back (§3.9 point 9).
+  OutboxItem withNextAttemptAt(DateTime nextAttemptAt);
 }
 
 /// The listener's choice in "Which station?" (T44): `POST /recognitions/{recognition_id}/choice`
@@ -80,6 +84,17 @@ final class StationChoiceItem extends OutboxItem {
     recognitionId: recognitionId,
     stationId: stationId,
     attemptCount: attemptCount + 1,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  StationChoiceItem withNextAttemptAt(DateTime nextAttemptAt) => StationChoiceItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    attemptCount: attemptCount,
     nextAttemptAt: nextAttemptAt,
     lastProblem: lastProblem,
   );

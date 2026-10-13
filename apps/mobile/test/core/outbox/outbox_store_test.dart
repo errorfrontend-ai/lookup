@@ -32,8 +32,8 @@ void main() {
   late FakeClock clock;
   late RecordingClientErrorReporter reporter;
 
-  OutboxStore storeFor(LockFileOwner owner) => OutboxStore(
-    locateFolder: () async => folder,
+  OutboxStore storeFor(LockFileOwner owner, {Directory? outboxFolder}) => OutboxStore(
+    locateFolder: () async => outboxFolder ?? folder,
     lockOwner: owner,
     isEngineAttached: {_engineA.engineId, _engineB.engineId}.contains,
     clock: clock,
@@ -145,6 +145,25 @@ void main() {
     expect(announced, 1);
     await store.queueStationChoice(recognitionId: _recognitionTwo, stationId: _stationB);
     expect(announced, 2);
+  });
+
+  test('a folder that could not be made (the storage full at start-up) is tried again at the next '
+      'call, not only after a restart', () async {
+    final outboxFolder = Directory('${folder.path}/outbox');
+    // A file where the folder should be: making the folder fails, as it does with no room left.
+    final inTheWay = File(outboxFolder.path)..writeAsStringSync('');
+    final store = storeFor(_engineA, outboxFolder: outboxFolder);
+    await expectLater(
+      store.queueStationChoice(recognitionId: _recognitionOne, stationId: _stationB),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    inTheWay.deleteSync();
+    expect(
+      await store.queueStationChoice(recognitionId: _recognitionOne, stationId: _stationB),
+      isTrue,
+    );
+    expect((await store.read()).items, hasLength(1));
   });
 
   test('the outbox is the outbox folder of the app\'s support folder, never the cache '
