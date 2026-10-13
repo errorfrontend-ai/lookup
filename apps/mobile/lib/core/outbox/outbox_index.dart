@@ -131,6 +131,7 @@ final class OutboxIndex {
       final hasExpired = switch (item) {
         DeferredClipItem() => _clipExpiryOf(item, now) != null,
         StationChoiceItem() ||
+        EngagementItem() ||
         RecognitionReportItem() ||
         ClientErrorReportItem() => !now.isBefore(item.queuedAt.add(followUpLifetime)),
       };
@@ -242,6 +243,7 @@ final class OutboxIndex {
   static DateTime _sendingOrderOf(OutboxItem item) => switch (item) {
     DeferredClipItem(:final capturedAt) => capturedAt,
     StationChoiceItem(:final queuedAt) ||
+    EngagementItem(:final queuedAt) ||
     RecognitionReportItem(:final queuedAt) ||
     ClientErrorReportItem(:final queuedAt) => queuedAt,
   };
@@ -327,6 +329,12 @@ final class OutboxIndex {
         'audio_file': item.audioFileName,
         'audio_size_bytes': item.audioSizeBytes,
         'saved_reason': item.savedReason.storedName,
+      },
+      EngagementItem() => {
+        'recognition_id': item.recognitionId,
+        'station_id': item.stationId,
+        'action_id': item.actionId,
+        'occurred_at': _writeTime(item.occurredAt),
       },
       RecognitionReportItem(:final recognitionId, :final stationId, :final reason) => {
         'recognition_id': recognitionId,
@@ -443,8 +451,31 @@ final class OutboxIndex {
             ),
           _ => null,
         },
-        // A kind a later piece queues; this version cannot send it.
-        OutboxItemKind.engagement || null => null,
+        OutboxItemKind.engagement => switch (json) {
+          {
+            'recognition_id': final String recognitionId,
+            'station_id': final String stationId,
+            'action_id': final String actionId,
+            'occurred_at': final String occurredAtText,
+          } =>
+            switch (_readTime(occurredAtText)) {
+              final occurredAt? => EngagementItem(
+                itemId: itemId,
+                queuedAt: queuedAt,
+                recognitionId: recognitionId,
+                stationId: stationId,
+                actionId: actionId,
+                occurredAt: occurredAt,
+                attemptCount: attemptCount,
+                nextAttemptAt: nextAttemptAt,
+                lastProblem: lastProblem,
+              ),
+              null => null,
+            },
+          _ => null,
+        },
+        // A kind this version does not know.
+        null => null,
       };
     }
     return null;

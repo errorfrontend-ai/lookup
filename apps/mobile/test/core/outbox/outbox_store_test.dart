@@ -559,4 +559,89 @@ void main() {
       expect((await store.read()).items, isEmpty);
     });
   });
+
+  group('taps (T54; P6-OUTBOX-06)', () {
+    const callId = '0192a6c4-0000-4000-8000-000000000001';
+    const chatId = '0192a6c4-0000-4000-8000-000000000002';
+
+    test('a tap is queued with its recognition, station, button and time, and announced', () async {
+      final store = storeFor(_engineA);
+      var announced = 0;
+      store.itemsQueued.listen((_) => announced++);
+      final tappedAt = DateTime.utc(2026, 10, 14, 7, 30, 5);
+      expect(
+        await store.queueEngagement(
+          recognitionId: _recognitionOne,
+          stationId: _stationB,
+          actionId: callId,
+          occurredAt: tappedAt,
+        ),
+        isTrue,
+      );
+      expect(announced, 1);
+      final item = (await store.read()).items.single as EngagementItem;
+      expect(
+        (item.recognitionId, item.stationId, item.actionId, item.occurredAt),
+        (_recognitionOne, _stationB, callId, tappedAt),
+      );
+    });
+
+    test(
+      'a second tap of the same button changes nothing; another button is its own tap',
+      () async {
+        final store = storeFor(_engineA);
+        Future<bool> tap(String actionId, DateTime at) => store.queueEngagement(
+          recognitionId: _recognitionOne,
+          stationId: _stationB,
+          actionId: actionId,
+          occurredAt: at,
+        );
+        expect(await tap(callId, DateTime.utc(2026, 10, 14, 7)), isTrue);
+        expect(await tap(callId, DateTime.utc(2026, 10, 14, 8)), isFalse);
+        expect(await tap(chatId, DateTime.utc(2026, 10, 14, 9)), isTrue);
+        final taps = (await store.read()).items.cast<EngagementItem>();
+        expect(taps.map((item) => (item.actionId, item.occurredAt)), [
+          (callId, DateTime.utc(2026, 10, 14, 7)),
+          (chatId, DateTime.utc(2026, 10, 14, 9)),
+        ]);
+      },
+    );
+
+    test('with 200 follow-ups waiting, the oldest tap goes first, never a choice while a tap waits '
+        '(P6-D44)', () async {
+      final store = storeFor(_engineA);
+      final oldestTap = EngagementItem(
+        itemId: '00000000-0000-4000-8000-999999999999',
+        queuedAt: DateTime.utc(2026, 10, 2, 12),
+        recognitionId: _recognitionTwo,
+        stationId: _stationA,
+        actionId: callId,
+        occurredAt: DateTime.utc(2026, 10, 2, 12),
+      );
+      await store.modify(
+        (index) => OutboxIndex(
+          items: [
+            for (var number = 1; number < OutboxTimingRules.maximumFollowUpItems; number++)
+              StationChoiceItem(
+                itemId: '00000000-0000-4000-8000-${number.toString().padLeft(12, '0')}',
+                // Every choice is older than the tap.
+                queuedAt: DateTime.utc(2026, 10, 1).add(Duration(minutes: number)),
+                recognitionId: '0199b2c4-5a6e-7c3d-8f10-${number.toString().padLeft(12, '0')}',
+                stationId: _stationA,
+              ),
+            oldestTap,
+          ],
+        ),
+      );
+      await store.queueRecognitionReport(
+        recognitionId: _recognitionOne,
+        stationId: _stationB,
+        reason: 'SOMETHING_ELSE',
+      );
+      final items = (await store.read()).items;
+      expect(items, hasLength(200));
+      expect(items.whereType<EngagementItem>(), isEmpty, reason: 'the tap went, not a choice');
+      expect(items.whereType<StationChoiceItem>(), hasLength(199));
+    });
+  });
 }

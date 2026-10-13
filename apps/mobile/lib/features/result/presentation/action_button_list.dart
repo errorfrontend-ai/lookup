@@ -17,12 +17,15 @@ import 'package:lookup_listener/features/result/presentation/more_options_button
 ///
 /// A tap builds the address in the app (never one the server sent for call, WhatsApp or map) and
 /// opens it in an external app; when the phone cannot, the copy sheet offers the number or link.
+/// Each tap of a button that has an address is also told to [onTapped] (T54), before the address
+/// opens, so the tap counts whether or not the phone could open it.
 class ActionButtonList extends ConsumerStatefulWidget {
   const ActionButtonList({
     super.key,
     required this.card,
     required this.showsIcons,
     this.registry = ActionRegistry.standard,
+    this.onTapped,
   });
 
   /// The buttons, as the card reader read them.
@@ -32,6 +35,9 @@ class ActionButtonList extends ConsumerStatefulWidget {
   final bool showsIcons;
 
   final ActionRegistry registry;
+
+  /// A button with an address was tapped (the Result queues the tap, P6-OUTBOX-06).
+  final void Function(UiAction action)? onTapped;
 
   @override
   ConsumerState<ActionButtonList> createState() => _ActionButtonListState();
@@ -83,6 +89,7 @@ class _ActionButtonListState extends ConsumerState<ActionButtonList> {
     final address = registration.buildAddress(action);
     // A button whose address is nothing opens nothing (S4-LINKS-07).
     if (address == null || _isOpening) return;
+    widget.onTapped?.call(action);
     _isOpening = true;
     final bool hasOpened;
     try {

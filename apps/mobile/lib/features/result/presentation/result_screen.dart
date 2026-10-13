@@ -17,6 +17,7 @@ import 'package:lookup_listener/features/result/presentation/banner_box.dart';
 import 'package:lookup_listener/features/result/presentation/client_logo.dart';
 import 'package:lookup_listener/features/result/presentation/report_sheet.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
+import 'package:lookup_listener/features/result/data/engagement_recording_provider.dart';
 
 /// The Result screen (design §2.6 and §2.7; P6 design §2.7, §2.10; wireframes Result and
 /// Result320): "Found it", then a card with the banner (only when there is one), the advertiser and
@@ -178,6 +179,15 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
               card: widget.result.card,
               showsIcons: !isCompact,
               registry: widget.actionRegistry,
+              onTapped: (action) => unawaited(
+                ref
+                    .read(engagementRecordingProvider)
+                    .record(
+                      recognitionId: widget.result.recognitionId,
+                      stationId: widget.result.stationId,
+                      actionId: action.id,
+                    ),
+              ),
             ),
             if (widget.isSavedToHistory) ...[
               SizedBox(height: sideSpace),

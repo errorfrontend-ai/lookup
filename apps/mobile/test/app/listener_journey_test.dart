@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/notification_launch_handler.dart';
+import 'package:lookup_listener/core/outbox/outbox_providers.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
@@ -247,6 +248,70 @@ void main() {
       expect(harness.reporter.reports, isEmpty);
     },
   );
+
+  testWidgets('a tap with no network is kept, and sent once the network is back: one request to '
+      '/engagements with the recognition, the station, the button and the tap time, then the '
+      'outbox is empty (P6-OUTBOX-06 in widget form; T54)', (tester) async {
+    final harness = ListenerAppHarness();
+    await harness.pumpApp(
+      tester,
+      extraOverrides: [
+        clockProvider.overrideWithValue(TestTimeClock(tester)),
+        outboxRandomProvider.overrideWithValue(Random(3)),
+      ],
+    );
+    final container = harness.container(tester);
+    container.read(networkWatcherProvider).start();
+    container.read(outboxRunSchedulerProvider).start();
+    await tester.pump();
+
+    harness.answerWithResponseFixture('valid/match-campaign');
+    await tester.tap(find.text(englishWords.identifyButtonLabel));
+    await harness.pumpTransition(tester);
+    await harness.recordWholeClip(tester);
+    await harness.pumpTransition(tester);
+    expect(harness.location(tester), '/result');
+
+    harness.deviceServices.setNetwork(isUp: false);
+    await tester.pump();
+    final tappedAt = container.read(clockProvider).now();
+    await tester.tap(find.text('Call us'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(harness.launcher.openedAddresses.single, startsWith('tel:'));
+    // Nothing goes while the network is away.
+    await tester.pump(const Duration(minutes: 5));
+    expect(harness.adapter.requests.where((r) => r.address.path.endsWith('/engagements')), isEmpty);
+
+    harness.adapter.answerText(204, '');
+    harness.deviceServices.setNetwork(isUp: true);
+    await tester.pump(const Duration(seconds: 121));
+    await tester.pump();
+    final taps = harness.adapter.requests
+        .where((request) => request.address.path == '/api/v1/engagements')
+        .toList();
+    expect(taps, hasLength(1));
+    final body = taps.single.jsonBody! as Map<String, Object?>;
+    expect(body.keys.toSet(), {
+      'recognition_id',
+      'station_id',
+      'action_id',
+      'occurred_at',
+      'sent_at',
+    });
+    expect(body['recognition_id'], _matchRecognitionId);
+    expect(body['station_id'], '0192a6c4-1111-4000-8000-000000000001');
+    expect(body['action_id'], '0192a6c4-0000-4000-8000-000000000001');
+    expect(
+      DateTime.parse(body['occurred_at']! as String).difference(tappedAt).inSeconds.abs(),
+      lessThanOrEqualTo(1),
+    );
+    expect(
+      (await tester.runAsync(() => container.read(outboxStoreProvider).read()))!.items,
+      isEmpty,
+    );
+    expect(harness.reporter.reports, isEmpty);
+  });
 }
 
 /// The recognition id of `valid/match-campaign.json`.

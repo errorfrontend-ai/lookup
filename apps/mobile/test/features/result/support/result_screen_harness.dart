@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/features/result/data/action_launcher.dart';
 import 'package:lookup_listener/features/result/data/clipboard_writer.dart';
+import 'package:lookup_listener/features/result/data/engagement_recording_provider.dart';
 import 'package:lookup_listener/features/result/domain/action_card_reader.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
@@ -17,9 +18,10 @@ import '../../../support/contract_fixtures.dart';
 import '../../../support/phone_screen.dart';
 import 'fake_action_launcher.dart';
 import 'fake_clipboard_writer.dart';
+import 'recording_engagements.dart';
 
 /// Shows result widgets the way the app does — inside the app's theme, under a `ProviderScope`
-/// whose launcher and clipboard are fakes (design §4.1: dependencies replaced through provider
+/// whose launcher, clipboard and tap recording are fakes (design §4.1: dependencies replaced through provider
 /// overrides only) — and counts the "Back to home" calls.
 ///
 /// The `ProviderScope` sits above `MaterialApp`, as in the app, so the copy sheet (a route of its
@@ -31,6 +33,9 @@ final class ResultScreenHarness {
 
   final FakeActionLauncher launcher;
   final FakeClipboardWriter clipboard;
+
+  /// Each tap the screen queued (T54).
+  final RecordingEngagements engagements = RecordingEngagements();
 
   /// How many times the screen asked to go Home.
   int backToHomeCount = 0;
@@ -63,6 +68,7 @@ final class ResultScreenHarness {
         overrides: [
           actionLauncherProvider.overrideWithValue(launcher),
           clipboardWriterProvider.overrideWithValue(clipboard),
+          engagementRecordingProvider.overrideWithValue(engagements),
         ],
         child: MaterialApp(
           theme: theme ?? LookUpTheme.light(),

@@ -142,6 +142,41 @@ class OutboxStore {
     return isQueued;
   }
 
+  /// Queues a tap of the button [actionId] on the card [stationId] showed for [recognitionId] (T54,
+  /// P6-OUTBOX-06), first tapped at [occurredAt] by the phone's clock. One per recognition and button:
+  /// a tap of a button already queued changes nothing and the result is false (the server keeps one
+  /// too). With 200 follow-ups waiting, the oldest tap is deleted first (P6-D44).
+  Future<bool> queueEngagement({
+    required String recognitionId,
+    required String stationId,
+    required String actionId,
+    required DateTime occurredAt,
+  }) async {
+    var isQueued = false;
+    await modify((index) {
+      final isAlreadyQueued = index.items.any(
+        (item) =>
+            item is EngagementItem &&
+            item.recognitionId == recognitionId &&
+            item.actionId == actionId,
+      );
+      if (isAlreadyQueued) return index;
+      isQueued = true;
+      return _withRoomForFollowUp(index).withItemAdded(
+        EngagementItem(
+          itemId: _randomUuid.generate(),
+          queuedAt: _clock.now().toUtc(),
+          recognitionId: recognitionId,
+          stationId: stationId,
+          actionId: actionId,
+          occurredAt: occurredAt.toUtc(),
+        ),
+      );
+    });
+    if (isQueued) _itemsQueued.add(null);
+    return isQueued;
+  }
+
   /// Queues "Report this" for [recognitionId] (P6 design §2.14): the station whose result was shown
   /// and the listener's [reason], one of [RecognitionReportItem.reasons]. The first report of a
   /// recognition wins: a second changes nothing and the result is false (the server keeps the first
@@ -355,7 +390,8 @@ class OutboxStore {
   );
 
   /// [index] with room for one more follow-up: at the limit, the oldest tap goes first, then the
-  /// oldest report, then the oldest choice (P6-D44). Only choices exist so far.
+  /// oldest report, then the oldest choice (P6-D44), so a choice goes only once no tap waits, and a
+  /// recognition is never left without its listener's choice while its taps wait.
   OutboxIndex _withRoomForFollowUp(OutboxIndex index) {
     final followUps = [
       for (final item in index.items)

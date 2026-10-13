@@ -49,6 +49,9 @@ import 'package:lookup_listener/features/settings/data/station_list_cache.dart';
 import 'package:lookup_listener/features/settings/data/station_list_repository.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:lookup_listener/app/outbox_engagement_recording.dart';
+import 'package:lookup_listener/features/result/data/engagement_recording_provider.dart';
+import 'package:lookup_listener/features/result/data/engagement_sender.dart';
 
 /// The app's one clock (design §3.5): wall-clock time for the API and a monotonic one for waits.
 /// Tests override it with a fake clock.
@@ -253,6 +256,10 @@ final Provider<OutboxSender> outboxSenderProvider = Provider<OutboxSender>(
         apiClient: ref.watch(apiClientProvider),
         clock: ref.watch(clockProvider),
       ),
+      OutboxItemKind.engagement: EngagementSender(
+        apiClient: ref.watch(apiClientProvider),
+        clock: ref.watch(clockProvider),
+      ),
     },
     listenerInstallRepository: ref.watch(listenerInstallRepositoryProvider),
     clientErrorReporter: ref.watch(clientErrorReporterProvider),
@@ -381,6 +388,13 @@ List<Override> get appServiceOverrides => [
       outboxStore: ref.watch(outboxStoreProvider),
       history: ref.watch(historyRepositoryProvider),
       clientErrorReporter: ref.watch(clientErrorReporterProvider),
+    ),
+  ),
+  engagementRecordingProvider.overrideWith(
+    (ref) => OutboxEngagementRecording(
+      outboxStore: ref.watch(outboxStoreProvider),
+      clientErrorReporter: ref.watch(clientErrorReporterProvider),
+      clock: ref.watch(clockProvider),
     ),
   ),
   isNetworkMeteredProvider.overrideWith((ref) {

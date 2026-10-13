@@ -196,6 +196,8 @@ abstract final class SourceRules {
     'app/bootstrap.dart': {'Deleting old History entries at start failed'},
     // The crash report's description when a report cannot be queued (P6 design §2.14).
     'app/outbox_recognition_reporting.dart': {'Queueing the report failed'},
+    // The crash report's description when a tap cannot be queued (T54).
+    'app/outbox_engagement_recording.dart': {'Queueing a tap failed'},
     // The background job (P6 design §3.10): WorkManager's work names, the port's name, the entry
     // point's pragma, and what its crash reports say went wrong.
     'app/background_work_scheduler.dart': {'look-up-outbox-send', 'look-up-outbox-expiry'},

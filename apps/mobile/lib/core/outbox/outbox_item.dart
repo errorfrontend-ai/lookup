@@ -123,6 +123,89 @@ final class StationChoiceItem extends OutboxItem {
 /// "Report this" (P6 design §2.14; Q6): `POST /recognitions/{recognition_id}/report` with
 /// `{"station_id": …, "reason": …}` (contract §1.6). One per recognition: the first report wins, here
 /// as on the server; no free text is ever kept or sent.
+/// A button tap on a result (P6 design §3.8, T54; P6-OUTBOX-06): `POST /engagements` with the ids and
+/// the time of the first tap. One per recognition and button: a second tap of the same button
+/// changes nothing, here as on the server. The button's type, label, number or link never travel.
+final class EngagementItem extends OutboxItem {
+  const EngagementItem({
+    required super.itemId,
+    required super.queuedAt,
+    required this.recognitionId,
+    required this.stationId,
+    required this.actionId,
+    required this.occurredAt,
+    super.attemptCount,
+    super.nextAttemptAt,
+    super.lastProblem,
+  });
+
+  /// The recognition whose card was shown (lower-case UUID).
+  final String recognitionId;
+
+  /// The station whose card was shown (the chosen one after "Which station?").
+  final String stationId;
+
+  /// The button's `id` on that card.
+  final String actionId;
+
+  /// When the button was first tapped, by the phone's clock (UTC); each send adds when it left, so
+  /// the server can correct a wrong clock (Q16).
+  final DateTime occurredAt;
+
+  @override
+  OutboxItemKind get kind => OutboxItemKind.engagement;
+
+  /// One tap per recognition and button (contract R12).
+  @override
+  String get idempotencyKey => '$recognitionId/$actionId';
+
+  @override
+  EngagementItem retried({
+    required DateTime? nextAttemptAt,
+    required OutboxItemProblem? lastProblem,
+  }) => EngagementItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    actionId: actionId,
+    occurredAt: occurredAt,
+    attemptCount: attemptCount + 1,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  EngagementItem withNextAttemptAt(DateTime nextAttemptAt) => EngagementItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    actionId: actionId,
+    occurredAt: occurredAt,
+    attemptCount: attemptCount,
+    nextAttemptAt: nextAttemptAt,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  EngagementItem withoutWait() => EngagementItem(
+    itemId: itemId,
+    queuedAt: queuedAt,
+    recognitionId: recognitionId,
+    stationId: stationId,
+    actionId: actionId,
+    occurredAt: occurredAt,
+    attemptCount: attemptCount,
+    lastProblem: lastProblem,
+  );
+
+  @override
+  String toString() =>
+      'EngagementItem($itemId, recognition $recognitionId, action $actionId, '
+      'attempts $attemptCount)';
+}
+
 final class RecognitionReportItem extends OutboxItem {
   const RecognitionReportItem({
     required super.itemId,

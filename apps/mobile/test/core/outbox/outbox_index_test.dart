@@ -271,4 +271,56 @@ void main() {
       );
     });
   });
+
+  group('a tap (T54; P6-OUTBOX-06)', () {
+    EngagementItem tap({DateTime? queuedAt}) => EngagementItem(
+      itemId: 'tap-1',
+      queuedAt: queuedAt ?? _now,
+      recognitionId: '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70',
+      stationId: _stationHint,
+      actionId: '0192a6c4-0000-4000-8000-000000000001',
+      occurredAt: _now.subtract(const Duration(seconds: 3)),
+    );
+
+    test('keeps its recognition, station, button and tap time, in the follow-ups group', () {
+      final back = _roundTrip(OutboxIndex(items: [tap()])).index.items.single as EngagementItem;
+      expect(back.kind.group.name, 'followUps');
+      expect(back.recognitionId, '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70');
+      expect(back.stationId, _stationHint);
+      expect(back.actionId, '0192a6c4-0000-4000-8000-000000000001');
+      expect(back.occurredAt, _now.subtract(const Duration(seconds: 3)));
+      expect(
+        back.idempotencyKey,
+        '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70/0192a6c4-0000-4000-8000-000000000001',
+        reason: 'one per recognition and button (contract R12)',
+      );
+    });
+
+    test('a tap with no time, or one that does not read as a time, is left out', () {
+      for (final occurredAt in [null, 'yesterday']) {
+        final tampered =
+            jsonDecode(jsonEncode(OutboxIndex(items: [tap()]).toJson())) as Map<String, Object?>;
+        final item = (tampered['items']! as List<Object?>).single! as Map<String, Object?>;
+        if (occurredAt == null) {
+          item.remove('occurred_at');
+        } else {
+          item['occurred_at'] = occurredAt;
+        }
+        expect(OutboxIndex.fromJson(tampered).unreadableItemCount, 1, reason: '$occurredAt');
+      }
+    });
+
+    test('runs out 7 days after it was queued, as every follow-up does', () {
+      final lifetime = const Duration(seconds: OutboxTimingRules.followUpItemLifetimeSeconds);
+      final due = tap(queuedAt: _now.subtract(lifetime));
+      expect(
+        OutboxIndex(items: [due]).withoutExpired(now: _now, appVersion: '0.3.0').items,
+        isEmpty,
+      );
+      final kept = tap(queuedAt: _now.subtract(lifetime).add(const Duration(minutes: 1)));
+      expect(OutboxIndex(items: [kept]).withoutExpired(now: _now, appVersion: '0.3.0').items, [
+        kept,
+      ]);
+    });
+  });
 }

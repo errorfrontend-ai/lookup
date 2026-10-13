@@ -982,6 +982,53 @@ void main() {
       await expectLater(tester, meetsGuideline(textContrastGuideline));
     });
   });
+
+  group('taps (T54; P6-OUTBOX-06)', () {
+    const callId = '0192a6c4-0000-4000-8000-000000000001';
+    const stationB = '0192a6c4-1111-4000-8000-000000000002';
+
+    testWidgets('a tap on Call queues it with the recognition, the station shown and the button, '
+        'then opens the dialler; each tap is handed over, the outbox keeps one', (tester) async {
+      final harness = ResultScreenHarness();
+      await harness.pumpResultScreen(tester, resultWith(card: fourActionCard, stationId: stationB));
+      for (var tap = 0; tap < 2; tap++) {
+        await tester.tap(find.text('Call us'));
+        await tester.pump();
+      }
+      expect(harness.engagements.taps, [
+        (fixtureRecognitionId, stationB, callId),
+        (fixtureRecognitionId, stationB, callId),
+      ]);
+      expect(harness.launcher.openedAddresses, hasLength(2));
+      expect(harness.launcher.openedAddresses.first, startsWith('tel:'));
+    });
+
+    testWidgets('a tap counts even when the phone cannot open the address: the copy sheet shows', (
+      tester,
+    ) async {
+      final harness = ResultScreenHarness(launcherOpens: false);
+      await harness.pumpResultScreen(tester, resultWith(card: fourActionCard));
+      await tester.tap(find.text('Find our shop'));
+      await tester.pumpAndSettle();
+      expect(harness.engagements.taps.single.$3, '0192a6c4-0000-4000-8000-000000000003');
+      expect(find.text("Couldn't open this"), findsOneWidget);
+    });
+
+    testWidgets("a saved result's buttons queue their taps too (P6-HISTORY-02)", (tester) async {
+      final harness = ResultScreenHarness();
+      await harness.pump(
+        tester,
+        ResultScreen.saved(
+          result: resultWith(card: fourActionCard),
+          onBack: () {},
+        ),
+      );
+      await tester.ensureVisible(find.text('See the menu'));
+      await tester.tap(find.text('See the menu'));
+      await tester.pump();
+      expect(harness.engagements.taps.single.$3, '0192a6c4-0000-4000-8000-000000000004');
+    });
+  });
 }
 
 /// "Send report" as the app does it, recorded: (recognition, station, reason).

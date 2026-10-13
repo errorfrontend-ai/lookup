@@ -1,4 +1,5 @@
 import 'package:lookup_listener/core/outbox/outbox_item.dart';
+import 'package:lookup_listener/core/time/utc_timestamp.dart';
 import 'package:lookup_listener/features/identify/domain/captured_clip.dart';
 
 /// Builds the parts of one `POST /recognize` from a clip (§3.10, S4-REQUEST-01 to -06, S4-D8), as
@@ -84,16 +85,8 @@ final class RecognizeRequestBuilder {
     caseSensitive: false,
   );
 
-  /// [time] in UTC as ISO 8601 with exactly three decimal places and `Z`, e.g.
-  /// `2026-10-08T09:15:02.123Z`. Written out because Dart's `toIso8601String()` writes a local time
-  /// without a zone (which the contract refuses) and six decimals when there are microseconds.
-  static String formatUtcTimestamp(DateTime time) {
-    final utc = time.toUtc();
-    String twoDigits(int value) => value.toString().padLeft(2, '0');
-    return '${utc.year.toString().padLeft(4, '0')}-${twoDigits(utc.month)}-${twoDigits(utc.day)}'
-        'T${twoDigits(utc.hour)}:${twoDigits(utc.minute)}:${twoDigits(utc.second)}'
-        '.${utc.millisecond.toString().padLeft(3, '0')}Z';
-  }
+  /// [time] as the contract writes it ([UtcTimestamp.format]).
+  static String formatUtcTimestamp(DateTime time) => UtcTimestamp.format(time);
 }
 
 /// One recognize request's body as plain data, in the shape of Dio's `FormData`: [textFields] in
