@@ -67,6 +67,13 @@ class OutboxRunScheduler {
     unawaited(_startRun(OutboxRunReason.appStarted));
   }
 
+  /// Starts a run now, with no random wait: the background job asked, while this engine is in the
+  /// foreground, so the two engines never send at once (P6 design §3.10).
+  void runNow() {
+    if (!_isStarted || _isDisposed) return;
+    unawaited(_startRun(OutboxRunReason.wakeUp));
+  }
+
   /// Stops everything: the timer, the subscriptions. A run under way finishes on its own.
   void dispose() {
     _isDisposed = true;

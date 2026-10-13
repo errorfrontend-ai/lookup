@@ -4,10 +4,14 @@ import 'dart:math';
 import 'package:device_services/device_services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
+import 'package:lookup_listener/app/outbox_background_task.dart';
+import 'package:lookup_listener/app/background_work_scheduler.dart';
 import 'package:lookup_listener/app/deferred_result_handler.dart';
 import 'package:lookup_listener/app/device_services_lock_take_over.dart';
 import 'package:lookup_listener/app/engine_identity.dart';
 import 'package:lookup_listener/app/history_answer_reader.dart';
+import 'package:lookup_listener/app/outbox_background_coordinator.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/device/network_watcher.dart';
@@ -222,13 +226,45 @@ final Provider<OutboxSender> outboxSenderProvider = Provider<OutboxSender>(
     random: ref.watch(outboxRandomProvider),
     clock: ref.watch(clockProvider),
     // No outbox send starts while the listener's own identify records, sends or waits (§3.9).
-    isLiveIdentifyUnderWay: () => ref.read(recognitionFlowProvider).isLiveIdentifyUnderWay,
+    isLiveIdentifyUnderWay: ref.watch(liveIdentifyUnderWayProvider),
     // Nor while Android reports no network at all (§3.9 point 7).
     isNetworkAvailable: () => ref.read(networkWatcherProvider).isNetworkAvailable,
     onClipsExpired: ref.watch(deferredResultHandlerProvider).recordExpiredClips,
   ),
   retry: (retryCount, error) => null,
 );
+
+/// Whether the listener's own identify records, sends or waits now, which holds the outbox back
+/// (§3.9). The background job's engine, which has no identify, overrides it.
+final Provider<bool Function()> liveIdentifyUnderWayProvider = Provider<bool Function()>(
+  (ref) =>
+      () => ref.read(recognitionFlowProvider).isLiveIdentifyUnderWay,
+  retry: (retryCount, error) => null,
+);
+
+/// The outbox's background job on Android, through WorkManager; nothing on other platforms, where
+/// clips wait for the next start or resume (P6 design §3.10; P6-OFFLINE-08, -09). Tests override it.
+final Provider<BackgroundWorkScheduler> backgroundWorkSchedulerProvider =
+    Provider<BackgroundWorkScheduler>(
+      (ref) => defaultTargetPlatform == TargetPlatform.android
+          ? WorkmanagerBackgroundWorkScheduler(callbackDispatcher: outboxBackgroundDispatcher)
+          : const NoBackgroundWorkScheduler(),
+      retry: (retryCount, error) => null,
+    );
+
+/// The foreground engine's side of the background job: asks for it, and answers it while resumed.
+/// `bootstrap()` starts it after the first frame.
+final Provider<OutboxBackgroundCoordinator> outboxBackgroundCoordinatorProvider =
+    Provider<OutboxBackgroundCoordinator>((ref) {
+      final coordinator = OutboxBackgroundCoordinator(
+        store: ref.watch(outboxStoreProvider),
+        scheduler: ref.watch(backgroundWorkSchedulerProvider),
+        clientErrorReporter: ref.watch(clientErrorReporterProvider),
+        onRunRequested: () => ref.read(outboxRunSchedulerProvider).runNow(),
+      );
+      ref.onDispose(coordinator.dispose);
+      return coordinator;
+    }, retry: (retryCount, error) => null);
 
 /// The interface the identify feature hands a saved clip's outcome to.
 final Provider<DeferredResultSink> deferredResultSinkProvider = Provider<DeferredResultSink>(

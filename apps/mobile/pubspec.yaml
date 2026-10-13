@@ -25,6 +25,8 @@ dependencies:
   permission_handler: 12.0.3
   shared_preferences: 2.5.5
   path_provider: 2.1.6
+  # Sends saved clips with the app closed, on Android (P6 design §3.10, P6-D17; download approved, Q2).
+  workmanager: 0.10.10
   # The in-repo plugin for notifications, the network and attached engines (P6 design §3.15): no download.
   device_services:
     path: packages/device_services

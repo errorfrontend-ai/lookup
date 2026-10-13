@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
+import 'package:lookup_listener/app/background_work_scheduler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
@@ -44,6 +46,27 @@ void main() {
     expect(container.read(clientErrorReporterProvider), isA<ClientErrorReporter>());
     expect(container.read(recognitionRepositoryProvider), isA<RecognitionRepository>());
     expect(container.read(developmentLogProvider).isOn, isFalse);
+  });
+
+  group('the background job (P6 design §3.10; P6-OFFLINE-08, -09)', () {
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    test('on Android, WorkManager runs it', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      expect(
+        _appContainer().read(backgroundWorkSchedulerProvider),
+        isA<WorkmanagerBackgroundWorkScheduler>(),
+      );
+    });
+
+    test('on iOS there is none: clips wait for the next start or resume, whose run sends them '
+        'and deletes what has run out', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      expect(
+        _appContainer().read(backgroundWorkSchedulerProvider),
+        isA<NoBackgroundWorkScheduler>(),
+      );
+    });
   });
 
   test('one of each: the same client, reporter and clock wherever they are read', () {

@@ -22,6 +22,16 @@ abstract final class AndroidProjectChecks {
     'android.permission.POST_NOTIFICATIONS',
   };
 
+  /// What `workmanager_android` merges for long or expedited work, which the outbox's jobs never
+  /// need, and the main manifest removes with `tools:node="remove"` (P6 design §3.10, §3.21).
+  static const Set<String> removedPermissions = {
+    'android.permission.FOREGROUND_SERVICE',
+    'android.permission.FOREGROUND_SERVICE_SHORT_SERVICE',
+  };
+  static const Set<String> removedServices = {
+    'androidx.work.impl.foreground.SystemForegroundService',
+  };
+
   /// The only permission the in-repo `device_services` plugin adds (P6 design §3.15, §3.21): a
   /// normal one, granted at install, to know whether a network is up.
   static const Set<String> devicePluginPermissions = {'android.permission.ACCESS_NETWORK_STATE'};
@@ -93,7 +103,8 @@ abstract final class AndroidProjectChecks {
   }
 
   /// `src/main/AndroidManifest.xml`: exactly INTERNET, RECORD_AUDIO and POST_NOTIFICATIONS, backup
-  /// off, cleartext off, the network-security configuration, the button queries, and no service.
+  /// off, cleartext off, the network-security configuration, the button queries, no service of its
+  /// own, and WorkManager's foreground service and its two permissions removed.
   static List<String> problemsWithMainManifest(String manifestText) {
     final manifest = SimpleXmlElement.parse(manifestText);
     final problems = <String>[];
@@ -120,11 +131,21 @@ abstract final class AndroidProjectChecks {
         problems.add('<application> ${entry.key} is ${application[entry.key]}, not ${entry.value}');
       }
     }
-    if (manifest.descendantsNamed('service').isNotEmpty) {
+    final services = manifest.descendantsNamed('service');
+    if (services.any((service) => service.attributes['tools:node'] != 'remove')) {
       problems.add(
         'the manifest declares a service; the app never records in the background '
         '(§3.17)',
       );
+    }
+    final removed = {
+      for (final element in [...manifest.childrenNamed('uses-permission'), ...services])
+        if (element.attributes['tools:node'] == 'remove') element.attributes['android:name'],
+    };
+    for (final name in {...removedPermissions, ...removedServices}) {
+      if (!removed.contains(name)) {
+        problems.add('the manifest does not remove $name, which WorkManager merges (P6 §3.21)');
+      }
     }
     problems.addAll(_problemsWithQueries(manifest));
     return problems;

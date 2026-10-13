@@ -108,12 +108,16 @@ class OutboxSender {
 
   /// Runs the sender once, for [reason]. Returns [OutboxRunAlreadyUnderWay] at once when a run is
   /// already going (which picks new items up), else [OutboxRunEnded] when the run is over.
-  Future<OutboxRunResult> run(OutboxRunReason reason) async {
+  ///
+  /// With [sendingTimeLimit] (the background job's 8 minutes, P6 design §3.10), no send starts once
+  /// that long has passed since the run began, its wait included; the run then ends and says so.
+  Future<OutboxRunResult> run(OutboxRunReason reason, {Duration? sendingTimeLimit}) async {
     if (_isRunning) {
       if (reason == OutboxRunReason.itemQueued) _wasItemQueuedDuringRun = true;
       return const OutboxRunAlreadyUnderWay();
     }
     _isRunning = true;
+    final runStartedAt = _clock.monotonicElapsed();
     OwnedLockFile? sendingLock;
     var hasFailed = false;
     try {
@@ -132,8 +136,15 @@ class OutboxSender {
       }
       final waitSeconds = _drawWaitSeconds(reason);
       _didLastRunEmptyQueue = false;
-      if (waitSeconds > 0) await Future<void>.delayed(Duration(seconds: waitSeconds));
-      final progress = _RunProgress(isProbeDue: reason == OutboxRunReason.appStarted);
+      // With no network nothing will be sent, so there is nothing to spread out (§3.9 point 7).
+      if (waitSeconds > 0 && _isNetworkAvailable()) {
+        await Future<void>.delayed(Duration(seconds: waitSeconds));
+      }
+      final progress = _RunProgress(
+        isProbeDue: reason == OutboxRunReason.appStarted,
+        startedAt: runStartedAt,
+        sendingTimeLimit: sendingTimeLimit,
+      );
       do {
         _wasItemQueuedDuringRun = false;
         await _sendWhatIsDue(progress);
@@ -141,8 +152,14 @@ class OutboxSender {
       final finalIndex = await _store.read();
       _didLastRunEmptyQueue = finalIndex.isEmpty;
       // With no network there is nothing to wake up for: the network coming back starts the next.
-      if (progress.hasEndedForNoNetwork) return const OutboxRunEnded(nextWakeUpAt: null);
-      return OutboxRunEnded(nextWakeUpAt: _nextWakeUpAt(finalIndex, progress));
+      if (progress.hasEndedForNoNetwork) {
+        return const OutboxRunEnded(nextWakeUpAt: null, hasEndedForNoNetwork: true);
+      }
+      return OutboxRunEnded(
+        nextWakeUpAt: _nextWakeUpAt(finalIndex, progress),
+        hasStoppedAtTimeLimit:
+            progress.hasStoppedAtTimeLimit && finalIndex.nextDueItem(_clock.now()) != null,
+      );
     } on Object catch (error, stackTrace) {
       hasFailed = true;
       _failedRunsInARow++;
@@ -166,6 +183,7 @@ class OutboxSender {
     OutboxRunReason.appStarted ||
     OutboxRunReason.appResumed ||
     OutboxRunReason.networkBack ||
+    OutboxRunReason.backgroundJob ||
     OutboxRunReason.itemQueued => _random.nextInt(_timingRules.sendingDelayMaximumSeconds + 1),
   };
 
@@ -177,6 +195,10 @@ class OutboxSender {
       }
       if (!_isNetworkAvailable()) {
         progress.endForNoNetwork();
+        return;
+      }
+      if (progress.isPastTimeLimit(_clock.monotonicElapsed())) {
+        progress.endAtTimeLimit();
         return;
       }
       final index = await _withoutExpired();
@@ -519,6 +541,10 @@ enum OutboxRunReason {
 
   /// The wake-up after a wait (amendment A1): no new random wait.
   wakeUp,
+
+  /// WorkManager's job, with the app closed or hidden (§3.10): the random wait of any start, and a
+  /// 426 probe only when one is due.
+  backgroundJob,
 }
 
 /// How a call to [OutboxSender.run] ended.
@@ -529,9 +555,21 @@ sealed class OutboxRunResult {
 /// The run is over. [nextWakeUpAt] is when the next should start by itself; null when nothing
 /// waits, or another engine is sending.
 final class OutboxRunEnded extends OutboxRunResult {
-  const OutboxRunEnded({required this.nextWakeUpAt});
+  const OutboxRunEnded({
+    required this.nextWakeUpAt,
+    this.hasEndedForNoNetwork = false,
+    this.hasStoppedAtTimeLimit = false,
+  });
 
   final DateTime? nextWakeUpAt;
+
+  /// Android reported no network, so nothing was tried: the background job asks WorkManager to
+  /// try again (§3.10).
+  final bool hasEndedForNoNetwork;
+
+  /// The run reached its sending time limit with an item still due: the background job asks
+  /// WorkManager to try again (§3.10).
+  final bool hasStoppedAtTimeLimit;
 }
 
 /// A run was already under way, and picks new items up; its own end sets the wake-up.
@@ -541,7 +579,26 @@ final class OutboxRunAlreadyUnderWay extends OutboxRunResult {
 
 /// Where one run stands.
 final class _RunProgress {
-  _RunProgress({required this.isProbeDue});
+  _RunProgress({required this.isProbeDue, required this.startedAt, this.sendingTimeLimit});
+
+  /// When the run began, by the monotonic clock.
+  final Duration startedAt;
+
+  /// How long after [startedAt] a send may still start; null for no limit.
+  final Duration? sendingTimeLimit;
+
+  /// Set when the run stopped at [sendingTimeLimit].
+  bool hasStoppedAtTimeLimit = false;
+
+  bool isPastTimeLimit(Duration now) => switch (sendingTimeLimit) {
+    final limit? => now - startedAt >= limit,
+    null => false,
+  };
+
+  void endAtTimeLimit() {
+    hasEnded = true;
+    hasStoppedAtTimeLimit = true;
+  }
 
   /// Whether a 426 pause's probe may go now: once at app start.
   bool isProbeDue;

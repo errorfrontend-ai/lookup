@@ -194,6 +194,19 @@ abstract final class SourceRules {
       'Keeping the clip for later failed',
     },
     'app/bootstrap.dart': {'Deleting old History entries at start failed'},
+    // The background job (P6 design §3.10): WorkManager's work names, the port's name, the entry
+    // point's pragma, and what its crash reports say went wrong.
+    'app/background_work_scheduler.dart': {'look-up-outbox-send', 'look-up-outbox-expiry'},
+    'app/outbox_background_coordinator.dart': {
+      'look-up-outbox',
+      'Scheduling the outbox expiry job failed',
+      'Scheduling the outbox send job failed',
+    },
+    'app/outbox_background_task.dart': {
+      'vm:entry-point',
+      'The outbox background job failed',
+      'Scheduling the outbox expiry job failed',
+    },
     'features/identify/presentation/reference_code_panel.dart': {'monospace', 'Menlo', 'Courier'},
     'features/identify/presentation/send_test_error_button.dart': {
       'A test error, thrown on purpose from the developer tools',

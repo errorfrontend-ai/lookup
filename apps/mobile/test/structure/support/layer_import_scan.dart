@@ -64,7 +64,8 @@ final class LayerImportScan {
   /// One line per broken rule: the file, the line, the import and the rule.
   final List<String> violations;
 
-  /// The packages presentation must reach only through a feature's data layer (§3.2).
+  /// The packages presentation must reach only through a feature's data layer (§3.2; P6 design
+  /// §3.2: the device plugin and WorkManager too).
   static const Set<String> packagesPresentationMustNotImport = {
     'dio',
     'shared_preferences',
@@ -72,6 +73,8 @@ final class LayerImportScan {
     'permission_handler',
     'url_launcher',
     'path_provider',
+    'device_services',
+    'workmanager',
   };
 
   /// The libraries domain may import besides other domain files (§3.2).

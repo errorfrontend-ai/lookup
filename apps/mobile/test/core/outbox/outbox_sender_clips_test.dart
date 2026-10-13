@@ -1,6 +1,8 @@
+import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
-import 'package:dio/dio.dart' show DioExceptionType;
+import 'package:dio/dio.dart' show DioExceptionType, Headers, ResponseBody;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/outbox/outbox_index.dart';
@@ -11,6 +13,7 @@ import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
 import 'package:lookup_listener/features/identify/data/recognize_request_builder.dart';
 import 'package:lookup_listener/features/identify/domain/deferred_result_sink.dart';
 
+import '../../support/contract_fixtures.dart';
 import '../../support/received_multipart_form.dart';
 import 'outbox_sender_harness.dart';
 
@@ -316,6 +319,110 @@ void main() {
         expect(harness.index.groupPausedUntil.keys, [OutboxItemGroup.crashReports]);
         expect(harness.recognizeRequests, hasLength(1));
         expect(harness.items.single, isA<ClientErrorReportItem>());
+      });
+    });
+  });
+
+  group('in the background job (P6 design §3.10)', () {
+    const keyThree = '6a0d1b2c-3e4f-4a5b-8c6d-7e8f9a0b1c23';
+
+    /// Answers the next request with "no match" after [delay].
+    void answerNoMatchAfter(OutboxSenderHarness harness, Duration delay) {
+      final content =
+          ContractFixtures.readFile('recognition/recognize-response/valid/no-match.json')!
+              as Map<String, Object?>;
+      harness.adapter.answerWith((request, cancelFuture) async {
+        await Future<void>.delayed(delay);
+        return ResponseBody.fromString(
+          jsonEncode(content['response']),
+          200,
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType],
+          },
+        );
+      });
+    }
+
+    OutboxRunEnded runInBackground(OutboxSenderHarness harness, {Duration? limit}) {
+      OutboxRunResult? result;
+      unawaited(
+        harness.sender
+            .run(OutboxRunReason.backgroundJob, sendingTimeLimit: limit)
+            .then((ended) => result = ended),
+      );
+      harness.wait(const Duration(minutes: 5));
+      return result! as OutboxRunEnded;
+    }
+
+    test('no send starts once the time limit has passed; the run says items are still due', () {
+      runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+        for (final (minutes, key) in [(3, _keyOne), (2, _keyTwo), (1, keyThree)]) {
+          harness.queueClip(
+            key,
+            capturedAt: harness.clock.now().subtract(Duration(minutes: minutes)),
+          );
+        }
+        for (var answer = 0; answer < 3; answer++) {
+          answerNoMatchAfter(harness, const Duration(seconds: 5));
+        }
+        final ended = runInBackground(harness, limit: const Duration(seconds: 10));
+
+        expect(harness.recognizeRequests, hasLength(2), reason: 'at 0 s and 5 s; not at 10 s');
+        expect(harness.items.single.idempotencyKey, keyThree);
+        expect(ended.hasStoppedAtTimeLimit, isTrue);
+        expect(ended.hasEndedForNoNetwork, isFalse);
+      });
+    });
+
+    test('reaching the limit with nothing left due is a finished run', () {
+      runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        harness.queueClip(
+          _keyTwo,
+          capturedAt: harness.clock.now().subtract(const Duration(minutes: 1)),
+        );
+        answerNoMatchAfter(harness, const Duration(seconds: 5));
+        answerNoMatchAfter(harness, const Duration(seconds: 5));
+        final ended = runInBackground(harness, limit: const Duration(seconds: 10));
+
+        expect(harness.items, isEmpty);
+        expect(ended.hasStoppedAtTimeLimit, isFalse);
+      });
+    });
+
+    test('with no network the run ends at once, says so, and draws no wait', () {
+      runSenderTest(random: ScriptedRandom(integers: [120]), (harness) {
+        harness.isNetworkUp = false;
+        harness.queueClip(_keyOne, capturedAt: harness.clock.now());
+        OutboxRunResult? result;
+        unawaited(
+          harness.sender
+              .run(OutboxRunReason.backgroundJob, sendingTimeLimit: const Duration(minutes: 8))
+              .then((ended) => result = ended),
+        );
+        harness.settle();
+
+        final ended = result! as OutboxRunEnded;
+        expect(ended.hasEndedForNoNetwork, isTrue);
+        expect(ended.nextWakeUpAt, isNull);
+        expect(harness.adapter.requests, isEmpty);
+      });
+    });
+
+    test('a run of the foreground with no limit never stops for time', () {
+      runSenderTest(random: ScriptedRandom(integers: [0]), (harness) {
+        for (final (minutes, key) in [(3, _keyOne), (2, _keyTwo), (1, keyThree)]) {
+          harness.queueClip(
+            key,
+            capturedAt: harness.clock.now().subtract(Duration(minutes: minutes)),
+          );
+        }
+        for (var answer = 0; answer < 3; answer++) {
+          answerNoMatchAfter(harness, const Duration(seconds: 5));
+        }
+        final ended = runInBackground(harness);
+        expect(harness.recognizeRequests, hasLength(3));
+        expect(ended.hasStoppedAtTimeLimit, isFalse);
       });
     });
   });

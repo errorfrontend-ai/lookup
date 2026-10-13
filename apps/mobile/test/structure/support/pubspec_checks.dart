@@ -20,6 +20,8 @@ abstract final class PubspecChecks {
     'permission_handler': '12.0.3',
     'shared_preferences': '2.5.5',
     'path_provider': '2.1.6',
+    // The background job (P6 design §3.10, P6-D17; Q2 approved).
+    'workmanager': '0.10.10',
   };
 
   /// The development dependencies and their exact pins (§3.3).

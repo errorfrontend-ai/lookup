@@ -32,6 +32,13 @@ class NetworkWatcher {
     });
   }
 
+  /// Asks Android once whether a network is up now, without waiting for the first report: the
+  /// background job decides at once whether to try (P6 design §3.10). A plugin that cannot say
+  /// leaves a network assumed.
+  Future<void> readNow() async {
+    _isAvailable = await _deviceServices.isNetworkAvailable();
+  }
+
   /// Stops following it.
   Future<void> dispose() async {
     await _subscription?.cancel();

@@ -215,6 +215,33 @@ void main() {
       );
     });
 
+    test("WorkManager's foreground service or one of its permissions kept", () {
+      expect(
+        AndroidProjectChecks.problemsWithMainManifest(
+          _planted(
+            mainManifest,
+            '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" '
+                'tools:node="remove"/>',
+            '',
+          ),
+        ),
+        [contains('does not remove android.permission.FOREGROUND_SERVICE,')],
+      );
+      expect(
+        AndroidProjectChecks.problemsWithMainManifest(
+          _planted(
+            mainManifest,
+            'tools:node="remove"/>\n    </application>',
+            '/>\n    </application>',
+          ),
+        ),
+        [
+          contains('declares a service'),
+          contains('does not remove androidx.work.impl.foreground.SystemForegroundService'),
+        ],
+      );
+    });
+
     test('a service', () {
       expect(
         AndroidProjectChecks.problemsWithMainManifest(

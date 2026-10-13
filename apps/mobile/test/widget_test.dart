@@ -29,6 +29,7 @@ import 'support/fake_http_client_adapter.dart';
 import 'support/fake_microphone_permission.dart';
 import 'support/recording_client_error_reporter.dart';
 import 'support/english_words.dart';
+import 'support/fake_background_work_scheduler.dart';
 import 'support/fake_device_services.dart';
 
 /// The start-up test (design §2.11, §3.7, §3.19): `bootstrap()` as `main()` runs it, with its
@@ -40,9 +41,11 @@ void main() {
   late Widget? startedApp;
   late Directory outboxFolder;
   late FakeDeviceServices deviceServices;
+  late FakeBackgroundWorkScheduler backgroundWork;
 
   setUp(() {
     deviceServices = FakeDeviceServices();
+    backgroundWork = FakeBackgroundWorkScheduler();
     SharedPreferences.setMockInitialValues({});
     adapter = FakeHttpClientAdapter();
     recorder = FakeClipRecorder()..leaveClipFileBehind('left-by-a-crash.m4a');
@@ -80,6 +83,7 @@ void main() {
         clipRecorderProvider.overrideWithValue(recorder),
         microphonePermissionProvider.overrideWithValue(FakeMicrophonePermission()),
         deviceServicesProvider.overrideWithValue(deviceServices),
+        backgroundWorkSchedulerProvider.overrideWithValue(backgroundWork),
         // The app's outbox, History and station list, in temporary folders in place of the
         // phone's support folder.
         outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
@@ -322,8 +326,8 @@ void main() {
     }
   });
 
-  testWidgets('start-up tells the device plugin about this engine and follows the network '
-      '(P6 design §3.8, §3.9 point 7)', (tester) async {
+  testWidgets('start-up tells the device plugin about this engine, follows the network and starts '
+      "the background job's side (P6 design §3.8, §3.9 point 7, §3.10)", (tester) async {
     final flutterErrorHandler = FlutterError.onError;
     final platformErrorHandler = PlatformDispatcher.instance.onError;
     final errorWidgetBuilder = ErrorWidget.builder;
@@ -344,6 +348,8 @@ void main() {
       await tester.pump();
 
       expect(deviceServices.attachedEngineIds, hasLength(1));
+      // The background job's side starts too: nothing waits, so no expiry job is kept (§3.10).
+      expect(backgroundWork.requests, ['cancelExpiry']);
       expect(
         deviceServices.attachedEngineIds.single,
         matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')),

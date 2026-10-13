@@ -63,6 +63,7 @@ void main() {
         'record_android',
         'shared_preferences_android',
         'url_launcher_android',
+        'workmanager_android',
       ]),
     );
     expect(scan.problems, isEmpty);

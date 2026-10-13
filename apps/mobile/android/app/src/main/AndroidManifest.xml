@@ -1,10 +1,17 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- The app's own (S4-SECURITY, design §3.20; P6 design §3.21). Flutter's template adds INTERNET only to debug
          builds. POST_NOTIFICATIONS is asked only from "Allow notifications" on the Saved screen (Q4).
          ACCESS_NETWORK_STATE comes from the in-repo device_services plugin's manifest. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- workmanager_android merges a foreground service for long or expedited work, with these two
+         permissions. The outbox's jobs are short and never expedited (P6 design §3.10, §3.21), so
+         none is ever started: removed. WorkManager's own WAKE_LOCK and RECEIVE_BOOT_COMPLETED stay,
+         to run a job and to keep it across a reboot. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" tools:node="remove"/>
 
     <!-- No backup of the install token or anything else (S4-D14); cleartext only in the development
          flavour, whose source set replaces network_security_config.xml (S4-D25). -->
@@ -44,6 +51,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- The foreground service the two removed permissions were for (see above): removed. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            tools:node="remove"/>
     </application>
     <!-- Android 11+ package visibility (S4-LINKS-13): the dialler, WhatsApp, Google Maps and the browser
          for the buttons' addresses; PROCESS_TEXT is the Flutter engine's own (text selection menu). -->

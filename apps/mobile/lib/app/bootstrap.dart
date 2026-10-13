@@ -113,6 +113,8 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
       WidgetsBinding.instance.addPostFrameCallback((_) {
         container.read(listenerInstallRepositoryProvider).registerInBackground();
         container.read(outboxRunSchedulerProvider).start();
+        // The background job: asked for when items wait, answered while the app is resumed (§3.10).
+        container.read(outboxBackgroundCoordinatorProvider).start();
         // A saved clip's notification tapped to start the app, or while it runs (P6 design §3.15).
         unawaited(container.read(notificationLaunchHandlerProvider).start());
         unawaited(
