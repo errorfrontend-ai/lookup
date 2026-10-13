@@ -1815,6 +1815,13 @@ P6-COMPATIBILITY-01 to -03; P6-STRUCTURE-02 (notification); P6-TESTS-08, -09, -1
 changed**: the T24, T27, T31 and T37 flow tests, `recognition_outcome_test`, `error_screen_test`,
 `permission_screen_test`, `android_project_test`, `client_error_reporter_test`, the emulator's
 dropped-connection journey; the security-baseline rows.
+**Carried over from the review of piece 1 (13 October 2026):** `OwnedLockFile` creates its lock
+exclusively and writes its owner line just after, so for a moment the file is empty; an empty or
+unreadable lock is judged dead when it is still the same at the next look. With one engine (pieces 1
+and 2) only a crashed process can leave such a file, so that is safe. Once the background engine
+exists, an engine stalled between the two steps could lose its lock to the other engine. This piece
+decides an empty or unreadable lock with `device_services`: while another engine of this process is
+attached, it is waited for and never taken over, and a test with `FakeDeviceServices` proves it.
 
 **Walkthrough (a)**:
 1. Press **"No signal: on"**. Tap "Tap to identify"; after 8 seconds: **"Saved — we'll identify it when
