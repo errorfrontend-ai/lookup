@@ -17,10 +17,14 @@ Control routes (fake only; refused when forwarded, as through ngrok, and from an
     GET  /__fake/requests         what the app sent: method, path, header names, ids, field names, sizes
     POST /__fake/scenarios        a JSON list of scenario names, each queued for its own route (default: match)
     POST /__fake/offline          {"is_offline": true|false}: "No signal" closes every /api/v1 connection unanswered
+    POST /__fake/minimum-app-version
+                                  {"minimum_app_version": "0.2.0"}: the update gate, as LISTENER_MINIMUM_APP_VERSION on
+                                  the real API: an install registered with an older version gets 426 on every route
+                                  that takes a token; "0.0.0" or null turns it off
     POST /__fake/phone-number     {"phone_number": "+E.164", "install_id": "<an install that registered lately>"}:
                                   numbers in answers to that install alone become this one, in memory, for its next
                                   3 answers that hold a number or 5 minutes; {"phone_number": null} forgets it
-    POST /__fake/reset            empties the queues, the logs, the issued tokens and the switches
+    POST /__fake/reset            empties the queues, the logs, the issued tokens and the switches (the gate too)
 
 Every control POST must be JSON, carry no Origin or this page's own, and name this machine as its Host
 (P6-D50). The phone number is never written, logged, echoed or shown: the state and the page say only
@@ -81,6 +85,16 @@ INSTALL_FIELDS = {'install_id', 'platform', 'app_version'}
 RECOGNIZE_FIELDS = {'clip_duration_milliseconds', 'codec', 'idempotency_key', 'captured_at', 'sent_at', 'is_deferred'}
 CLIENT_ERROR_FIELDS = {'source', 'kind', 'message', 'stack', 'location', 'relatedRequestId', 'appVersion', 'occurredAt'}
 
+# What a saved clip's busy and limited answers ask (P4 design §5.2): the real API sheds a deferred send with a random
+# 60-300 s Retry-After; the stand-in gives the shortest, so the run stays quick. A deferred 429 asks 90 s.
+DEFERRED_SHED_RETRY_AFTER_SECONDS = 60
+DEFERRED_LIMITED_RETRY_AFTER_SECONDS = 90
+
+# The update gate's minimum, as LISTENER_MINIMUM_APP_VERSION accepts it, and the one that turns it off (contract
+# listener-app-versions.ts).
+LISTENER_APP_VERSION = re.compile(r'^([0-9]{1,4})\.([0-9]{1,4})\.([0-9]{1,4})(?:\+([0-9]{1,9}))?$')
+NO_MINIMUM_APP_VERSION = '0.0.0'
+
 # How long busy and timeout answers ask the app to wait. Long enough that Busy stays on screen across two or more
 # uiautomator reads (about 2-3 s each), so the emulator run can require seeing it; short enough to keep the run
 # quick. The app accepts 1-60 s (design S4-D11).
@@ -135,6 +149,17 @@ SCENARIOS: dict[str, dict[str, Any]] = {
                            'extra_actions_from': 'action-card/valid/six-actions.json'},
     'busy': {'route': RECOGNIZE_ROUTE, 'label': 'Busy', 'envelope': 'errors/envelopes/recognition-busy.json',
              'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
+    # Station B's own campaign, for two saved clips with two results (P6 design §4.8 step 18).
+    'match-station-b': {'route': RECOGNIZE_ROUTE, 'label': 'Match on Station B',
+                        'response': f'{RESPONSES}/match-campaign-station-b.json'},
+    # A saved clip's send shed by a busy server, and one over the deferred allowance (P6-OFFLINE-17, -18): the app's
+    # outbox pauses its clips for the Retry-After, while follow-ups still go.
+    'busy-deferred-shed': {'route': RECOGNIZE_ROUTE, 'label': 'Busy (shed)',
+                           'envelope': 'errors/envelopes/recognition-busy.json',
+                           'retry_after_seconds': DEFERRED_SHED_RETRY_AFTER_SECONDS},
+    'rate-limited-deferred': {'route': RECOGNIZE_ROUTE, 'label': 'Too many saved clips',
+                              'envelope': 'errors/envelopes/rate-limited.json',
+                              'retry_after_seconds': DEFERRED_LIMITED_RETRY_AFTER_SECONDS},
     # A busy answer with no X-Request-Id header and no request_id in the body, as a proxy in front of the API might
     # send. The app waits as for busy; the 4th such answer to one clip is a phone failure, reported, because the
     # screen shows a code only for an id the API logged (T21; SendPolicy._serverFailure in send_policy.dart).
@@ -251,6 +276,9 @@ class FakeState:
             self.answered_recognitions: dict[str, dict[str, Any]] = {}
             # The first choice of each recognition, in the order they came: ids only.
             self.choices: list[dict[str, str]] = []
+            # The update gate: None (off) or a minimum version; and each install's registered version.
+            self.minimum_app_version: str | None = None
+            self.install_app_versions: dict[str, str] = {}
 
     def answer_held_for(self, install_id: str, idempotency_key: str) -> dict[str, Any] | None:
         """The 200 answer already given to this install for this key, as first built, or None for a new key."""
@@ -295,6 +323,7 @@ class FakeState:
         """Lists [install_id] as the newest registration, with its time and whether it came through a tunnel (never
         the address it came from)."""
         with self.lock:
+            self.install_app_versions[install_id] = app_version
             kept = [entry for entry in self.recent_registrations if entry['install_id'] != install_id]
             kept.append({'install_id': install_id, 'install_label': install_label(install_id),
                          'registered_at': datetime.now().astimezone().strftime('%H:%M:%S'),
@@ -341,6 +370,8 @@ class FakeState:
             check = self.current_phone_check()
             return {
                 'is_offline': self.is_offline,
+                'minimum_app_version': self.minimum_app_version,
+                'update_required_answers': sum(1 for request in requests if request.get('update_required')),
                 'replaces_phone_numbers': check is not None,
                 'phone_check': None if check is None else {
                     'install_label': install_label(check.install_id),
@@ -360,7 +391,8 @@ class FakeState:
                 'recognitions': [
                     {'request_id': request.get('request_id'), 'idempotency_key': request.get('idempotency_key'),
                      'scenario': request.get('scenario'), 'recognition_id': request.get('recognition_id'),
-                     'is_deferred': request.get('is_deferred'), 'station_hint': request.get('station_hint')}
+                     'is_deferred': request.get('is_deferred'), 'station_hint': request.get('station_hint'),
+                     'captured_at': request.get('captured_at'), 'sent_at': request.get('sent_at')}
                     for request in requests if request.get('path') == RECOGNIZE_PATH and 'scenario' in request
                 ],
                 # One per recognition, the first: what the real API would hold however often the app sent it.
@@ -369,6 +401,12 @@ class FakeState:
                 'station_list_requests': sum(1 for request in requests
                                              if request.get('path') == STATIONS_PATH and 'scenario' in request),
                 'client_error_report_ids': [report.get('request_id') for report in self.client_error_reports],
+                # When each report says its error happened: only a report queued with no signal carries it.
+                'client_error_reports': [
+                    {'request_id': report.get('request_id'), 'kind': report.get('kind'),
+                     'occurred_at': report.get('occurredAt')}
+                    for report in self.client_error_reports
+                ],
                 'recent_requests': [
                     {'method': request.get('method'), 'path': request.get('path'),
                      'request_id': request.get('request_id'), 'outcome': outcome_of(request),
@@ -386,6 +424,8 @@ def outcome_of(request: dict[str, Any]) -> str:
         return f"dropped: {request['dropped']}"
     if 'token_not_issued' in request:
         return 'token not issued here: answered 401'
+    if request.get('update_required'):
+        return 'below the minimum app version: answered 426'
     for key in ('choice', 'station_list'):
         if key in request:
             return f"{request.get('scenario')}: {request[key]}"
@@ -393,6 +433,33 @@ def outcome_of(request: dict[str, Any]) -> str:
         if key in request:
             return str(request[key])
     return 'answered'
+
+
+def read_listener_app_version(version: str) -> tuple[int, int, int, int] | None:
+    """Major, minor, patch and build (0 when missing), or None when the version cannot be read: the contract's
+    readListenerAppVersion."""
+    parts = LISTENER_APP_VERSION.match(version)
+    if parts is None:
+        return None
+    return int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4] or '0')
+
+
+def compare_listener_app_versions(first: str, second: str) -> int | None:
+    """-1, 0 or 1 as [first] is older, the same or newer; None when either cannot be read (compareListenerAppVersions,
+    checked against fixtures/recognition/listener-app-versions/comparisons.json)."""
+    first_numbers = read_listener_app_version(first)
+    second_numbers = read_listener_app_version(second)
+    if first_numbers is None or second_numbers is None:
+        return None
+    return (first_numbers > second_numbers) - (first_numbers < second_numbers)
+
+
+def is_below_minimum_app_version(registered_version: str, minimum_version: str) -> bool:
+    """The update gate (isBelowMinimumAppVersion): older than the minimum, or unreadable while a minimum is set."""
+    comparison = compare_listener_app_versions(registered_version, minimum_version)
+    if comparison is None:
+        return minimum_version != NO_MINIMUM_APP_VERSION
+    return comparison == -1
 
 
 def new_recognition_id(now_milliseconds: int | None = None) -> str:
@@ -555,8 +622,12 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         self.answer_json(400, {'error': {'code': 'VALIDATION_FAILED', 'message': 'Fake API refused the request.', 'request_id': request_id or '00000000-0000-4000-8000-000000000000'}}, request_id)
 
     def record(self, details: dict[str, Any]) -> None:
+        # When it arrived, in seconds of the stand-in's own steady clock: only differences mean anything (the waits a
+        # saved clip's sends keep, P6 design §4.8 step 9).
         with self.state.lock:
-            self.state.requests.append({'method': self.command, 'path': self.path, 'header_names': sorted(name.lower() for name in self.headers.keys()), **details})
+            self.state.requests.append({'method': self.command, 'path': self.path,
+                                        'header_names': sorted(name.lower() for name in self.headers.keys()),
+                                        'received_at_seconds': round(self.state.clock(), 3), **details})
 
     def read_body(self, limit: int = MAXIMUM_BODY_BYTES) -> bytes:
         length = int(self.headers.get('Content-Length') or 0)
@@ -666,6 +737,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                 with self.state.lock:
                     self.state.is_offline = body['is_offline']
                 self.answer_json(200, {'is_offline': body['is_offline']})
+            elif self.path == '/__fake/minimum-app-version':
+                self.handle_minimum_app_version(body)
             elif self.path == '/__fake/phone-number':
                 self.handle_phone_number(body)
             elif self.path == '/__fake/reset':
@@ -677,6 +750,19 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             self.answer_control_refusal(refusal)
         except RequestRefused as refused:   # a control body over its size limit
             self.answer_json(413, {'refused': str(refused)})
+
+    def handle_minimum_app_version(self, body: Any) -> None:
+        """Sets the update gate's minimum, or turns it off with null or "0.0.0"."""
+        if not isinstance(body, dict) or set(body) != {'minimum_app_version'}:
+            raise ControlRefused(400, 'the body must be {"minimum_app_version": "0.2.0" or null}')
+        minimum = body['minimum_app_version']
+        if minimum is not None and (not isinstance(minimum, str) or read_listener_app_version(minimum) is None):
+            raise ControlRefused(400, 'the minimum is not a version such as 0.2.0')
+        if minimum == NO_MINIMUM_APP_VERSION:
+            minimum = None
+        with self.state.lock:
+            self.state.minimum_app_version = minimum
+        self.answer_json(200, {'minimum_app_version': minimum})
 
     def handle_phone_number(self, body: Any) -> None:
         """Starts a phone check for one install chosen on the control page, or stops it. A refusal never repeats the
@@ -796,6 +882,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if install_id is None:
             self.answer_token_not_issued(request_id)
             return
+        if self.answers_update_required(install_id, request_id):
+            return
         fields, audio = read_multipart(self.headers.get('Content-Type') or '', body)
         check_recognize_fields(fields)
         if audio is None:
@@ -867,6 +955,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if install_id is None:
             self.answer_token_not_issued(request_id)
             return
+        if self.answers_update_required(install_id, request_id):
+            return
         if not RECOGNITION_ID.match(recognition_id):
             raise RequestRefused('the recognition id in the path is not a lower-case UUID version 7')
         if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
@@ -909,6 +999,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             raise RequestRefused('a GET of the station list carries no body')
         if install_id is None:
             self.answer_token_not_issued(request_id)
+            return
+        if self.answers_update_required(install_id, request_id):
             return
         scenario = self.state.next_scenario(STATIONS_ROUTE)
         plan = SCENARIOS[scenario]
@@ -953,6 +1045,18 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                 or len(token) > 1024:
             raise RequestRefused('a listener route needs Authorization: Bearer <install token>')
         return token
+
+    def answers_update_required(self, install_id: str, request_id: str) -> bool:
+        """The update gate, after the token as on the real guard: with a minimum set, an install registered with an
+        older version gets 426 APP_UPDATE_REQUIRED, and no queued answer is spent. True when it answered."""
+        with self.state.lock:
+            minimum = self.state.minimum_app_version
+            registered = self.state.install_app_versions.get(install_id, '')
+        if minimum is None or not is_below_minimum_app_version(registered, minimum):
+            return False
+        self.record({'request_id': request_id, 'update_required': True})
+        self.answer_envelope({'envelope': 'errors/envelopes/app-update-required.json'}, request_id)
+        return True
 
     def answer_token_not_issued(self, request_id: str) -> None:
         """A well-formed token the fake did not issue: one from before a reset or a restart, a withdrawn one, or one
@@ -1103,6 +1207,20 @@ def render_panel(nonce: str, port: int) -> str:
     </div>
   </section>
 
+  <section aria-labelledby="gate-heading">
+    <h2 id="gate-heading">Minimum app version</h2>
+    <p>Set a version newer than the app's, such as 0.2.0, and every request with a token gets "Please update the
+       app" (426), as the real API's update gate gives it. Turn it off to let the app through again.</p>
+    <p id="gate" aria-live="polite"></p>
+    <label for="minimum-app-version">Minimum version</label><br>
+    <input id="minimum-app-version" type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
+           placeholder="0.2.0">
+    <div class="buttons">
+      <button type="button" id="gate-on" class="primary">Set the minimum</button>
+      <button type="button" id="gate-off">Turn the gate off</button>
+    </div>
+  </section>
+
   <section aria-labelledby="number-heading">
     <h2 id="number-heading">Phone number for a phone check</h2>
     <p>Choose your phone's install, then give your number: only answers to that install carry it on their buttons,
@@ -1200,6 +1318,10 @@ def render_panel(nonce: str, port: int) -> str:
         if (line) line.textContent = queued.length
           ? 'Queued: ' + queued.join(', ') : 'Nothing queued: the next answer is "' + defaultAnswers[route] + '".';
       }}
+      document.getElementById('gate').textContent = state.minimum_app_version
+        ? 'Apps older than ' + state.minimum_app_version + ' get "Please update the app" ('
+          + state.update_required_answers + ' so far).'
+        : 'Off: every version is answered.';
       const signal = document.getElementById('signal');
       signal.textContent = state.is_offline ? 'No signal: requests are cut off.' : 'Signal: requests are answered.';
       signal.className = state.is_offline ? 'signal-off' : '';
@@ -1251,6 +1373,13 @@ def render_panel(nonce: str, port: int) -> str:
   }});
   document.getElementById('stop-number').addEventListener('click',
     () => control('/__fake/phone-number', {{ phone_number: null }}, 'Numbers in answers are the fixtures\\' own again.'));
+  document.getElementById('gate-on').addEventListener('click', () => {{
+    const minimum = document.getElementById('minimum-app-version').value.trim();
+    control('/__fake/minimum-app-version', {{ minimum_app_version: minimum }},
+      'Apps older than ' + minimum + ' now get "Please update the app".');
+  }});
+  document.getElementById('gate-off').addEventListener('click',
+    () => control('/__fake/minimum-app-version', {{ minimum_app_version: null }}, 'The gate is off.'));
   document.getElementById('reset').addEventListener('click',
     () => control('/__fake/reset', {{}}, 'Everything was reset.'));
   refresh();

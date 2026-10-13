@@ -77,8 +77,6 @@ LABELS: dict[str, str] = {
     'busy heading': 'Lots of people are listening right now',          # §2.9
     'error heading': 'Something went wrong on our side',               # §2.10, server failure
     'reference code label': 'Reference code',                          # §2.10
-    'no connection heading': 'No connection',                          # §2.10
-    'send again': 'Send again',                                        # §2.10
     'set-up problem': "This copy of Look Up isn't set up correctly.",  # §2.11
     # The full listener app (P6 design).
     'chooser title': 'Which station are you listening to?',            # P6 §2.6
@@ -95,7 +93,25 @@ LABELS: dict[str, str] = {
     'settings my station': 'My station',                               # P6 §2.11
     'picker no station': 'No station',                                 # P6 §2.12
     'how it works': 'How Look Up works',                               # P6 §2.3
+    'saved no connection': "Saved — we'll identify it when you're back online",   # P6 §2.8
+    'saved busy': "Saved — we'll identify it when Look Up is less busy",          # P6 §2.8
+    'saved ok': 'OK',                                                  # P6 §2.8
+    'see it in history': 'See it in History',                          # P6 §2.8
+    'allow notifications': 'Allow notifications',                      # P6 §2.8 (T50)
+    'notifications allowed': "You'll get a notification with the result, including the station's buttons.",
+    'history waiting': 'Waiting for signal',                           # P6 §2.9
+    'pending': 'Pending',                                              # P6 §2.9, inside the waiting row's label
+    'history choose your station': 'Choose your station to see the buttons',     # P6 §2.9
+    'update heading': 'Please update the app',                         # P6 §2.15
 }
+
+# A saved clip's notification (P6 design §2.16, amendment A6): the same generic words for every outcome, and none of
+# the ad's, the advertiser's or the stations' words, since it shows on a locked phone.
+NOTIFICATION_TITLE = 'Look Up'
+NOTIFICATION_TEXT = 'Your saved clip has been checked. Tap to see the result.'
+WORDS_A_NOTIFICATION_MUST_NOT_HOLD = ('Brand A', 'Summer service offer', 'Station A', 'Station B')
+# The extra a notification's tap starts the app with (device_services' LAUNCH_RECOGNITION_ID_EXTRA).
+LAUNCH_RECOGNITION_ID_EXTRA = 'zm.lookup.recognition_id'
 
 # Android 13's permission dialog. "While using the app" keeps the grant for the later journeys.
 PERMISSION_ALLOW_BUTTON_IDS = ('permission_allow_foreground_only_button', 'permission_allow_button')
@@ -134,6 +150,13 @@ RECOGNIZE_PATH = '/api/v1/recognize'
 # P6 design §4.8: with "No signal" the emulator's network stays up, so only the outbox's own wake-up sends again;
 # the development build retries after at most 5, 10, 20 and 40 seconds.
 SECONDS_FOR_AN_OUTBOX_RETRY = 45
+# With the app closed, WorkManager starts the job once Android reports the network, then the job's own wait (at most
+# 5 s in the development build): allowed generously, as the emulator's job scheduler is slow to notice.
+SECONDS_FOR_THE_BACKGROUND_JOB = 180
+# The saved clips' pauses the stand-in asks for (fake_listener_api.py): a shed send, and one over the deferred
+# allowance (P6-OFFLINE-17, -18).
+DEFERRED_SHED_RETRY_AFTER_SECONDS = 60
+DEFERRED_LIMITED_RETRY_AFTER_SECONDS = 90
 DOCKER_PROCESS_NAMES = ('com.docker.backend', 'docker desktop')
 # S4-REQUEST-02: the request for an 8-second clip never goes over 32 KB (design §3.10). Its audio is at least
 # 16,000 bytes: a real 8-second clip at 24,000 bit/s is about 25-27 KB, so less means the recorder sent too little.
@@ -537,6 +560,14 @@ class Device(Protocol):
     def clear_app_data(self, package_name: str) -> None: ...
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]: ...
     def read_device_log(self) -> str: ...
+    # The full listener app's piece 3 (P6 design §4.8).
+    def notifications_of(self, package_name: str) -> list[DumpedNotification]: ...
+    def open_saved_result(self, package_name: str, recognition_id: str) -> None: ...
+    def close_in_background(self, package_name: str) -> None: ...
+    def is_app_running(self, package_name: str) -> bool: ...
+    def grant_notifications(self, package_name: str) -> None: ...
+    def take_network_away(self) -> str: ...
+    def bring_network_back(self) -> None: ...
 
 
 class FakeApiControl(Protocol):
@@ -544,6 +575,7 @@ class FakeApiControl(Protocol):
     def request_log(self) -> dict[str, Any]: ...
     def reset(self) -> None: ...
     def set_offline(self, is_offline: bool) -> None: ...
+    def set_minimum_app_version(self, minimum_app_version: str | None) -> None: ...
     def state(self) -> dict[str, Any]: ...
 
 
@@ -676,6 +708,10 @@ class Driver:
                 return Observation(False, readable_count, unreadable_count)
             self.sleep(self.poll_seconds)
 
+    def shows(self, label: str, *, exact: bool = True) -> bool:
+        """Whether the screen shows [label] now, whole or, when not [exact], inside a longer label."""
+        return bool(find_nodes(self.read_screen().nodes, label, package_name=self.app_package, exact=exact))
+
     def wait_until(self, condition: Callable[[], Any], timeout_seconds: float, description: str) -> Any:
         """Polls [condition] until it returns something truthy, and returns that."""
         deadline = self.monotonic() + timeout_seconds
@@ -801,15 +837,22 @@ def identify_with_server_error(context: RunContext) -> str:
 
 
 def identify_with_dropped_connection(context: RunContext) -> str:
+    """A dropped connection (T27′): the clip is saved, "OK" goes Home, and the outbox sends the same clip again by
+    itself, marked deferred."""
     count_before = context.recognize_count()
     context.fake_api.queue(['drop', 'match'])
     context.driver.tap(IDENTIFY_LABELS)
-    context.driver.wait_for(LABELS['no connection heading'], SECONDS_FOR_AN_IDENTIFY)
-    context.driver.tap_scrolling(LABELS['send again'])
-    context.driver.wait_for(LABELS['result header'], 30)
+    context.driver.wait_for(LABELS['saved no connection'], SECONDS_FOR_AN_IDENTIFY)
+    context.driver.tap(LABELS['saved ok'])
+    context.driver.wait_for(LABELS['home heading'], 15)
+    context.driver.wait_until(lambda: len(context.recognize_requests_since(count_before)) >= 2,
+                              SECONDS_FOR_AN_OUTBOX_RETRY, 'the saved clip to be sent again')
     sends = check_sends(context, count_before, ['drop', 'match'])
-    context.back_home_from(LABELS['result back'])
-    return f"the clip was sent again with idempotency key {sends[0].get('idempotency_key')}"
+    problems = deferred_send_problems(sends)
+    if problems:
+        raise StepFailed('; '.join(problems))
+    return (f"saved; the outbox sent the clip again as deferred with idempotency key {sends[0].get('idempotency_key')}"
+            f" at {sends[1].get('sent_at')}")
 
 
 def send_test_error(context: RunContext) -> str:
@@ -1018,6 +1061,365 @@ def first_open_shows_how_look_up_works_once(context: RunContext) -> str:
     return 'the note showed on the first start, and not after a restart'
 
 
+# ---- The full listener app, piece 3: clips sent later (P6 design §4.8 steps 6-11, 16 and 18) ----------------
+
+def deferred_send_problems(sends: Sequence[dict[str, Any]]) -> list[str]:
+    """Checks the sends of one saved clip, oldest first: the first may be the live send (is_deferred false), every
+    later one is deferred; all carry the same key and capture time; each sends a later send time than the one before
+    (contract R2; P6-OUTBOX-07)."""
+    if not sends:
+        return ['the stand-in received no send of the clip']
+    problems = []
+    if len({send.get('idempotency_key') for send in sends}) != 1:
+        problems.append('the sends carried more than one idempotency key')
+    if len({send.get('captured_at') for send in sends}) != 1:
+        problems.append('the sends carried more than one capture time')
+    deferred = [send.get('is_deferred') for send in sends[1:]]
+    if any(value != 'true' for value in deferred):
+        problems.append(f'a send after the first was not marked deferred: {deferred}')
+    sent_times = [str(send.get('sent_at')) for send in sends]
+    if any(later <= earlier for earlier, later in zip(sent_times, sent_times[1:])):
+        problems.append(f'the send times do not move on: {sent_times}')
+    return problems
+
+
+def notification_problems(notifications: Sequence[DumpedNotification], expected_count: int) -> list[str]:
+    """Checks the app's saved-clip notifications (P6-OFFLINE-20, A6): exactly [expected_count], each with the generic
+    title and text, and none naming the ad, the advertiser or a station."""
+    problems = []
+    if len(notifications) != expected_count:
+        problems.append(f'{len(notifications)} notifications of the app, not {expected_count}')
+    for notification in notifications:
+        if (notification.title, notification.text) != (NOTIFICATION_TITLE, NOTIFICATION_TEXT):
+            problems.append(f'a notification says {notification.title!r} / {notification.text!r}')
+        shown = f'{notification.title} {notification.text}'
+        named = [word for word in WORDS_A_NOTIFICATION_MUST_NOT_HOLD if word in shown]
+        if named:
+            problems.append(f'a notification names {named}: it shows on a locked phone')
+    return problems
+
+
+def answered_deferred_sends(context: RunContext, count_before: int, scenario: str) -> list[dict[str, Any]]:
+    """The deferred sends since [count_before] the stand-in answered with [scenario]."""
+    return [send for send in context.recognize_requests_since(count_before)
+            if send.get('is_deferred') == 'true' and send.get('scenario') == scenario]
+
+
+def save_a_clip_with_no_signal(context: RunContext) -> None:
+    """With "No signal" on (or the network away), an identify ends on "Saved"."""
+    context.driver.tap(IDENTIFY_LABELS)
+    context.driver.wait_for(LABELS['saved no connection'], SECONDS_FOR_AN_IDENTIFY)
+
+
+def allow_notifications(context: RunContext) -> str:
+    """T50: "Allow notifications" on the Saved screen, then the system dialog's Allow; where the dialog cannot be
+    reached, `pm grant`, recorded as such (P6 design §4.8)."""
+    driver = context.driver
+    if driver.shows(LABELS['notifications allowed']):
+        return 'notifications were already allowed'
+    try:
+        driver.tap_scrolling(LABELS['allow notifications'])
+        answer = driver.allow_microphone_in_system_dialog(10)
+        driver.wait_for(LABELS['notifications allowed'], 10)
+        return f'notifications allowed in the system dialog ({answer})'
+    except StepFailed as failure:
+        context.device.grant_notifications(context.app_package)
+        return f'notifications granted with pm grant: the dialog could not be reached ({failure})'
+
+
+def open_through_the_notification(context: RunContext, recognition_id: str) -> None:
+    """Opens a saved result as its notification's tap does: the activity with the recognition id as the launch
+    extra (the emulator image has no shade to tap, P6 design §4.8 step 18)."""
+    context.device.open_saved_result(context.app_package, recognition_id)
+    context.driver.wait_for(LABELS['saved result heading'], 20)
+
+
+def go_to_history(context: RunContext) -> None:
+    if not context.driver.shows(LABELS['tab history']):
+        context.driver.tap_scrolling(LABELS['back'])
+    context.driver.tap(LABELS['tab history'])
+    context.driver.wait_for_any([LABELS['history earlier'], LABELS['history waiting']], 15)
+
+
+def go_home(context: RunContext) -> None:
+    context.driver.tap(LABELS['tab identify'])
+    context.driver.wait_for(LABELS['home heading'], 15)
+
+
+def saved_offline_then_the_result_and_its_notification(context: RunContext) -> str:
+    """Step 6 (P6-TESTS-09 part 1, P6-OFFLINE-19 to -21): with "No signal", an identify ends on "Saved"; History shows
+    the clip Pending; with the signal back the outbox sends it as deferred, History moves it to Earlier, and one
+    notification with the generic words opens the saved result."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    count_before = context.recognize_count()
+    notifications_before = len(device.notifications_of(context.app_package))
+    fake_api.set_offline(True)
+    try:
+        save_a_clip_with_no_signal(context)
+        allowed = allow_notifications(context)
+        driver.tap_scrolling(LABELS['see it in history'])
+        driver.wait_for(LABELS['history waiting'], 15)
+        if not driver.shows(LABELS['pending'], exact=False):
+            raise StepFailed('the waiting row does not say "Pending"')
+        fake_api.queue(['match'])
+    finally:
+        fake_api.set_offline(False)
+    sends = driver.wait_until(lambda: answered_deferred_sends(context, count_before, 'match'),
+                              SECONDS_FOR_AN_OUTBOX_RETRY, 'the saved clip to be sent as deferred')
+    driver.wait_until(lambda: not driver.shows(LABELS['pending'], exact=False), 20,
+                      'History to move the clip from "Waiting for signal" to Earlier')
+    driver.expect_all([LABELS['history earlier'], context.card.history_title])
+    notifications = driver.wait_until(
+        lambda: device.notifications_of(context.app_package)[notifications_before:] or None, 20,
+        "the saved clip's notification")
+    problems = notification_problems(notifications, 1)
+    if problems:
+        raise StepFailed('; '.join(problems))
+    recognition_id = str(sends[0].get('recognition_id'))
+    open_through_the_notification(context, recognition_id)
+    driver.expect_all(context.card.labels)
+    driver.tap_scrolling(LABELS['back'])
+    go_home(context)
+    return (f'{allowed}; the clip went as deferred once the signal was back (key {sends[0].get("idempotency_key")}), '
+            f'History moved it to Earlier, and its notification ("{NOTIFICATION_TITLE}") opened {recognition_id}')
+
+
+def a_saved_clip_survives_a_restart(context: RunContext) -> str:
+    """Step 8: a clip saved with no signal is still Pending after the app is stopped and started again, and is
+    sent once the signal is back."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    count_before = context.recognize_count()
+    fake_api.set_offline(True)
+    try:
+        save_a_clip_with_no_signal(context)
+        driver.tap(LABELS['saved ok'])
+        device.stop_app(context.app_package)
+        device.launch_app(context.app_package)
+        driver.wait_for(LABELS['home heading'], 40)
+        go_to_history(context)
+        if not driver.shows(LABELS['pending'], exact=False):
+            raise StepFailed('after the restart History no longer shows the clip Pending')
+        fake_api.queue(['no-match'])
+    finally:
+        fake_api.set_offline(False)
+    driver.wait_until(lambda: answered_deferred_sends(context, count_before, 'no-match'), SECONDS_FOR_AN_OUTBOX_RETRY,
+                      'the clip kept across the restart to be sent')
+    go_home(context)
+    return 'still Pending after a restart, and sent once the signal was back'
+
+
+def a_crash_report_waits_for_the_signal(context: RunContext) -> str:
+    """Step 11 (P6-ERRORREPORTING-05): "Send a test error" with no signal is kept, and sent once the signal is back,
+    with the time it happened."""
+    driver, fake_api = context.driver, context.fake_api
+    reports_before = len(fake_api.state().get('client_error_reports', []))
+    fake_api.set_offline(True)
+    try:
+        driver.tap(LABELS['send test error'])
+        driver.pause(5)   # the report has met no answer by now, and is kept
+    finally:
+        fake_api.set_offline(False)
+    reports = driver.wait_until(lambda: fake_api.state().get('client_error_reports', [])[reports_before:],
+                                SECONDS_FOR_AN_OUTBOX_RETRY, 'the kept crash report to arrive')
+    driver.pause(5)   # a second copy would arrive by now
+    reports = fake_api.state().get('client_error_reports', [])[reports_before:]
+    if len(reports) != 1 or not reports[0].get('occurred_at'):
+        raise StepFailed(f'the stand-in received {reports}, not one report with the time it happened')
+    return f"one report, sent later with occurredAt {reports[0]['occurred_at']}"
+
+
+def saved_clips_wait_as_the_server_asks(context: RunContext) -> str:
+    """Step 9 (P6-OFFLINE-17, -18; P6-D38): a saved clip shed as busy is sent again no sooner than its Retry-After
+    (60 s), and one over the deferred allowance no sooner than 90 s; meanwhile a station choice goes at once, as the
+    pause holds the clips only."""
+    driver, fake_api = context.driver, context.fake_api
+    station_b = CHOOSER_STATIONS[1]
+    findings = []
+    for pause_scenario, pause_seconds in (('busy-deferred-shed', DEFERRED_SHED_RETRY_AFTER_SECONDS),
+                                          ('rate-limited-deferred', DEFERRED_LIMITED_RETRY_AFTER_SECONDS)):
+        count_before = context.recognize_count()
+        fake_api.queue(['drop', pause_scenario])
+        driver.tap(IDENTIFY_LABELS)
+        driver.wait_for(LABELS['saved no connection'], SECONDS_FOR_AN_IDENTIFY)
+        driver.tap(LABELS['saved ok'])
+        driver.wait_for(LABELS['home heading'], 15)
+        paused = driver.wait_until(lambda: answered_deferred_sends(context, count_before, pause_scenario),
+                                   SECONDS_FOR_AN_OUTBOX_RETRY, f'the saved clip to be answered {pause_scenario}')[0]
+        if pause_scenario == 'busy-deferred-shed':
+            # While the clips are paused, a choice made now still goes at once.
+            choices_before = len(fake_api.state().get('choices', []))
+            identify_count = context.recognize_count()
+            fake_api.queue(['choose-station'])
+            driver.tap(IDENTIFY_LABELS)
+            driver.wait_for(LABELS['chooser title'], SECONDS_FOR_AN_IDENTIFY)
+            driver.tap(station_b.spoken_label)
+            driver.wait_for(LABELS['result header'], 10)
+            driver.wait_until(lambda: new_choices(fake_api, choices_before), 20,
+                              'the choice to go while the clips are paused')
+            context.back_home_from(LABELS['result back'])
+            check_sends(context, identify_count, ['choose-station'])
+        fake_api.queue(['match'])
+        resend = driver.wait_until(lambda: answered_deferred_sends(context, count_before, 'match'),
+                                   pause_seconds + SECONDS_FOR_AN_OUTBOX_RETRY,
+                                   f'the clip paused by {pause_scenario} to be sent again')[0]
+        waited = float(resend['received_at_seconds']) - float(paused['received_at_seconds'])
+        if waited < pause_seconds - 1:
+            raise StepFailed(f'the clip was sent again {waited:.0f} s after {pause_scenario}, '
+                             f'sooner than the {pause_seconds} s asked')
+        findings.append(f'{pause_scenario}: sent again after {waited:.0f} s (asked {pause_seconds} s)')
+    return '; '.join(findings) + '; a choice went at once while the clips were paused'
+
+
+def airplane_mode_with_the_app_open(context: RunContext) -> str:
+    """Step 16 (P6-TESTS-08, P6-OFFLINE-01, -02, P6-ERRORREPORTING-05): with the network away, an identify is saved,
+    History shows it Pending, and a test error is kept; when Android reports the network back, the clip goes as
+    deferred and the report with its time, History shows the result, and the notification is posted."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    count_before = context.recognize_count()
+    reports_before = len(fake_api.state().get('client_error_reports', []))
+    notifications_before = len(device.notifications_of(context.app_package))
+    how = device.take_network_away()
+    try:
+        save_a_clip_with_no_signal(context)
+        driver.tap_scrolling(LABELS['see it in history'])
+        driver.wait_for(LABELS['history waiting'], 15)
+        if not driver.shows(LABELS['pending'], exact=False):
+            raise StepFailed('the waiting row does not say "Pending"')
+        go_home(context)
+        driver.tap(LABELS['send test error'])
+        driver.pause(5)
+        fake_api.queue(['match'])
+    finally:
+        device.bring_network_back()
+    driver.wait_until(lambda: answered_deferred_sends(context, count_before, 'match'), 60,
+                      'the clip to be sent once Android reported the network back')
+    driver.wait_until(lambda: fake_api.state().get('client_error_reports', [])[reports_before:], 60,
+                      'the kept test error to arrive')
+    reports = fake_api.state().get('client_error_reports', [])[reports_before:]
+    if len(reports) != 1 or not reports[0].get('occurred_at'):
+        raise StepFailed(f'the stand-in received {reports}, not one report with the time it happened')
+    go_to_history(context)
+    driver.wait_until(lambda: not driver.shows(LABELS['pending'], exact=False), 20, 'the Pending row to go')
+    notifications = driver.wait_until(
+        lambda: device.notifications_of(context.app_package)[notifications_before:] or None, 20,
+        "the saved clip's notification")
+    problems = notification_problems(notifications, 1)
+    if problems:
+        raise StepFailed('; '.join(problems))
+    go_home(context)
+    return f'network taken away by {how}; the clip and the report arrived once it was back, with the notification'
+
+
+def two_notifications_open_their_own_results(context: RunContext) -> str:
+    """Step 18 (P6-OFFLINE-21): two clips saved with no signal get two results; each notification opens its own,
+    the older Station A's, the newer Station B's."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    station_a, station_b = CHOOSER_STATIONS[0], CHOOSER_STATIONS[1]
+    count_before = context.recognize_count()
+    notifications_before = len(device.notifications_of(context.app_package))
+    fake_api.set_offline(True)
+    try:
+        for _ in range(2):
+            save_a_clip_with_no_signal(context)
+            driver.tap(LABELS['saved ok'])
+            driver.wait_for(LABELS['home heading'], 15)
+        fake_api.queue(['match', 'match-station-b'])
+    finally:
+        fake_api.set_offline(False)
+    driver.wait_until(lambda: len([send for send in context.recognize_requests_since(count_before)
+                                   if send.get('is_deferred') == 'true' and send.get('scenario')]) >= 2,
+                      2 * SECONDS_FOR_AN_OUTBOX_RETRY, 'both saved clips to be sent')
+    older = answered_deferred_sends(context, count_before, 'match')[0]
+    newer = answered_deferred_sends(context, count_before, 'match-station-b')[0]
+    if str(older.get('captured_at')) >= str(newer.get('captured_at')):
+        raise StepFailed('the clips were not sent oldest first')
+    notifications = driver.wait_until(
+        lambda: (lambda new: new if len(new) >= 2 else None)(device.notifications_of(context.app_package)[notifications_before:]),
+        20, 'two notifications')
+    problems = notification_problems(notifications, 2)
+    if problems:
+        raise StepFailed('; '.join(problems))
+    for send, station in ((older, station_a), (newer, station_b)):
+        open_through_the_notification(context, str(send.get('recognition_id')))
+        driver.expect_all([station.via_line])
+        driver.tap_scrolling(LABELS['back'])
+    go_home(context)
+    return 'two notifications; the older opened Station A\'s result, the newer Station B\'s'
+
+
+def a_saved_clip_is_sent_with_the_app_closed(context: RunContext) -> str:
+    """Step 7 (P6-OFFLINE-08): with the network away, a clip is saved and the app closed; when the network comes
+    back, WorkManager's job sends it with no activity open, and History holds the result at the next start."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    count_before = context.recognize_count()
+    how = device.take_network_away()
+    try:
+        save_a_clip_with_no_signal(context)
+        driver.tap(LABELS['saved ok'])
+        driver.wait_for(LABELS['home heading'], 15)
+        device.close_in_background(context.app_package)
+        if device.is_app_running(context.app_package):
+            raise StepFailed('the app was still running after it was closed in the background')
+        fake_api.queue(['match'])
+    finally:
+        device.bring_network_back()
+    sends = driver.wait_until(lambda: answered_deferred_sends(context, count_before, 'match'),
+                              SECONDS_FOR_THE_BACKGROUND_JOB, 'the background job to send the clip')
+    device.launch_app(context.app_package)
+    driver.wait_for(LABELS['home heading'], 40)
+    go_to_history(context)
+    driver.expect_all([LABELS['history earlier'], context.card.history_title])
+    go_home(context)
+    return (f'network taken away by {how}; with the app closed, the job sent the clip '
+            f"(key {sends[0].get('idempotency_key')}), and History held its result at the next start")
+
+
+def the_update_gate_and_its_end(context: RunContext) -> str:
+    """Step 10 (P6-COMPATIBILITY-02, amendment A2): with a minimum newer than the app, an identify shows "Please update
+    the app"; a choice made on a saved chooser waits; with the minimum back down, the next start's probe sends it."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    station_b = CHOOSER_STATIONS[1]
+    count_before = context.recognize_count()
+    # A saved chooser: a clip saved with no signal, answered "Which station?" once the signal is back.
+    fake_api.set_offline(True)
+    try:
+        save_a_clip_with_no_signal(context)
+        driver.tap(LABELS['saved ok'])
+        driver.wait_for(LABELS['home heading'], 15)
+        fake_api.queue(['choose-station'])
+    finally:
+        fake_api.set_offline(False)
+    saved = driver.wait_until(lambda: answered_deferred_sends(context, count_before, 'choose-station'),
+                              SECONDS_FOR_AN_OUTBOX_RETRY, 'the saved clip to be answered "Which station?"')[0]
+    choices_before = len(fake_api.state().get('choices', []))
+    gated_before = int(fake_api.state().get('update_required_answers', 0))
+    fake_api.set_minimum_app_version('0.2.0')
+    try:
+        driver.tap(IDENTIFY_LABELS)
+        driver.wait_for(LABELS['update heading'], SECONDS_FOR_AN_IDENTIFY)
+        context.back_home_from(LABELS['back to home'])
+        go_to_history(context)
+        driver.tap_scrolling(LABELS['history choose your station'])
+        driver.wait_for(LABELS['chooser title'], 15)
+        driver.tap(station_b.spoken_label)
+        driver.wait_for(LABELS['result header'], 10)
+        driver.wait_until(lambda: int(fake_api.state().get('update_required_answers', 0)) >= gated_before + 2,
+                          SECONDS_FOR_AN_OUTBOX_RETRY, 'the choice to be answered 426')
+        if new_choices(fake_api, choices_before):
+            raise StepFailed('the choice was kept while the update gate held')
+    finally:
+        fake_api.set_minimum_app_version(None)
+    device.stop_app(context.app_package)
+    device.launch_app(context.app_package)
+    driver.wait_for(LABELS['home heading'], 40)
+    choices = driver.wait_until(lambda: new_choices(fake_api, choices_before), SECONDS_FOR_AN_OUTBOX_RETRY,
+                                "the waiting choice to go at the next start's probe")
+    if choices[0].get('recognition_id') != saved.get('recognition_id') or choices[0].get('station_id') != station_b.station_id:
+        raise StepFailed(f'the stand-in holds {choices[0]}, not {station_b.name} for the saved recognition')
+    return ('"Please update the app" with the gate on; the saved chooser\'s choice waited, '
+            'and went at the next start once the gate was off')
+
+
 JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('first launch registers once', first_launch_registers_once),
     ('Home, Permission, system dialog, Listening, Result; the call button offers the copy sheet',
@@ -1025,7 +1427,8 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('no match', identify_with_no_match),
     ('busy, then the automatic retry reaches Result with one idempotency key', identify_when_busy),
     ("a server error shows the reference code of the fake's echoed request id", identify_with_server_error),
-    ('a dropped connection shows No connection; "Send again" reaches Result', identify_with_dropped_connection),
+    ('a dropped connection is saved, and the outbox sends the same clip again as deferred',
+     identify_with_dropped_connection),
     ('"Send a test error" sends one report to /client-errors', send_test_error),
     ('a restart of the installed app makes no new /installs call', restart_makes_no_new_registration),
     ('"Which station?" with no signal: Station B shows at once, and its choice is sent once the signal is back',
@@ -1035,6 +1438,18 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('History keeps the result: with no signal it opens, and Call offers the copy sheet',
      history_keeps_a_result_that_works_with_no_data),
     ('the "My station" list is asked for once, then kept', station_list_is_asked_for_once),
+    # Piece 3 (P6 design §4.8 steps 6-11, 16, 18). Steps 11 and 16 each send the test error, more than a minute
+    # apart (step 9 between them), as the app sends the same error at most once a minute.
+    ('Saved offline, Pending in History, then the result and its notification', saved_offline_then_the_result_and_its_notification),
+    ('a saved clip survives a restart', a_saved_clip_survives_a_restart),
+    ('a crash report with no signal is kept and sent later with its time', a_crash_report_waits_for_the_signal),
+    ('saved clips wait as the server asks, while a choice goes at once', saved_clips_wait_as_the_server_asks),
+    ('airplane mode with the app open: the clip and a test error go when the network is back',
+     airplane_mode_with_the_app_open),
+    ('two notifications open their own results', two_notifications_open_their_own_results),
+    ('with the app closed, the background job sends a saved clip', a_saved_clip_is_sent_with_the_app_closed),
+    ('the update gate: "Please update the app", a choice that waits, and the probe at the next start',
+     the_update_gate_and_its_end),
     # Last: clearing the app's data forgets the install and the microphone grant the journeys above rely on.
     ('"How Look Up works" shows on the first start only', first_open_shows_how_look_up_works_once),
 ]
@@ -1235,6 +1650,59 @@ class AdbDevice:
         """The app's own lines in the device log so far: Flutter writes them under the `flutter` tag."""
         return self.adb('logcat', '-d', '-s', 'flutter', check=False, timeout_seconds=60)
 
+    def notifications_of(self, package_name: str) -> list[DumpedNotification]:
+        """The notifications [package_name] has posted, as `dumpsys notification --noredact` lists them."""
+        return notifications_in_dumpsys(
+            self.adb('shell', 'dumpsys', 'notification', '--noredact', check=False, timeout_seconds=60), package_name)
+
+    def open_saved_result(self, package_name: str, recognition_id: str) -> None:
+        """Starts the app as a saved clip's notification does: its activity with the recognition id as the launch
+        extra (P6 design §3.15). Used where the image has no notification shade to tap."""
+        output = self.adb('shell', 'am', 'start', '-n', f'{package_name}/{MAIN_ACTIVITY}',
+                          '--es', LAUNCH_RECOGNITION_ID_EXTRA, recognition_id)
+        if 'Error' in output:
+            raise StepFailed(f'the app {package_name} did not start with the launch extra: {output.strip()[:300]}')
+
+    def close_in_background(self, package_name: str) -> None:
+        """Home, then `am kill`: the process ends as Android ends a background app, without the stopped state of
+        force-stop, which would hold back the app's WorkManager jobs until it is opened again."""
+        self.adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
+        time.sleep(2)
+        self.adb('shell', 'am', 'kill', package_name, check=False)
+        time.sleep(2)
+
+    def is_app_running(self, package_name: str) -> bool:
+        return bool(self.adb('shell', 'pidof', package_name, check=False).strip())
+
+    def grant_notifications(self, package_name: str) -> None:
+        self.adb('shell', 'pm', 'grant', package_name, 'android.permission.POST_NOTIFICATIONS')
+
+    def take_network_away(self) -> str:
+        """Airplane mode, else Wi-Fi and mobile data off (P6 design fact 8); returns which, once Android reports no
+        network. Raises when neither takes it away; the network is switched back on first."""
+        for name, commands_off, commands_on in (('airplane mode', AIRPLANE_MODE_OFF_COMMANDS, AIRPLANE_MODE_ON_COMMANDS),
+                                                ('Wi-Fi and data off', RADIOS_OFF_COMMANDS, RADIOS_ON_COMMANDS)):
+            for command in commands_off:
+                self.adb(*command, check=False)
+            deadline = time.monotonic() + SECONDS_FOR_THE_NETWORK_TO_GO
+            while time.monotonic() < deadline:
+                if is_network_gone(network_state(self)):
+                    self._commands_on = commands_on
+                    return name
+                time.sleep(2)
+            for command in commands_on:
+                self.adb(*command, check=False)
+        raise StepFailed('neither airplane mode nor Wi-Fi and data off took the network away')
+
+    def bring_network_back(self) -> None:
+        for command in getattr(self, '_commands_on', AIRPLANE_MODE_ON_COMMANDS):
+            self.adb(*command, check=False)
+        deadline = time.monotonic() + SECONDS_FOR_THE_NETWORK_TO_COME_BACK
+        while not is_network_back(network_state(self)):
+            if time.monotonic() >= deadline:
+                raise StepFailed('the network did not come back')
+            time.sleep(2)
+
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]:
         self.evidence_folder.mkdir(parents=True, exist_ok=True)
         dump_path = self.evidence_folder / f'{name}.xml'
@@ -1279,6 +1747,10 @@ class HttpFakeApi:
     def state(self) -> dict[str, Any]:
         """What the fake holds: switches, counts, the recognitions' hints and the choices (never an answer)."""
         return self.send('GET', '/__fake/state')
+
+    def set_minimum_app_version(self, minimum_app_version: str | None) -> None:
+        """The update gate: with a minimum newer than the app's, every request with a token gets 426."""
+        self.send('POST', '/__fake/minimum-app-version', {'minimum_app_version': minimum_app_version})
 
 
 @dataclass

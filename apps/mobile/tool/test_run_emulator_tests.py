@@ -457,6 +457,71 @@ def shade_dump(resource_ids: list[str], package: str = runner.SYSTEM_UI_PACKAGE)
     return f'<hierarchy rotation="0">{nodes}</hierarchy>'
 
 
+class SavedClipChecksTest(unittest.TestCase):
+    """The full listener app's piece 3: the checks on a saved clip's sends and its notifications."""
+
+    @staticmethod
+    def send(is_deferred: str, sent_at: str, key: str = 'key-1', captured_at: str = '2026-10-13T10:00:00.000Z') -> dict:
+        return {'idempotency_key': key, 'captured_at': captured_at, 'is_deferred': is_deferred, 'sent_at': sent_at}
+
+    def test_the_live_send_then_deferred_resends_of_the_same_clip_pass(self) -> None:
+        self.assertEqual(runner.deferred_send_problems([
+            self.send('false', '2026-10-13T10:00:09.000Z'),
+            self.send('true', '2026-10-13T10:01:00.000Z'),
+            self.send('true', '2026-10-13T10:02:30.000Z'),
+        ]), [])
+        self.assertEqual(runner.deferred_send_problems([self.send('true', '2026-10-13T10:05:00.000Z')]), [])
+
+    def test_another_key_another_capture_time_a_live_resend_or_a_stale_send_time_is_a_problem(self) -> None:
+        live = self.send('false', '2026-10-13T10:00:09.000Z')
+        self.assertIn('more than one idempotency key', runner.deferred_send_problems(
+            [live, self.send('true', '2026-10-13T10:01:00.000Z', key='key-2')])[0])
+        self.assertIn('more than one capture time', runner.deferred_send_problems(
+            [live, self.send('true', '2026-10-13T10:01:00.000Z', captured_at='2026-10-13T10:00:01.000Z')])[0])
+        self.assertIn('not marked deferred', runner.deferred_send_problems(
+            [live, self.send('false', '2026-10-13T10:01:00.000Z')])[0])
+        self.assertIn('send times do not move on', runner.deferred_send_problems(
+            [live, self.send('true', '2026-10-13T10:00:09.000Z')])[0])
+        self.assertEqual(runner.deferred_send_problems([]), ['the stand-in received no send of the clip'])
+
+    def test_a_notification_with_the_generic_words_passes(self) -> None:
+        good = DumpedNotification(APP, runner.NOTIFICATION_TITLE, runner.NOTIFICATION_TEXT)
+        self.assertEqual(runner.notification_problems([good], 1), [])
+        self.assertEqual(runner.notification_problems([good, good], 2), [])
+
+    def test_a_notification_that_names_the_ad_or_says_other_words_or_a_wrong_count_is_a_problem(self) -> None:
+        good = DumpedNotification(APP, runner.NOTIFICATION_TITLE, runner.NOTIFICATION_TEXT)
+        naming = DumpedNotification(APP, 'Brand A', 'Summer service offer on Station A')
+        problems = runner.notification_problems([naming], 1)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("names ['Brand A', 'Summer service offer', 'Station A']", problems[1])
+        self.assertIn('2 notifications of the app, not 1', runner.notification_problems([good, good], 1)[0])
+        self.assertIn('0 notifications of the app, not 1', runner.notification_problems([], 1)[0])
+
+    def test_the_notification_words_are_the_apps_own(self) -> None:
+        words = json.loads((runner.APP_FOLDER / 'lib' / 'l10n' / 'app_en.arb').read_text(encoding='utf-8'))
+        self.assertEqual(runner.NOTIFICATION_TITLE, words['savedClipNotificationTitle'])
+        self.assertEqual(runner.NOTIFICATION_TEXT, words['savedClipNotificationText'])
+
+    def test_the_saved_clip_labels_are_the_apps_own_words(self) -> None:
+        words = json.loads((runner.APP_FOLDER / 'lib' / 'l10n' / 'app_en.arb').read_text(encoding='utf-8'))
+        for label, key in [('saved no connection', 'savedOfflineHeadingNoConnection'),
+                           ('saved busy', 'savedOfflineHeadingBusy'),
+                           ('see it in history', 'savedOfflineSeeInHistoryButton'),
+                           ('allow notifications', 'savedOfflineAllowNotificationsButton'),
+                           ('notifications allowed', 'savedOfflineNotificationsAllowed'),
+                           ('history waiting', 'historyWaitingHeading'),
+                           ('pending', 'historyPendingBadge'),
+                           ('history choose your station', 'historyAwaitingChoiceDetail')]:
+            self.assertEqual(runner.LABELS[label], words[key], label)
+
+    def test_the_waits_the_driver_checks_are_the_stand_ins(self) -> None:
+        import fake_listener_api
+        self.assertEqual(runner.DEFERRED_SHED_RETRY_AFTER_SECONDS, fake_listener_api.DEFERRED_SHED_RETRY_AFTER_SECONDS)
+        self.assertEqual(runner.DEFERRED_LIMITED_RETRY_AFTER_SECONDS,
+                         fake_listener_api.DEFERRED_LIMITED_RETRY_AFTER_SECONDS)
+
+
 class EmulatorCommandOutputTest(unittest.TestCase):
     """P6 design fact 8: reading what the commands later journeys depend on print."""
 
@@ -1349,11 +1414,21 @@ class FullListenerAppJourneyTest(unittest.TestCase):
 
     def test_the_new_journeys_run_after_step_4s_and_the_first_open_one_last(self) -> None:
         names = [journey for _, journey in runner.JOURNEYS]
-        self.assertEqual(names[-6:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
-                                      runner.cancel_on_the_sheet_chooses_nothing,
-                                      runner.history_keeps_a_result_that_works_with_no_data,
-                                      runner.station_list_is_asked_for_once,
-                                      runner.first_open_shows_how_look_up_works_once])
+        self.assertEqual(names[-14:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
+                                       runner.cancel_on_the_sheet_chooses_nothing,
+                                       runner.history_keeps_a_result_that_works_with_no_data,
+                                       runner.station_list_is_asked_for_once,
+                                       # Piece 3; the two that send a test error have the long one between them.
+                                       runner.saved_offline_then_the_result_and_its_notification,
+                                       runner.a_saved_clip_survives_a_restart,
+                                       runner.a_crash_report_waits_for_the_signal,
+                                       runner.saved_clips_wait_as_the_server_asks,
+                                       runner.airplane_mode_with_the_app_open,
+                                       runner.two_notifications_open_their_own_results,
+                                       runner.a_saved_clip_is_sent_with_the_app_closed,
+                                       runner.the_update_gate_and_its_end,
+                                       runner.first_open_shows_how_look_up_works_once])
+        self.assertLess(names.index(runner.send_test_error), names.index(runner.a_crash_report_waits_for_the_signal))
 
 
 class StandInControlTest(unittest.TestCase):
@@ -1385,8 +1460,18 @@ class StandInControlTest(unittest.TestCase):
         self.assertEqual(state['recognitions'], [])
 
     def test_the_scenarios_the_journeys_queue_are_known_to_the_stand_in(self) -> None:
-        self.fake_api.queue(['choose-station', 'match-by-hint', 'match'])
-        self.assertEqual(self.fake_api.state()['queued']['recognize'], ['choose-station', 'match-by-hint', 'match'])
+        names = ['choose-station', 'match-by-hint', 'match', 'drop', 'no-match', 'busy-deferred-shed',
+                 'rate-limited-deferred', 'match-station-b']
+        self.fake_api.queue(names)
+        self.assertEqual(self.fake_api.state()['queued']['recognize'], names)
+
+    def test_the_update_gate_is_set_and_turned_off_and_the_state_holds_what_the_journeys_read(self) -> None:
+        self.fake_api.set_minimum_app_version('0.2.0')
+        state = self.fake_api.state()
+        self.assertEqual((state['minimum_app_version'], state['update_required_answers']), ('0.2.0', 0))
+        self.assertEqual(state['client_error_reports'], [])
+        self.fake_api.set_minimum_app_version(None)
+        self.assertIsNone(self.fake_api.state()['minimum_app_version'])
 
 
 if __name__ == '__main__':

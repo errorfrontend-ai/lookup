@@ -21,7 +21,8 @@ from http.client import RemoteDisconnected
 from typing import Any
 
 from fake_listener_api import (DEFAULT_SCENARIOS, FIXTURES, PHONE_CHECK_ANSWERS, PHONE_CHECK_LIFETIME_SECONDS,
-                               RECENT_REGISTRATIONS_KEPT, ROUTES, SCENARIOS, make_server, new_recognition_id, read_fixture)
+                               RECENT_REGISTRATIONS_KEPT, ROUTES, SCENARIOS, compare_listener_app_versions, make_server,
+                               new_recognition_id, read_fixture)
 
 CLIP = b'\x00\x00\x00\x20ftypM4A ' + bytes(4_000)
 JSON = {'Content-Type': 'application/json'}
@@ -961,6 +962,108 @@ class FakeListenerApiTest(unittest.TestCase):
         station_names = json.loads(re.search(r'const stationNames = (\{.*?\});', page).group(1))
         station_b = read_fixture('recognition/listener-station-list/valid/two-stations.json')['response']['stations'][1]
         self.assertEqual(station_names[station_b['id']], 'Station B')
+
+
+    # ---- saved clips and the update gate (P6 design piece 3) ------------------------------------------
+
+    def test_a_saved_clips_busy_and_limited_answers_ask_their_own_waits(self) -> None:
+        token = self.registered_token()
+        self.queue('busy-deferred-shed', 'rate-limited-deferred', 'match-station-b')
+        deferred = live_fields(is_deferred='true')
+        status, headers, body = self.recognize(token, deferred)
+        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'RECOGNITION_BUSY', '60'))
+        status, headers, body = self.recognize(token, live_fields(is_deferred='true'))
+        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (429, 'RATE_LIMITED', '90'))
+        status, _, body = self.recognize(token, live_fields(is_deferred='true'))
+        self.assertEqual((status, body['status'], body['result']['station']['name']), (200, 'MATCH', 'Station B'))
+
+    def test_the_state_shows_each_sends_key_capture_and_send_times_and_whether_it_was_deferred(self) -> None:
+        token = self.registered_token()
+        key = str(uuid.uuid4())
+        self.queue('busy-deferred-shed')
+        self.recognize(token, live_fields(idempotency_key=key))
+        self.recognize(token, live_fields(idempotency_key=key, is_deferred='true',
+                                          sent_at='2026-10-08T07:45:00.000Z'))
+        recognitions = self.state()['recognitions']
+        self.assertEqual([(entry['idempotency_key'], entry['is_deferred'], entry['captured_at'], entry['sent_at'])
+                          for entry in recognitions],
+                         [(key, 'false', '2026-10-08T06:30:00.000Z', '2026-10-08T06:30:09.250Z'),
+                          (key, 'true', '2026-10-08T06:30:00.000Z', '2026-10-08T07:45:00.000Z')])
+
+    def test_the_state_shows_when_a_queued_crash_report_says_its_error_happened(self) -> None:
+        for occurred_at in ('2026-10-08T06:30:00.000Z', None):
+            report = {'source': 'listener-app', 'kind': 'reported', 'message': 'Test error from the developer tools'}
+            if occurred_at:
+                report['occurredAt'] = occurred_at
+            self.send('/api/v1/client-errors', json.dumps(report).encode(),
+                      {'Content-Type': 'application/json', 'X-Request-Id': str(uuid.uuid4())})
+        self.assertEqual([entry['occurred_at'] for entry in self.state()['client_error_reports']],
+                         ['2026-10-08T06:30:00.000Z', None])
+
+    def test_versions_compare_as_the_contract_compares_them(self) -> None:
+        cases = read_fixture('recognition/listener-app-versions/comparisons.json')['comparisons']
+        self.assertGreater(len(cases), 5)
+        for case in cases:
+            self.assertEqual(compare_listener_app_versions(case['first'], case['second']), case['expected'],
+                             case['description'])
+
+    def test_the_update_gate_answers_426_on_every_route_that_takes_a_token_and_spends_no_queued_answer(self) -> None:
+        token = self.registered_token()
+        chooser = self.chooser(token)
+        station_id = chooser['candidates'][1]['station']['id']
+        self.queue('no-match', 'choice-busy', 'stations-unavailable')
+        self.assertEqual(self.control('/__fake/minimum-app-version', {'minimum_app_version': '0.2.0'})[0], 200)
+
+        request_id = str(uuid.uuid4())
+        status, headers, body = self.recognize(token, request_id=request_id)
+        self.assertEqual((status, body['error']['code'], body['error']['request_id'], headers['X-Request-Id']),
+                         (426, 'APP_UPDATE_REQUIRED', request_id, request_id))
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_id})[0], 426)
+        self.assertEqual(self.list_stations(token)[0], 426)
+        state = self.state()
+        self.assertEqual((state['minimum_app_version'], state['update_required_answers']), ('0.2.0', 3))
+        self.assertEqual(state['queued']['recognize'], ['no-match'])
+        self.assertEqual(state['choices'], [])
+
+        self.assertEqual(self.control('/__fake/minimum-app-version', {'minimum_app_version': None})[0], 200)
+        self.assertEqual(self.recognize(token)[2]['status'], 'NO_MATCH', 'the queued answer was kept')
+
+    def test_the_gate_lets_through_an_app_as_new_as_the_minimum_and_never_the_registration(self) -> None:
+        self.assertEqual(self.control('/__fake/minimum-app-version', {'minimum_app_version': '0.1.0'})[0], 200)
+        status, body = self.register(app_version='0.1.0+1')
+        self.assertEqual(status, 200)
+        self.assertEqual(self.recognize(body['install_token'])[0], 200)
+        old_status, old_body = self.register(app_version='0.0.9+3')
+        self.assertEqual(old_status, 200, 'a registration is never gated')
+        self.assertEqual(self.recognize(old_body['install_token'])[0], 426)
+
+    def test_the_minimum_0_0_0_turns_the_gate_off_and_a_reset_clears_it(self) -> None:
+        token = self.registered_token()
+        self.assertEqual(self.control('/__fake/minimum-app-version', {'minimum_app_version': '0.0.0'})[2],
+                         {'minimum_app_version': None})
+        self.assertEqual(self.recognize(token)[0], 200)
+        self.control('/__fake/minimum-app-version', {'minimum_app_version': '9.0.0'})
+        self.control('/__fake/reset', {})
+        self.assertIsNone(self.state()['minimum_app_version'])
+
+    def test_a_minimum_that_is_not_a_version_is_refused(self) -> None:
+        for body in ({'minimum_app_version': '0.2'}, {'minimum_app_version': 'latest'}, {'minimum_app_version': 2},
+                     {'minimum': '0.2.0'}, ['0.2.0']):
+            self.assertEqual(self.control('/__fake/minimum-app-version', body)[0], 400, body)
+        self.assertIsNone(self.state()['minimum_app_version'])
+
+    def test_the_minimum_can_be_set_only_from_this_machine(self) -> None:
+        status, _, _ = self.control('/__fake/minimum-app-version', {'minimum_app_version': '0.2.0'}, THROUGH_THE_TUNNEL)
+        self.assertEqual(status, 404)
+        self.assertIsNone(self.state()['minimum_app_version'])
+
+    def test_the_control_page_offers_the_minimum_app_version(self) -> None:
+        status, _, page = self.get('/__fake/panel')
+        self.assertEqual(status, 200)
+        text = page.decode()
+        for words in ('Minimum app version', 'id="minimum-app-version"', 'Set the minimum', 'Turn the gate off',
+                      'Next answer: Busy (shed)', 'Next answer: Too many saved clips', 'Next answer: Match on Station B'):
+            self.assertIn(words, text)
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
