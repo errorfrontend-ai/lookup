@@ -3065,3 +3065,96 @@ riskiest parts found and fixed:
 **Still to do in piece 3:** the emulator run with Docker closed (its first build also compiles the plugin's Kotlin and
 fetches WorkManager's Android libraries), walkthrough (a) on the emulator and walkthrough (b) on the phone, which also
 carries piece 2's two skipped checks (a choice made in airplane mode, and History's Call with no data).
+
+## Step 4 record (14 October 2026): piece 3 on the emulator, pieces 4 and 5, and piece 6 begun
+
+Built overnight on 13–14 October 2026 under the user's standing approval ("test, implement, test and implement until
+all the tasks are done … without me approving anything"). No helper agents. Docker and the emulator never ran
+together. Nothing is pushed; the user pushes.
+
+**The emulator runs.**
+
+| Run | APKs | Passed | What failed, and what it was |
+|---|---|---|---|
+| 1 | piece 3 | 30 of 32 | Two driver checks were stricter than the design: "the older clip goes first" (with "No signal" Android still reports a network, so each clip keeps its own wait), and the size check counted requests the stand-in never read (`0f07e35`). |
+| 2 | the same | 30 of 32 | The size check's summary line still counted them (driver). **An app bug**: a notification's tap opened History, not its result. Riverpod 3 pauses a provider while no screen on show watches it, so the History view kept for a hidden tab did not yet hold a result the outbox had just saved, and the saved-result page took it as final. Fixed (`c06d60c`): the page looks the id up in History itself before calling it missing, and goes back only once its page has arrived. |
+| 3 | pieces 3 and 4 | 35 of 36 | The Data journey's identify was saved offline: the slow journey before it had slowed the emulator's network, and setting the speed back dropped the app's open connection. The slow journey no longer changes the speed (`162e554`). |
+| 4 | pieces 3, 4 and 5 | 32 of 38 | (1) History's journey counted the saved result's Call tap, now queued to be counted, as data the page needed (driver, `fb7fc2a`). (2) The slow journey: the stand-in was changed during the run (`d1454f6`), so the stand-in and the driver disagreed on the scenario's name; tools are never changed during a run again. (3) "Used this month" did not grow after an identify on the phone, though it does in the widget journey with the app's own wiring; the driver now waits for it and names any crash report, and P6-DATASAVER-03 waits for the next run. (4) A map tap opened the image's own stand-in app, which stayed in front, so the last two journeys could not reach Home; the taps journey now stays on Call and recovery presses Home first (`7f9cdbf`). |
+
+Every journey of piece 3 passed in runs 3 and 4: Saved offline and its notification, the clip that survives a
+restart, the queued crash report, the waits the server asks for, airplane mode with the app open, two notifications,
+the background job with the app closed, and the update gate. So did "Report this", the slow identify (run 3), the
+pictures on mobile data, the size, privacy, clip and production checks, and the emulator commands.
+
+**Piece 4 built** (`4591180`, `8d24551`, `4d79c72`, `d1454f6`):
+- Slow upload: after 5 seconds with no answer, Identifying says "Still working — the connection is slow." with how
+  much of the clip has gone ("Clip [n]% sent", a bar), then "Clip sent — waiting for the answer". The clip goes in
+  4 KB pieces so the share is real.
+- Data use: the API client counts every request and answer body, and pictures count as they arrive; a per-month
+  meter under its own lock, so both engines add. Settings → **Data**: "Each identify uses — about 25 KB", "Used this
+  month".
+- Data saver: "Load ad pictures on mobile data", a whole-row switch, on at first. On a metered network with it off,
+  no picture is requested and the Result has no banner box (decided at its first frame).
+- "Report this": a flag link at the bottom right of every Result, live or saved; the sheet's four reasons; the
+  report through the outbox; History remembers it, so the footer says "Reported".
+- Privacy: the two points this version needs (a clip waiting offline; what a report keeps).
+- The stand-in: "Report this", "Slow upload" (§4.7: a 2 KB receive buffer and about 3 KB a second), and "Match with
+  pictures", whose two pictures it draws and serves itself when started with `--public-origin`.
+
+**Piece 5 built** (the app's half `12dea0e`, the tools `162e554`, the server's half `fa75df7`):
+- Each tap of a Result button with an address, live or saved, is queued as an `ENGAGEMENT` (the recognition, the
+  station shown, the button's id, the phone's time of the first tap) before the address opens, so a tap counts
+  whether or not the phone could open it. One per recognition and button; when the 200 follow-ups are full the
+  oldest tap goes first.
+- `POST /api/v1/engagements` (`features/engagements`, the P4 design's piece 5 record) and
+  `npm run development:show-taps`.
+- The stand-in's taps and "Match, answer lost"; the driver's steps 13 and 14 (first full run: the next one).
+
+**Piece 6 begun** (`7f9cdbf`, and the golden images in the last commit of the night):
+- Tablets: at medium width a Result sits in a side panel beside Home (45%, at least 360 dp) with the rail; at
+  expanded width two panes per tab (Identify: Home beside History or a Result; History: the list beside the saved
+  result opened; Settings: the list beside the page opened); every screen one centred column of at most 600 dp,
+  inside which the window is the column (`RoomSizedMediaQuery`). T52: "Tap to identify" beside a Result starts a new
+  identify.
+- Size: native libraries stored compressed in release builds (Q10); `tool/check_apk_sizes.py` fails at 15,000,000
+  bytes or more, or with an ABI's APK missing. The release build split per ABI and the measured sizes come with
+  piece 6's gate run.
+- Golden images: 33 states at 320 × 640, 360 × 800, 411 × 891 and 800 × 1280, text 1.0 and 2.0, light and dark —
+  528 images, drawn at one pixel per dp with the SDK's own Roboto and icons, none overflowing. They take about 21 MB,
+  so they are in a commit of their own, last, for the user to keep or drop before pushing.
+
+**Suites at this point:**
+
+| Suite | Result |
+|---|---|
+| Flutter | 2,577 outside the golden images, and the 528 golden images (analyze and format clean) |
+| Tool tests | 199 (the stand-in 85, the emulator driver 108, the size check 6) |
+| API | 956, all passing (`engagements-route` new; `development-scripts`, `listener-installs` extended) |
+| Contracts, portal, Python fingerprinter | unchanged, not run again |
+
+**Checklist:** P6 now 102 of 151 ticked. Ticked tonight on the emulator runs and their tests: P6-OFFLINE-01, -02, -08,
+-20, -21; P6-STRUCTURE-02; P6-ERRORREPORTING-05; P6-COMPATIBILITY-03; P6-TESTS-08; P6-DATASAVER-02, -04 to -06;
+P6-LISTENING-01, -02. Waiting, each with its reason in the checklist: P6-TESTS-09 (the phone record), P6-DATASAVER-03
+(the next emulator run), P6-RESULT-04, -05 (ticked with the golden images' commit). P4 tonight: P4-ENGAGEMENTS-01 to -12, P4-LIMITS-01 to -06, P4-TIMERULE-04, P4-IDEMPOTENCY-20, P4-DELIVERY-02 (the P4 design's piece 5 record); P6-OUTBOX-06. P6-OUTBOX-05, P4-RESOLUTION-17 (gate part 2) and P4-DELIVERY-04 (the commit order, recorded with the gate) wait for emulator run 5's steps 13 and 14.
+
+**Deviations and readings, recorded for the gate:**
+- **The slow state on a phone** may show "Clip sent" at once: the clip fits in the phone's send buffer, so the app
+  counts it all sent before the network has carried it. The share growing is proven by the widget test; the
+  emulator proves the words and their order.
+- **Pictures on the emulator**: none can load there (fact 17), so the journey reads the banner box's effect: the ad's
+  title starts about half the screen's width lower when the 2:1 box is drawn.
+- **"Used this month"** counts bodies only (not headers or TLS), per calendar month of the phone's clock.
+- **Report this** and the **taps** are queued even with no signal and sent by the outbox; the Result says "Reported"
+  at once.
+- **The Result stays full screen from 600 to about 680 dp**: Home would have less than 200 dp beside a 360 dp panel.
+- **Button labels name the platform's font family** (Roboto on Android): they do not inherit the text around them,
+  so with no family a test drew them in its box font; on the phone nothing changes.
+- **The stand-in** reads a control request's body before refusing it: Windows reset the connection otherwise, which
+  made one of its own tests flaky.
+- **The stand-in's button names**: "Slow upload", "Match with pictures", "Match, answer lost", "Choice kept, answer
+  lost", "Tap kept, answer lost".
+
+**Still to do:** emulator run 5 (Docker closed) for steps 13, 14 and the Data journey; the rest of piece 6 (the
+release build split per ABI and its sizes, the greyscale contact sheet P6-ACCESSIBILITY-04, the TalkBack pass on the
+phone P6-ACCESSIBILITY-02); walkthrough (a) on the emulator and (b) on the phone for pieces 3 to 6, and (c) for the
+pictures.

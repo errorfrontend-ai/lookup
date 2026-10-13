@@ -2386,3 +2386,44 @@ pieces 3 and 4).
   server read that request as the rest of the old body.
 - **Not yet built, by design:** the stand-in's new switches and the walkthroughs come with the app half; taps and
   reports in `show-recognitions` come with piece 5.
+
+## Piece 5, server half: record (14 October 2026), and gate part 2
+
+**Built** (`fa75df7`): `POST /api/v1/engagements` in `features/engagements/` (P4-DELIVERY-02):
+- the follow-ups' order: request id, the per-address ceiling, the cross-site check and the JSON parser; the install
+  token, the update gate and the shared follow-up allowance; then the body against the contract's
+  `RecordEngagementInput`;
+- the phone's clock corrected (`occurred_at + (receipt − sent_at)`, `correctTapTime`) before
+  `recognition.record_engagement` (built in piece 2) clamps it, checks the tap, records an unanswered chooser's choice
+  (A4), stores the tap once and counts it;
+- the per-install cap as a setting, `ENGAGEMENTS_COUNTED_PER_INSTALL_PER_CAMPAIGN_PER_DAY` (5; 0 switches it off),
+  validated at start-up (Q12, P4-D10);
+- 204 for a tap stored or already stored, 404 and the three 422s otherwise; one log line per tap with its outcome only;
+- `npm run development:show-taps`: each tap's time, station, button label and how it counted ("counted, 1 of 2",
+  "stored, not counted (usual buttons)", "… (the tap limit was reached)", "… (this phone's taps for the day already
+  counted)"), and nothing else from the card.
+
+**Tests:** `engagements-route.test.ts` (new: every P4-ENGAGEMENTS item it names, the per-install cap, A4, the
+default card at the limit, the deferred clip heard before the limit, the race of 100 taps against a limit of 10,
+P4-IDEMPOTENCY-20, the contract's fixtures, the checks' order, the cross-site refusal, the log line, the generic 500);
+`development-scripts.test.ts` (show-taps). Full API suite: 956 tests, all passing; mutation checks: the per-install cap and the clock correction, each caught.
+
+**Gate part 2 (P4-RESOLUTION-17), to be recorded after emulator run 5.** Taps and tap limits were built after the P6
+outbox, History, Settings and offline capture (P4-DELIVERY-04, the commit order), and are proven with the app's half:
+- the server: the route test above, the database tests of piece 2 (`listener-follow-ups-database`,
+  `station-isolation`, `database-catalogue`, `station-resolution-database`);
+- the app: taps queued from live and saved Results and sent by the outbox (P6-OUTBOX-06);
+- the emulator against the stand-in (to come in run 5; run 4 stopped before them): two Call taps count once, a tap made
+  with no signal arrives once (step 13); a clip, a choice and a tap whose answers are lost are each kept once (step 14,
+  P6-OUTBOX-05).
+
+The tap-farming risk named in §5.8 stays open until P8 (a row in the security baseline).
+
+**Readings and deviations, for the gate:**
+- **Taps in the terminal** have their own tool, `show-taps`, one line per tap, rather than lines under each recognition
+  in `show-recognitions` (piece 4's record said "taps and reports in show-recognitions come with piece 5"); reports
+  already have `show-reports`. The walkthrough reads "Call us — counted, 1 of 2" from it.
+- **The race** runs 100 taps from 34 installs (three buttons each), since one recognition holds at most six buttons
+  and the per-install cap is on: the campaign's limit of 10 is what stops them, and every tap is stored.
+- **The stand-in's button names** are "Match, answer lost", "Choice kept, answer lost" and "Tap kept, answer lost"
+  (the P6 design's walkthrough says "Choice, answer lost" and "Tap, answer lost").
