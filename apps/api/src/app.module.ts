@@ -18,6 +18,7 @@ import { HealthModule } from './features/health/health.module.js';
 import { ListenerInstallsModule } from './features/listener-installs/listener-installs.module.js';
 import { ListenerStationsModule } from './features/listener-stations/listener-stations.module.js';
 import { RecognitionModule } from './features/recognition/recognition.module.js';
+import { EngagementsModule } from './features/engagements/engagements.module.js';
 import { RecognitionReportsModule } from './features/recognition-reports/recognition-reports.module.js';
 import { StationOverviewModule } from './features/station-overview/station-overview.module.js';
 import { StationsModule } from './features/stations/stations.module.js';
@@ -61,6 +62,7 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     RecognitionModule,
     ListenerStationsModule,
     RecognitionReportsModule,
+    EngagementsModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
 })

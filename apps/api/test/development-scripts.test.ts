@@ -9,6 +9,7 @@ import {
   setStationStatus,
   showRecognitions,
   showReports,
+  showTaps,
   WalkthroughToolProblem,
 } from '../scripts/development-walkthrough-tools.js';
 import { databaseSetupClient, lookupApiClient } from './support/database-clients.js';
@@ -272,5 +273,49 @@ describe('the development walkthrough tools', () => {
     ]);
     for (const forbidden of [installId, otherInstallId, hashOf(installId), first.recognition_id, '+447700900', 'example.com']) expect(shown, forbidden).not.toContain(forbidden);
     expect(await showReports(setupClient, { stationIds: [randomUUID()] })).toBe('No reports yet.');
+  });
+  it('show-taps lists the latest taps with the time, the station, the button’s label and how each counted, and nothing else from the card', async () => {
+    const installId = await testData.createInstall();
+    const recording = await testData.createRecording();
+    const station = await airAt(recording, 'Tapped', { engagementLimit: 2, hasDefaultCard: true, station: { frequencyLabel: '98.1 FM', city: 'Lusaka' } });
+    const finished = async (kind: 'CAMPAIGN' | 'CLIENT_DEFAULT', secondsAgo: number) => {
+      const claimed = await testData.claim(apiClient, installId, { receivedAt: new Date(Date.now() - secondsAgo * 1_000) });
+      await testData.finish(apiClient, claimed, {
+        outcome: kind === 'CAMPAIGN' ? 'MATCH' : 'MATCH_DEFAULT',
+        fallbackReason: kind === 'CAMPAIGN' ? null : 'campaign_at_tap_limit',
+        resolution: 'SINGLE_OWNER',
+        recording,
+        shown: { stationId: station.stationId, campaignId: station.campaignId, cardId: (kind === 'CAMPAIGN' ? station.campaignCardId : station.defaultCardId) as string },
+        candidates: [StationResolutionTestData.candidate(station, { kind })],
+      });
+      return claimed;
+    };
+    const tap = async (recognitionId: string, actionId: string) => {
+      const answer = await apiClient.query('SELECT recognition.record_engagement($1, $2, $3, $4, $5, now(), now(), 0, now(), $6, NULL) AS answer', [
+        randomUUID(), recognitionId, installId, station.stationId, actionId, `request-${randomUUID()}`,
+      ]);
+      expect(answer.rows[0].answer).toBe('RECORDED');
+    };
+    const campaignActions = station.campaignCard?.actions as Array<{ id: string; label: string }>;
+    const usualActions = station.defaultCard?.actions as Array<{ id: string; label: string }>;
+    const first = await finished('CAMPAIGN', 40);
+    await tap(first.recognition_id, campaignActions[0]!.id);
+    await tap(first.recognition_id, campaignActions[1]!.id);
+    await tap(first.recognition_id, campaignActions[2]!.id);
+    const usual = await finished('CLIENT_DEFAULT', 20);
+    await tap(usual.recognition_id, usualActions[0]!.id);
+
+    const shown = await showTaps(setupClient, { count: 10, timeZone: 'Africa/Lusaka', stationIds: [station.stationId] });
+    const time = String.raw`(?:\d{1,2} [A-Z][a-z]{2} )?\d{2}:\d{2}:\d{2}`;
+    const where = `${stationNamed('Tapped')} \\(98\\.1 FM · Lusaka\\)`;
+    expect(shown.split('\n')).toEqual([
+      'The latest 4 taps, newest first (times in Africa/Lusaka):',
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "Call us" — stored, not counted \\(usual buttons\\)$`)),
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "See the offer" — stored, not counted \\(the tap limit was reached\\)$`)),
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "Chat with us" — counted, 2 of 2$`)),
+      expect.stringMatching(new RegExp(`^${time}  ${where}: "Call us" — counted, 1 of 2$`)),
+    ]);
+    for (const forbidden of [installId, first.recognition_id, campaignActions[0]!.id, '+447700900', 'example.com', 'Hi, I heard']) expect(shown, forbidden).not.toContain(forbidden);
+    expect(await showTaps(setupClient, { stationIds: [randomUUID()] })).toBe('No taps yet.');
   });
 });

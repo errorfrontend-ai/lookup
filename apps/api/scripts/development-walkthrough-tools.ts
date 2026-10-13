@@ -8,6 +8,7 @@
  *   npm run development:set-campaign-status -- "Station B" "Summer service offer" PAUSED   (or ACTIVE, ENDED)
  *   npm run development:reset-sample-schedule -- "Station A" "Summer service offer"
  *   npm run development:show-reports
+ *   npm run development:show-taps
  *
  * Each refuses to run unless the setup database is on this machine and NODE_ENV is not production. None prints an
  * install id, a token, a phone number or anything else from a card: stations, clients and ads by name only. A report's
@@ -358,6 +359,70 @@ export async function showReports(database: Database, options: { count?: number;
   return [`The latest ${reports.length === 1 ? 'report' : `${reports.length} reports`}, newest first (times in ${timeZone}):`, ...reports.map((report) => describeReport(report, { timeZone }))].join('\n');
 }
 
+// ---- show-taps ---------------------------------------------------------------------------------------------
+
+/** What show-taps reads about one button tap: when, which station, the button's label, and how it counted. */
+export interface TapSummary {
+  received_at: Date;
+  station_name: string;
+  station_frequency_label: string;
+  station_city: string | null;
+  /** The button's label on the card shown; never its number, link or message. */
+  button_label: string | null;
+  card_kind: 'CAMPAIGN' | 'CLIENT_DEFAULT';
+  is_counted: boolean;
+  /** The campaign's tap limit, or null for none. */
+  engagement_limit: number | null;
+  /** The campaign's counted taps up to and including this one. */
+  counted_so_far: number;
+}
+
+/** The latest taps, newest first (of the given stations only, when named: the tests' own). */
+export async function readLatestTaps(database: Database, options: { count?: number; stationIds?: readonly string[] } = {}): Promise<TapSummary[]> {
+  const result = await database.query(
+    `SELECT engagement.received_at, station.name AS station_name, station.frequency_label AS station_frequency_label,
+            station.city AS station_city, engagement.card_kind, engagement.is_counted, campaign.engagement_limit,
+            (SELECT shown_action ->> 'label'
+               FROM jsonb_array_elements(CASE WHEN jsonb_typeof(card.content -> 'actions') = 'array'
+                                              THEN card.content -> 'actions' ELSE '[]'::jsonb END) AS shown_action
+              WHERE lower(shown_action ->> 'id') = engagement.action_id::text) AS button_label,
+            (SELECT count(*)::integer FROM app.engagement_events AS earlier
+              WHERE earlier.campaign_id = engagement.campaign_id AND earlier.is_counted
+                AND (earlier.received_at, earlier.id) <= (engagement.received_at, engagement.id)) AS counted_so_far
+       FROM app.engagement_events AS engagement
+       JOIN app.stations AS station ON station.id = engagement.station_id
+       JOIN app.action_cards AS card ON card.id = engagement.action_card_id
+       LEFT JOIN app.campaigns AS campaign ON campaign.id = engagement.campaign_id
+      WHERE $2::uuid[] IS NULL OR engagement.station_id = ANY($2::uuid[])
+      ORDER BY engagement.received_at DESC, engagement.id DESC
+      LIMIT $1`,
+    [options.count ?? 10, options.stationIds ? [...options.stationIds] : null],
+  );
+  return result.rows as TapSummary[];
+}
+
+/** How one tap counted, in the walkthrough's words: "counted, 1 of 2", or why it was stored and not counted. */
+export function describeTapCount(tap: Pick<TapSummary, 'card_kind' | 'is_counted' | 'engagement_limit' | 'counted_so_far'>): string {
+  if (tap.card_kind === 'CLIENT_DEFAULT') return 'stored, not counted (usual buttons)';
+  if (tap.is_counted) return tap.engagement_limit === null ? `counted, ${tap.counted_so_far} (no tap limit)` : `counted, ${tap.counted_so_far} of ${tap.engagement_limit}`;
+  if (tap.engagement_limit !== null && tap.counted_so_far >= tap.engagement_limit) return 'stored, not counted (the tap limit was reached)';
+  return "stored, not counted (this phone's taps for the day already counted)";
+}
+
+/** One tap in plain words: when it came, the station, the button's label and how it counted. */
+export function describeTap(tap: TapSummary, options: { timeZone: string; now?: Date }): string {
+  const station = stationLabel({ name: tap.station_name, frequency_label: tap.station_frequency_label, city: tap.station_city });
+  return `${clockText(tap.received_at, options.timeZone, options.now ?? new Date())}  ${station}: "${tap.button_label ?? 'a button'}" — ${describeTapCount(tap)}`;
+}
+
+/** The latest taps in plain words, newest first. */
+export async function showTaps(database: Database, options: { count?: number; timeZone?: string; stationIds?: readonly string[] } = {}): Promise<string> {
+  const taps = await readLatestTaps(database, options);
+  if (taps.length === 0) return 'No taps yet.';
+  const timeZone = options.timeZone ?? 'Africa/Lusaka';
+  return [`The latest ${taps.length === 1 ? 'tap' : `${taps.length} taps`}, newest first (times in ${timeZone}):`, ...taps.map((tap) => describeTap(tap, { timeZone }))].join('\n');
+}
+
 // ---- the command line --------------------------------------------------------------------------------------
 
 const USAGE = [
@@ -367,6 +432,7 @@ const USAGE = [
   '  npm run development:set-campaign-status -- "<station>" "<ad title>" ACTIVE|PAUSED|ENDED',
   '  npm run development:reset-sample-schedule -- "<station>" "<ad title>"',
   '  npm run development:show-reports',
+  '  npm run development:show-taps',
 ].join('\n');
 
 /** Each tool: how many values it takes after its name, and what it does with them. */
@@ -379,6 +445,7 @@ const TOOLS: Record<string, { valueCount: number; run: (database: Database, valu
   },
   'reset-sample-schedule': { valueCount: 2, run: (database, [stationName, adTitle]) => resetSampleSchedule(database, stationName as string, adTitle as string) },
   'show-reports': { valueCount: 0, run: (database) => showReports(database) },
+  'show-taps': { valueCount: 0, run: (database) => showTaps(database) },
 };
 
 /**

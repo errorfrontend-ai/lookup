@@ -121,6 +121,11 @@ const AppConfigSchema = z
     RECOGNITION_IDEMPOTENCY_KEY_CLEAN_UP_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(7 * 86_400).default(86_400),
     /** Registrations of an install that carry its own valid token (after an app update), per install per day. */
     LISTENER_REREGISTRATIONS_PER_INSTALL_PER_DAY: z.coerce.number().int().min(1).max(1_000).default(5),
+    /**
+     * Taps one install may count toward one campaign's tap limit in 24 hours (P4 design §5.8, P4-D10, Q12): more taps
+     * are stored, never counted, so one phone cannot use up a campaign's limit. 0 switches the cap off.
+     */
+    ENGAGEMENTS_COUNTED_PER_INSTALL_PER_CAMPAIGN_PER_DAY: z.coerce.number().int().min(0).max(1_000).default(5),
     /** Signs install tokens. 32+ random bytes, base64url. Changing it makes every app register again. */
     LISTENER_INSTALL_TOKEN_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
     /** Keys the hash of an app's install id, so the raw id is never stored. 32+ random bytes, base64url. */
