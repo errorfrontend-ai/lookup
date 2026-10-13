@@ -98,22 +98,31 @@ PublicImage get fixtureLogo {
   return _publicImage(station['logo'] as Map<String, Object?>);
 }
 
-/// A result from Station A on 98.1 FM for Brand A, as the wireframes draw it, with [card] read by
-/// the shared reader.
+/// The recognition id of the shared answer fixtures, a UUID version 7.
+const String fixtureRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+
+/// A result from Station A on 98.1 FM in Lusaka for Brand A, as the wireframes draw it, with [card]
+/// read by the shared reader.
 RecognitionResult resultWith({
   Object? card,
   RecognitionResultKind kind = RecognitionResultKind.campaign,
   String clientName = 'Brand A',
   String title = 'Summer service offer',
+  String stationId = '0192a6c4-1111-4000-8000-000000000001',
+  String stationName = 'Station A',
+  String stationFrequencyLabel = '98.1 FM',
+  String? stationCity = 'Lusaka',
   PublicImage? headerImage,
   PublicImage? clientLogo,
   PublicImage? stationLogo,
 }) {
   return RecognitionResult(
+    recognitionId: fixtureRecognitionId,
     kind: kind,
-    stationId: '0192a6c4-1111-4000-8000-000000000001',
-    stationName: 'Station A',
-    stationFrequencyLabel: '98.1 FM',
+    stationId: stationId,
+    stationName: stationName,
+    stationFrequencyLabel: stationFrequencyLabel,
+    stationCity: stationCity,
     clientName: clientName,
     title: title,
     card: readActionCard(card ?? fourActionCard),

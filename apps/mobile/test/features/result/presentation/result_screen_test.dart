@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
+import 'package:lookup_listener/features/identify/data/recognize_response_parser.dart';
+import 'package:lookup_listener/features/identify/domain/recognition_answer.dart';
 import 'package:lookup_listener/features/result/domain/action_uri_builder.dart';
 import 'package:lookup_listener/features/result/domain/read_action_card.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
@@ -17,6 +19,7 @@ import 'package:lookup_listener/features/result/presentation/launch_failure_shee
 import 'package:lookup_listener/features/result/presentation/more_options_button.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
+import '../../../support/contract_fixtures.dart';
 import '../../../support/expect_no_technical_text.dart';
 import '../../../support/phone_screen.dart';
 import '../../../support/repository_file_locator.dart';
@@ -277,23 +280,43 @@ void main() {
   });
 
   group('notes under the title', () {
-    testWidgets('the advertiser\'s default card says why it is shown (S4-D21)', (tester) async {
-      await ResultScreenHarness().pumpResultScreen(
-        tester,
-        resultWith(kind: RecognitionResultKind.clientDefault),
-      );
+    // Amendment A7: the answer does not say why a card is the advertiser's usual one, so the note
+    // must be true in each case. On the wire the three are the same CLIENT_DEFAULT answer.
+    for (final reason in [
+      'the ad is out of its slots',
+      'its campaign was paused after the clip was heard',
+      'its campaign reached its tap limit',
+    ]) {
+      testWidgets('the advertiser\'s default card has the one note that is true when $reason '
+          '(A7)', (tester) async {
+        final answer = const RecognizeResponseParser().read(
+          httpStatus: 200,
+          body:
+              (ContractFixtures.readFile(
+                    'recognition/recognize-response/valid/match-client-default.json',
+                  )!
+                  as Map<String, Object?>)['response'],
+        );
+        final result = (answer as MatchAnswer).result;
+        expect(result.kind, RecognitionResultKind.clientDefault);
+        await ResultScreenHarness().pumpResultScreen(tester, result);
 
-      const note = "This ad isn't on air right now, so these are Brand A's usual contact details.";
-      expect(find.text(note), findsOneWidget);
-      expect(
-        tester.getRect(find.text(note)).top,
-        greaterThan(tester.getRect(find.text('Summer service offer')).bottom),
-      );
-      expect(_shownButtons(tester), hasLength(4));
-    });
+        const note = "These are Brand A's usual contact details.";
+        expect(find.text(note), findsOneWidget);
+        expect(
+          tester.getRect(find.text(note)).top,
+          greaterThan(tester.getRect(find.text('Summer service offer')).bottom),
+        );
+        // Step 4's sentence is no longer true from P4, and is gone.
+        expect(find.textContaining("isn't on air"), findsNothing);
+        expect(find.textContaining('right now'), findsNothing);
+        expect(_shownButtons(tester), hasLength(4));
+      });
+    }
 
     testWidgets('the campaign\'s own card has no note', (tester) async {
       await ResultScreenHarness().pumpResultScreen(tester, resultWith());
+      expect(find.textContaining('usual contact details'), findsNothing);
       expect(find.textContaining("isn't on air"), findsNothing);
       expect(find.textContaining('newer version'), findsNothing);
       expect(find.textContaining('no buttons'), findsNothing);
@@ -543,6 +566,7 @@ void main() {
       await harness.pumpResultScreen(
         tester,
         RecognitionResult(
+          recognitionId: result.recognitionId,
           kind: result.kind,
           stationId: result.stationId,
           stationName: result.stationName,

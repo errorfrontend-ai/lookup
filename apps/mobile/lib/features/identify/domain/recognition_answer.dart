@@ -48,21 +48,47 @@ sealed class ReceivedAnswer extends RecognitionAnswer {
 
 /// 200 `MATCH` with a readable result. Its kind decides between the campaign card and the
 /// advertiser's default card; a kind the app does not know has already been read as a campaign.
+/// The recognition id is the result's own.
 final class MatchAnswer extends ReceivedAnswer {
-  const MatchAnswer({required this.result, required super.apiRequestId});
+  const MatchAnswer({required this.result, required super.apiRequestId, this.capturedAt});
 
   final RecognitionResult result;
+
+  /// The answer's `captured_at`, the capture time as the server corrected it; null when missing or
+  /// unreadable. Kept, never shown: History shows the phone's own capture time (contract §5.14).
+  final DateTime? capturedAt;
 }
 
 /// 200 `NO_MATCH`.
 final class NoMatchAnswer extends ReceivedAnswer {
-  const NoMatchAnswer({required super.apiRequestId});
+  const NoMatchAnswer({required super.apiRequestId, this.recognitionId, this.capturedAt});
+
+  /// The answer's `recognition_id` when it is a lower-case UUID version 7; null otherwise, which
+  /// changes nothing on screen.
+  final String? recognitionId;
+
+  /// As [MatchAnswer.capturedAt].
+  final DateTime? capturedAt;
 }
 
-/// 200 `CHOOSE_STATION`: the ad is on more than one station (from Phase 4 on the server), which
-/// this version of the app cannot show yet.
+/// 200 `CHOOSE_STATION` with 2 to 4 readable candidates, each a different station: the ad is on
+/// more than one station, and the listener picks theirs (P6 design §2.6, T19′).
 final class ChooseStationAnswer extends ReceivedAnswer {
-  const ChooseStationAnswer({required super.apiRequestId});
+  ChooseStationAnswer({
+    required this.recognitionId,
+    required List<RecognitionResult> candidates,
+    required super.apiRequestId,
+    this.capturedAt,
+  }) : candidates = List.unmodifiable(candidates);
+
+  /// The recognition the choice is sent for: a lower-case UUID version 7.
+  final String recognitionId;
+
+  /// Each candidate with its own card, in the answer's order, which the app never changes.
+  final List<RecognitionResult> candidates;
+
+  /// As [MatchAnswer.capturedAt].
+  final DateTime? capturedAt;
 }
 
 /// 200 with a status this version of the app does not know, from a newer server.
@@ -70,8 +96,9 @@ final class UnknownStatusAnswer extends ReceivedAnswer {
   const UnknownStatusAnswer({required super.apiRequestId});
 }
 
-/// 200 whose body cannot be read: not a JSON object, no status, or `MATCH` without a readable
-/// result; or a 200 to the install registration without a token the app can use.
+/// 200 whose body cannot be read: not a JSON object, no status, `MATCH` without a readable result,
+/// or a `CHOOSE_STATION` the chooser cannot show (T19″); or a 200 to the install registration
+/// without a token the app can use.
 final class UnreadableAnswer extends ReceivedAnswer {
   const UnreadableAnswer({
     required this.problem,

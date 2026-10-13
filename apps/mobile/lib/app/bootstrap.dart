@@ -26,8 +26,9 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
 ///    switched off for every provider, so nothing is ever resent silently (S4-D4).
 /// 3. Installs the global error handlers and the isolate error listener before anything runs, so
 ///    no failure goes unreported and no listener sees Flutter's red screen (S4-D26).
-/// 4. Deletes any clip file a crash left behind (S4-D7), runs the app, and registers the install
-///    in the background after the first frame (S4-D14).
+/// 4. Deletes any clip file a crash left behind (S4-D7), runs the app, and after the first frame
+///    registers the install in the background (S4-D14) and starts the outbox's runs (P6 design
+///    §3.9 point 1).
 ///
 /// The parameters exist for the start-up test: [checkConfiguration] is the build's own check,
 /// [serviceOverrides] replace services with fakes through the container (never a test branch in
@@ -96,9 +97,10 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
             .then<void>((_) {}, onError: (Object error) {}),
       );
       startApp(UncontrolledProviderScope(container: container, child: const LookUpApp()));
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => container.read(listenerInstallRepositoryProvider).registerInBackground(),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        container.read(listenerInstallRepositoryProvider).registerInBackground();
+        container.read(outboxRunSchedulerProvider).start();
+      });
       return (container: container, isolateErrorListener: isolateErrorListener);
   }
 }

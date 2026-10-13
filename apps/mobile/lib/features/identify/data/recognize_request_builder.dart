@@ -5,10 +5,11 @@ import 'package:lookup_listener/features/identify/domain/captured_clip.dart';
 /// order, then the audio file part last.
 ///
 /// The contract's own shape (`recognize-request-fields.schema.json`): every field is text,
-/// `is_deferred` is `false` because Step 4 only sends live, there is no `station_hint` ("My
-/// station" is Phase 6), and nothing else at all: no install id, token, fingerprint or device
-/// detail (S3-ARCHITECTURE-09). The token travels only in the `Authorization` header, which the
-/// API client adds; it never passes through here.
+/// `is_deferred` is `false` because the live flow sends it (the outbox's deferred sends come with
+/// its clips), `station_hint` is the clip's hint when it has one and is left out otherwise
+/// (P6-MYSTATION-05), and nothing else at all: no install id, token, fingerprint or device detail
+/// (S3-ARCHITECTURE-09). The token travels only in the `Authorization` header, which the API client
+/// adds; it never passes through here.
 final class RecognizeRequestBuilder {
   const RecognizeRequestBuilder();
 
@@ -29,9 +30,21 @@ final class RecognizeRequestBuilder {
           MapEntry('captured_at', formatUtcTimestamp(clip.capturedAt)),
           MapEntry('sent_at', formatUtcTimestamp(sentAt)),
           const MapEntry('is_deferred', 'false'),
+          if (clip.stationHintId case final stationHintId? when _isUuid(stationHintId))
+            MapEntry('station_hint', stationHintId.toLowerCase()),
         ]),
         audioPart: RecognizeAudioPart(bytes: clip.audioBytes),
       );
+
+  /// A station id the contract accepts as a hint: a UUID of version 1 to 8 (its schema's pattern).
+  /// Anything else is left out, so a stored value the server would refuse can never fail every
+  /// identify (it ignores an unknown station's hint, but refuses one that is not a UUID).
+  static bool _isUuid(String value) => _uuid.hasMatch(value);
+
+  static final RegExp _uuid = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
 
   /// [time] in UTC as ISO 8601 with exactly three decimal places and `Z`, e.g.
   /// `2026-10-08T09:15:02.123Z`. Written out because Dart's `toIso8601String()` writes a local time

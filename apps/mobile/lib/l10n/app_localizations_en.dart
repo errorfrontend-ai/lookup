@@ -121,6 +121,33 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cancelIdentifyingLabel => 'Cancel identifying';
 
   @override
+  String get chooserTitle => 'Which station are you listening to?';
+
+  @override
+  String get chooserOnSeveralStationsNow => 'This ad is on more than one station right now.';
+
+  @override
+  String get chooserPlayedOnSeveralStations => 'This ad is played on more than one station.';
+
+  @override
+  String chooserStationFrequencyAndCity(String frequencyLabel, String city) {
+    return '$frequencyLabel · $city';
+  }
+
+  @override
+  String chooserStationSpokenWithCity(String stationName, String frequencyLabel, String city) {
+    return '$stationName, $frequencyLabel, $city';
+  }
+
+  @override
+  String chooserStationSpoken(String stationName, String frequencyLabel) {
+    return '$stationName, $frequencyLabel';
+  }
+
+  @override
+  String get chooserRememberMyStation => 'Remember my station — skip this next time';
+
+  @override
   String get busyHeading => 'Lots of people are listening right now';
 
   @override
@@ -209,10 +236,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get errorNewerAppHeading => 'This needs a newer Look Up';
 
   @override
-  String get errorNewerAppSeveralStationsExplanation =>
-      'This ad is on more than one station, and this version of the app can\'t show that yet.';
-
-  @override
   String get errorNewerAppUnknownAnswerExplanation =>
       'We found an answer this version of the app can\'t show yet.';
 
@@ -242,8 +265,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String resultClientDefaultNote(String clientName) {
-    return 'This ad isn\'t on air right now, so these are $clientName\'s usual contact details.';
+  String defaultCardNote(String clientName) {
+    return 'These are $clientName\'s usual contact details.';
   }
 
   @override
@@ -338,4 +361,20 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get configurationProblemSupportWhatsAppNumberNotE164 =>
       'LOOKUP_SUPPORT_WHATSAPP_NUMBER is not an E.164 number such as +260971234567.';
+
+  @override
+  String get configurationProblemOutboxSendingDelayNotWholeSeconds =>
+      'LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS is not a whole number of seconds from 0 to 120.';
+
+  @override
+  String get configurationProblemOutboxSendingDelayOutsideDevelopment =>
+      'LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS must be 120 outside the development flavour.';
+
+  @override
+  String get configurationProblemOutboxBackoffFirstWaitNotWholeSeconds =>
+      'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS is not a whole number of seconds from 1 to 30.';
+
+  @override
+  String get configurationProblemOutboxBackoffFirstWaitOutsideDevelopment =>
+      'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS must be 30 outside the development flavour.';
 }

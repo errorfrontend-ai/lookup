@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -6,14 +7,30 @@ import 'package:lookup_listener/features/result/domain/read_action_card.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 
 void main() {
-  final result = const RecognitionResult(
-    kind: RecognitionResultKind.campaign,
-    stationId: '0192a6c4-1111-4000-8000-000000000001',
-    stationName: 'Station A',
+  const recognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+  RecognitionResult candidate({
+    String stationId = '0192a6c4-1111-4000-8000-000000000001',
+    String stationName = 'Station A',
+    RecognitionResultKind kind = RecognitionResultKind.campaign,
+  }) => RecognitionResult(
+    recognitionId: recognitionId,
+    kind: kind,
+    stationId: stationId,
+    stationName: stationName,
     stationFrequencyLabel: '98.1 FM',
     clientName: 'Brand A',
     title: 'Summer service offer',
-    card: ReadActionCard.empty(showsUpdateAppHint: false),
+    card: const ReadActionCard.empty(showsUpdateAppHint: false),
+  );
+  final result = candidate();
+  final stationB = candidate(
+    stationId: '0192a6c4-1111-4000-8000-000000000002',
+    stationName: 'Station B',
+  );
+  final chooser = ChooseStationState(
+    recognitionId: recognitionId,
+    candidates: [result, stationB],
+    origin: ChooserOrigin.liveIdentify,
   );
 
   final oneOfEachState = <RecognitionState>[
@@ -21,6 +38,7 @@ void main() {
     const PermissionNeededState(microphoneAccess: MicrophoneAccess.notAskedYet),
     const RecordingState(levelFraction: 0, secondsLeft: 8),
     const UploadingState(),
+    chooser,
     MatchedState(result: result),
     FallbackState(result: result),
     const NoMatchState(),
@@ -28,13 +46,14 @@ void main() {
     const ErrorState(failure: ConnectionFailure()),
   ];
 
-  test('there are exactly nine states, each a different one of the sealed subclasses', () {
-    // The switch below has no default branch: a tenth state would not compile until it is added.
+  test("there are exactly ten states: Step 4's nine and chooseStation (P6-STATE-01)", () {
+    // The switch below has no default branch: another state would not compile until it is added.
     expect(oneOfEachState.map(_nameOf).toSet(), {
       'idle',
       'permissionNeeded',
       'recording',
       'uploading',
+      'chooseStation',
       'matched',
       'fallback',
       'noMatch',
@@ -60,6 +79,96 @@ void main() {
 
     const error = ErrorState(failure: ServerFailure(requestId: 'x'));
     expect(error.failure, const ServerFailure(requestId: 'x'));
+  });
+
+  group('chooseStation (P6-STATE-02)', () {
+    test('holds the recognition id, every candidate with its card, in order, and its origin', () {
+      expect(chooser.recognitionId, recognitionId);
+      expect(chooser.candidates, [same(result), same(stationB)]);
+      expect(chooser.candidates.map((candidate) => candidate.card), [
+        same(result.card),
+        same(stationB.card),
+      ]);
+      expect(chooser.origin, ChooserOrigin.liveIdentify);
+      expect(() => chooser.candidates.add(result), throwsUnsupportedError);
+    });
+
+    test('says when every candidate is a default card, and only then (P6-D42)', () {
+      expect(chooser.areAllCandidatesDefaultCards, isFalse);
+      final oneDefault = ChooseStationState(
+        recognitionId: recognitionId,
+        candidates: [
+          result,
+          candidate(stationId: stationB.stationId, kind: RecognitionResultKind.clientDefault),
+        ],
+        origin: ChooserOrigin.liveIdentify,
+      );
+      expect(oneDefault.areAllCandidatesDefaultCards, isFalse);
+      final allDefault = ChooseStationState(
+        recognitionId: recognitionId,
+        candidates: [
+          candidate(kind: RecognitionResultKind.clientDefault),
+          candidate(stationId: stationB.stationId, kind: RecognitionResultKind.clientDefault),
+        ],
+        origin: ChooserOrigin.liveIdentify,
+      );
+      expect(allDefault.areAllCandidatesDefaultCards, isTrue);
+    });
+
+    test('offers 2 to 4 stations, each once', () {
+      List<RecognitionResult> stations(int count) => [
+        for (var index = 1; index <= count; index++)
+          candidate(stationId: '0192a6c4-1111-4000-8000-00000000000$index'),
+      ];
+      for (final count in [1, 5]) {
+        expect(
+          () => ChooseStationState(
+            recognitionId: recognitionId,
+            candidates: stations(count),
+            origin: ChooserOrigin.liveIdentify,
+          ),
+          throwsA(isA<AssertionError>()),
+          reason: '$count candidates',
+        );
+      }
+      for (final count in [2, 3, 4]) {
+        expect(
+          ChooseStationState(
+            recognitionId: recognitionId,
+            candidates: stations(count),
+            origin: ChooserOrigin.liveIdentify,
+          ).candidates,
+          hasLength(count),
+        );
+      }
+      expect(
+        () => ChooseStationState(
+          recognitionId: recognitionId,
+          candidates: [result, candidate()],
+          origin: ChooserOrigin.liveIdentify,
+        ),
+        throwsA(isA<AssertionError>()),
+        reason: 'the same station twice',
+      );
+    });
+  });
+
+  test('a live identify is under way only while recording, sending or busy (P6 design §3.9)', () {
+    expect(
+      {for (final state in oneOfEachState) _nameOf(state): state.isLiveIdentifyUnderWay},
+      {
+        'idle': false,
+        'permissionNeeded': false,
+        'recording': true,
+        'uploading': true,
+        'chooseStation': false,
+        'matched': false,
+        'fallback': false,
+        'noMatch': false,
+        'busy': true,
+        'error': false,
+      },
+    );
   });
 
   test('states compare by value, so the flow can tell a real change from a repeat', () {
@@ -151,6 +260,7 @@ String _nameOf(RecognitionState state) => switch (state) {
   PermissionNeededState() => 'permissionNeeded',
   RecordingState() => 'recording',
   UploadingState() => 'uploading',
+  ChooseStationState() => 'chooseStation',
   MatchedState() => 'matched',
   FallbackState() => 'fallback',
   NoMatchState() => 'noMatch',

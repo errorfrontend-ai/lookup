@@ -140,20 +140,10 @@ const List<_Variant> _variants = [
     code: null,
     buttons: ['Back to home'],
   ),
-  _Variant(
-    name: 'newer app needed, several stations',
-    failure: NewerAppNeededFailure(isSeveralStations: true),
-    icon: Icons.info_outline,
-    heading: 'This needs a newer Look Up',
-    role: SemanticsRole.status,
-    explanation:
-        "This ad is on more than one station, and this version of the app can't show that yet.",
-    code: null,
-    buttons: ['Back to home'],
-  ),
+  // Its several-stations wording is gone: CHOOSE_STATION is the chooser (P6 design §2.15).
   _Variant(
     name: 'newer app needed, an answer it cannot show',
-    failure: NewerAppNeededFailure(isSeveralStations: false),
+    failure: NewerAppNeededFailure(),
     icon: Icons.info_outline,
     heading: 'This needs a newer Look Up',
     role: SemanticsRole.status,

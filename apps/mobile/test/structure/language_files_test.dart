@@ -118,10 +118,13 @@ void main() {
       expect(english.busyCountdownSpoken(1), '1 second');
       expect(english.homeDataNote(8), 'About 8 seconds of listening · about 25 KB of data');
       expect(english.resultViaStation('Station A', '98.1 FM'), 'via Station A · 98.1 FM');
+      expect(english.defaultCardNote('Brand A'), "These are Brand A's usual contact details.");
+      expect(english.chooserStationFrequencyAndCity('98.1 FM', 'Lusaka'), '98.1 FM · Lusaka');
       expect(
-        english.resultClientDefaultNote('Brand A'),
-        "This ad isn't on air right now, so these are Brand A's usual contact details.",
+        english.chooserStationSpokenWithCity('Station A', '98.1 FM', 'Lusaka'),
+        'Station A, 98.1 FM, Lusaka',
       );
+      expect(english.chooserStationSpoken('Station A', '98.1 FM'), 'Station A, 98.1 FM');
       expect(
         english.supportChatMessage('6F1C-2D3E'),
         'Hello Look Up support, my reference code is 6F1C-2D3E.',

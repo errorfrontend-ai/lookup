@@ -1,7 +1,7 @@
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 
-/// The app's routes (design §3.6): one per screen, each shown for the recognition states listed.
-/// No route lists or browses ads (S4-SCOPE-06).
+/// The app's routes (design §3.6; P6 design §3.7): one per screen, each shown for the recognition
+/// states listed. No route lists or browses ads (S4-SCOPE-06).
 enum AppRoute {
   /// Home, for `idle`.
   home('/'),
@@ -14,6 +14,9 @@ enum AppRoute {
 
   /// Identifying, for `uploading`.
   identifying('/identifying'),
+
+  /// "Which station?", for `chooseStation` (P6 design §2.6).
+  chooseStation('/choose-station'),
 
   /// Result, for `matched` and `fallback`.
   result('/result'),
@@ -39,6 +42,7 @@ enum AppRoute {
     PermissionNeededState() => permission,
     RecordingState() => listening,
     UploadingState() => identifying,
+    ChooseStationState() => chooseStation,
     MatchedState() || FallbackState() => result,
     NoMatchState() => noMatch,
     BusyState() => busy,

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart' show AppLifecycleListener, AppLifecycleSta
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_report_outcome.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
+import 'package:lookup_listener/core/outbox/outbox_providers.dart';
 import 'package:lookup_listener/core/time/clock.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
@@ -18,9 +19,21 @@ import 'package:lookup_listener/features/identify/domain/recognition_outcome.dar
 import 'package:lookup_listener/features/identify/domain/recognition_problem_report.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/domain/send_policy.dart';
+import 'package:lookup_listener/features/result/domain/recognition_result.dart';
+import 'package:lookup_listener/features/settings/data/settings_providers.dart';
+import 'package:lookup_listener/features/settings/domain/listener_station.dart';
 
 /// The identify state machine of §2.12 (S4-D4): every transition T1 to T41, over the sealed
-/// [RecognitionState].
+/// [RecognitionState], and from Phase 6 "Which station?" (P6 design §2.17: T1′, T19′, T44, T46).
+///
+/// - T1′: "My station", read when recording starts, becomes the clip's hint and is never read
+///   again for that clip (P6-MYSTATION-05).
+/// - T19′: a `CHOOSE_STATION` answer shows the chooser; the clip is dropped.
+/// - T44: a row shows that candidate's result at once, from its card, with no request
+///   (P6-CHOOSER-09); in the background, never delaying the screen, the choice goes to the outbox
+///   (P6-CHOOSER-10) and, with "Remember" ticked, the station becomes "My station" (P6-CHOOSER-07,
+///   -08). A failure there is reported and never changes the screen.
+/// - T46: Cancel goes Home; nothing is queued and nothing is remembered (P6-CHOOSER-14).
 ///
 /// Screens read the state and call the methods below; the router follows the state (S4-D5).
 /// Only Home accepts a new identify (T41). The clip is held here, privately, never in a state, and
@@ -104,6 +117,27 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   Future<void> identify() async {
     if (state is! IdleState) return;
     await _startCapture();
+  }
+
+  /// A row of "Which station?" (T44): [stationId] is the tapped candidate's station, and
+  /// [isRemembered] the sheet's "Remember my station" tick at the moment of the tap. The Result of
+  /// that candidate shows at once — matched or fallback by its kind — and the screen never waits
+  /// for what follows: the choice is queued in the outbox, and "My station" is set only when
+  /// [isRemembered]. Ignored anywhere but the chooser, and for a station it does not offer.
+  void chooseStation({required String stationId, required bool isRemembered}) {
+    final current = state;
+    if (current is! ChooseStationState) return;
+    final candidate = current.candidates
+        .where((candidate) => candidate.stationId == stationId)
+        .firstOrNull;
+    if (candidate == null) return;
+    _beginIdentify();
+    state = switch (candidate.kind) {
+      RecognitionResultKind.campaign => MatchedState(result: candidate),
+      RecognitionResultKind.clientDefault => FallbackState(result: candidate),
+    };
+    unawaited(_queueStationChoice(recognitionId: current.recognitionId, stationId: stationId));
+    if (isRemembered) unawaited(_rememberStation(candidate));
   }
 
   /// "Try again" on No match and on the server-failure, phone-failure and recording-unusable
@@ -226,6 +260,9 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     }
     final idempotencyKey = _randomUuid.generate();
     state = RecordingState(levelFraction: 0, secondsLeft: clipSettings.clipDurationSeconds);
+    // T1′: "My station" as it is now becomes this clip's hint, read once, while the microphone
+    // opens, and never again for this clip (P6-MYSTATION-05; contract §5.8).
+    final stationHintId = _readStationHintId();
     final ClipRecording recording;
     try {
       recording = await _clipRecorder.start(idempotencyKey: idempotencyKey, settings: clipSettings);
@@ -255,7 +292,8 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     );
     _recordingCountdown = Timer.periodic(
       const Duration(seconds: 1),
-      (countdown) => _countDownRecording(identifyNumber, countdown, idempotencyKey, capturedAt),
+      (countdown) =>
+          _countDownRecording(identifyNumber, countdown, idempotencyKey, capturedAt, stationHintId),
     );
   }
 
@@ -277,6 +315,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     Timer countdown,
     String idempotencyKey,
     DateTime capturedAt,
+    Future<String?> stationHintId,
   ) {
     final current = state;
     if (!_isCurrent(identifyNumber) || current is! RecordingState) {
@@ -291,7 +330,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     if (secondsLeft > 0) return;
     countdown.cancel();
     _recordingCountdown = null;
-    unawaited(_finishRecording(identifyNumber, idempotencyKey, capturedAt));
+    unawaited(_finishRecording(identifyNumber, idempotencyKey, capturedAt, stationHintId));
   }
 
   /// T13, from the recorder: the platform paused it, so the clip is cancelled.
@@ -318,6 +357,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     int identifyNumber,
     String idempotencyKey,
     DateTime capturedAt,
+    Future<String?> stationHintId,
   ) async {
     final recording = _recording;
     if (recording == null) return;
@@ -335,12 +375,14 @@ class RecognitionFlow extends Notifier<RecognitionState> {
       );
       return;
     }
+    final hint = await stationHintId;
     if (!_isCurrent(identifyNumber)) return;
     _clip = CapturedClip(
       audioBytes: audioBytes,
       idempotencyKey: idempotencyKey,
       capturedAt: capturedAt,
       settings: clipSettings,
+      stationHintId: hint,
     );
     _sendPolicy = const SendPolicy();
     await _send(identifyNumber);
@@ -462,6 +504,53 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     countdown.cancel();
     _busyCountdown = null;
     unawaited(_send(identifyNumber));
+  }
+
+  /// "My station"'s id, for the clip being captured; null when none is set. A failure to read it
+  /// is reported and the clip is sent without a hint, as before one was set: it never stops an
+  /// identify. Never throws.
+  Future<String?> _readStationHintId() async {
+    try {
+      final myStation = await ref.read(myStationStoreProvider).read();
+      return myStation?.id;
+    } on Object catch (error, stackTrace) {
+      _reportQuietly(error, stackTrace, description: 'Reading My station for the hint failed');
+      return null;
+    }
+  }
+
+  /// T44: the choice into the outbox, which sends it when it can (P6-CHOOSER-10). A choice the
+  /// phone could not keep is reported; the Result already shows. Never throws.
+  Future<void> _queueStationChoice({
+    required String recognitionId,
+    required String stationId,
+  }) async {
+    try {
+      await ref
+          .read(outboxStoreProvider)
+          .queueStationChoice(recognitionId: recognitionId, stationId: stationId);
+    } on Object catch (error, stackTrace) {
+      _reportQuietly(error, stackTrace, description: 'Queueing the station choice failed');
+    }
+  }
+
+  /// T44 with "Remember" ticked: [candidate]'s station becomes "My station", so later clips carry
+  /// it as their hint (P6-CHOOSER-07). Never throws.
+  Future<void> _rememberStation(RecognitionResult candidate) async {
+    try {
+      await ref
+          .read(myStationStoreProvider)
+          .remember(
+            ListenerStation(
+              id: candidate.stationId,
+              name: candidate.stationName,
+              frequencyLabel: candidate.stationFrequencyLabel,
+              city: candidate.stationCity,
+            ),
+          );
+    } on Object catch (error, stackTrace) {
+      _reportQuietly(error, stackTrace, description: 'Remembering My station failed');
+    }
   }
 
   /// The crash report the policy asked for. When the failure shown is a phone failure, its code
@@ -670,6 +759,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     PermissionNeededState() => '/permission',
     RecordingState() => '/listening',
     UploadingState() => '/identifying',
+    ChooseStationState() => '/choose-station',
     MatchedState() || FallbackState() => '/result',
     NoMatchState() => '/no-match',
     BusyState() => '/busy',

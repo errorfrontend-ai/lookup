@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
@@ -9,6 +11,8 @@ import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:lookup_listener/core/outbox/outbox_index_file.dart';
+import 'package:lookup_listener/core/outbox/outbox_store.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
@@ -31,6 +35,7 @@ void main() {
   late FakeClipRecorder recorder;
   late RecordingClientErrorReporter reporter;
   late Widget? startedApp;
+  late Directory outboxFolder;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -38,6 +43,8 @@ void main() {
     recorder = FakeClipRecorder()..leaveClipFileBehind('left-by-a-crash.m4a');
     reporter = RecordingClientErrorReporter();
     startedApp = null;
+    outboxFolder = Directory.systemTemp.createTempSync('bootstrap_outbox_test_');
+    addTearDown(() => outboxFolder.deleteSync(recursive: true));
   });
 
   /// Starts the app with [configuration] as the build's check gives it; true when it started.
@@ -67,6 +74,9 @@ void main() {
         clientErrorReporterProvider.overrideWithValue(reporter),
         clipRecorderProvider.overrideWithValue(recorder),
         microphonePermissionProvider.overrideWithValue(FakeMicrophonePermission()),
+        // The app's outbox, in a temporary folder in place of the phone's support folder.
+        outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
+        outboxRandomProvider.overrideWithValue(Random(5)),
       ],
       startApp: (app) => startedApp = app,
       createIsolateErrorListener: createIsolateErrorListener,
@@ -239,6 +249,59 @@ void main() {
       expect(reporter.reports, hasLength(1));
       expect(reporter.reports.single.kind, ClientErrorKind.uncaught);
       expect(reporter.reports.single.location, '/');
+    } finally {
+      FlutterError.onError = flutterErrorHandler;
+      PlatformDispatcher.instance.onError = platformErrorHandler;
+      ErrorWidget.builder = errorWidgetBuilder;
+    }
+  });
+
+  testWidgets('after the first frame the outbox starts its runs: a choice left from the last '
+      'launch is sent (P6 design §3.9 point 1, P6-OFFLINE-07)', (tester) async {
+    final flutterErrorHandler = FlutterError.onError;
+    final platformErrorHandler = PlatformDispatcher.instance.onError;
+    final errorWidgetBuilder = ErrorWidget.builder;
+    try {
+      // What the last launch left: one choice, queued with no signal.
+      OutboxIndexFile(outboxFolder).write(
+        OutboxIndex(
+          items: [
+            StationChoiceItem(
+              itemId: '0f1e2d3c-4b5a-4968-8776-655443322110',
+              queuedAt: DateTime.now().toUtc(),
+              recognitionId: '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70',
+              stationId: '0192a6c4-1111-4000-8000-000000000002',
+            ),
+          ],
+        ),
+      );
+      adapter
+        ..answerJson(200, {
+          'install_token': 'fake.install.token',
+          'expires_at': DateTime.now().toUtc().add(const Duration(days: 30)).toIso8601String(),
+        })
+        ..answerText(204, '');
+      start(
+        AppConfiguration.check({
+          AppConfiguration.flavourDefine: 'production',
+          AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
+          AppConfiguration.supportWhatsAppNumberDefine: '+260966000001',
+        }, gradleFlavour: 'production'),
+      );
+      await tester.pumpWidget(startedApp!);
+      await tester.pump();
+      // The run's one wait is at most 120 seconds.
+      await tester.pump(const Duration(seconds: 121));
+
+      expect(adapter.requests.map((request) => request.address.path), [
+        '/api/v1/installs',
+        '/api/v1/recognitions/0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70/choice',
+      ]);
+      expect(switch (OutboxIndexFile(outboxFolder).read()) {
+        OutboxIndexRead(:final index) => index.items,
+        _ => null,
+      }, isEmpty);
+      expect(reporter.reports, isEmpty);
     } finally {
       FlutterError.onError = flutterErrorHandler;
       PlatformDispatcher.instance.onError = platformErrorHandler;

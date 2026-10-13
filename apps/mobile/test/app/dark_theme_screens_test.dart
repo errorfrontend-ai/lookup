@@ -58,7 +58,7 @@ void main() {
     ),
     'Error, no connection': const ErrorScreen(failure: ConnectionFailure()),
     'Error, too many tries': const ErrorScreen(failure: TooManyTriesFailure(isShortWait: true)),
-    'Error, newer app': const ErrorScreen(failure: NewerAppNeededFailure(isSeveralStations: true)),
+    'Error, newer app': const ErrorScreen(failure: NewerAppNeededFailure()),
   };
 
   for (final MapEntry(key: name, value: screen) in identifyScreens.entries) {
@@ -94,7 +94,7 @@ void main() {
     );
 
     await expectDarkAndReadable(tester, find.text(englishWords.resultFoundIt));
-    expect(find.text(englishWords.resultClientDefaultNote('Brand A')), findsOneWidget);
+    expect(find.text(englishWords.defaultCardNote('Brand A')), findsOneWidget);
     semantics.dispose();
   });
 

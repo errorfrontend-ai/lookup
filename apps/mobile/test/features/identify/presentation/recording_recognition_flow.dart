@@ -39,4 +39,10 @@ class RecordingRecognitionFlow extends RecognitionFlow {
 
   @override
   void backToHome() => calls.add('backToHome');
+
+  /// Recorded with its station and the "Remember" tick, e.g.
+  /// `chooseStation(0192a6c4-…-000000000002, remembered)`.
+  @override
+  void chooseStation({required String stationId, required bool isRemembered}) =>
+      calls.add('chooseStation($stationId, ${isRemembered ? 'remembered' : 'not remembered'})');
 }

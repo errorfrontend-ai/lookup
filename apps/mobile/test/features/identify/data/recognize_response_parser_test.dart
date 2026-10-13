@@ -19,13 +19,12 @@ const String _reportRequestId = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 /// What each recognize-response fixture leads to (§4.4). Every fixture in the folders must be named
 /// here, so a new fixture fails the test until someone decides what the app does with it.
 const Map<String, String> _expectedValidStates = {
-  // The chooser arrives in the P6 design's piece 1; until then every CHOOSE_STATION answer asks for
-  // a newer app.
-  'choose-station': 'newer app needed, several stations',
-  'choose-station-deferred': 'newer app needed, several stations',
-  'choose-station-four-candidates': 'newer app needed, several stations',
-  'choose-station-out-of-window': 'newer app needed, several stations',
-  'choose-station-three-candidates': 'newer app needed, several stations',
+  // The chooser (P6 design T19′): every candidate, in the answer's order.
+  'choose-station': 'chooser: Station A, Station B',
+  'choose-station-deferred': 'chooser: Station A, Station B',
+  'choose-station-four-candidates': 'chooser: Station A, Station B, Station C, Station D',
+  'choose-station-out-of-window': 'chooser: Station A, Station B, all default cards',
+  'choose-station-three-candidates': 'chooser: Station A, Station B, Station C',
   'match-campaign': 'matched',
   'match-campaign-station-b': 'matched',
   'match-client-default': 'fallback',
@@ -55,15 +54,16 @@ const Map<String, String> _expectedInvalidStates = {
   'recognition-id-version-4': 'no match',
   // A match the screen cannot show.
   'match-without-result': 'server failure, reported',
-  // Choosers the contract refuses: the app reads the status and asks for a newer app, so nothing
-  // from the broken candidates is ever shown.
-  'candidate-with-campaign-id': 'newer app needed, several stations',
-  'choose-station-five-candidates': 'newer app needed, several stations',
-  'choose-station-one-candidate': 'newer app needed, several stations',
-  'choose-station-same-station-twice': 'newer app needed, several stations',
-  'choose-station-with-result': 'newer app needed, several stations',
-  // The station's city is not shown yet, so a missing one changes nothing on the screen.
-  'station-without-city-field': 'matched, read as match-campaign',
+  // A campaign id in a candidate is never read: the chooser shows nothing internal.
+  'candidate-with-campaign-id': 'chooser: Station A, Station B',
+  // Choosers the sheet cannot show (T19″): a server failure, reported, and nothing from the broken
+  // candidates is ever shown.
+  'choose-station-five-candidates': 'server failure, reported',
+  'choose-station-one-candidate': 'server failure, reported',
+  'choose-station-same-station-twice': 'server failure, reported',
+  'choose-station-with-result': 'server failure, reported',
+  // A missing city reads as none, so the card is match-campaign's without "· Lusaka".
+  'station-without-city-field': 'matched, read as match-campaign without its city',
 };
 
 /// Where each error envelope leads on a clip's first send (§3.11).
@@ -109,8 +109,9 @@ String _describe(RecognitionOutcome outcome) {
       MatchedState() => 'matched',
       FallbackState() => 'fallback',
       NoMatchState() => 'no match',
-      ErrorState(failure: NewerAppNeededFailure(isSeveralStations: true)) =>
-        'newer app needed, several stations',
+      ChooseStationState(:final candidates, :final areAllCandidatesDefaultCards) =>
+        'chooser: ${candidates.map((candidate) => candidate.stationName).join(', ')}'
+            '${areAllCandidatesDefaultCards ? ', all default cards' : ''}',
       ErrorState(failure: NewerAppNeededFailure()) => 'newer app needed',
       ErrorState(failure: TooManyTriesFailure(isShortWait: true)) => 'too many tries, short wait',
       ErrorState(failure: TooManyTriesFailure()) => 'too many tries, later',
@@ -125,9 +126,11 @@ String _describe(RecognitionOutcome outcome) {
 /// Everything about a result the screen can show, so two readings can be compared whole.
 List<Object?> _visibleReading(RecognitionResult result) => [
   result.kind,
+  result.recognitionId,
   result.stationId,
   result.stationName,
   result.stationFrequencyLabel,
+  result.stationCity,
   result.clientName,
   result.title,
   _imageReading(result.stationLogo),
@@ -235,6 +238,102 @@ void main() {
       expect(result.clientLogo, isNull);
     });
 
+    test(
+      'choose-station: the recognition, the capture time and each station with its own card',
+      () {
+        final answer =
+            _readResponseFixture(
+                  validResponses.firstWhere((fixture) => fixture.name == 'choose-station'),
+                )
+                as ChooseStationAnswer;
+        expect(answer.recognitionId, '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70');
+        expect(answer.capturedAt, DateTime.utc(2026, 10, 7, 6, 30));
+        expect(answer.apiRequestId, _fixtureRequestId);
+        expect(
+          [
+            for (final candidate in answer.candidates)
+              [
+                candidate.recognitionId,
+                candidate.stationId,
+                candidate.stationName,
+                candidate.stationFrequencyLabel,
+                candidate.stationCity,
+                candidate.kind,
+                candidate.card.shownActions.first.id,
+                candidate.card.shownActions.first.label,
+              ],
+          ],
+          [
+            [
+              '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70',
+              '0192a6c4-1111-4000-8000-000000000001',
+              'Station A',
+              '98.1 FM',
+              'Lusaka',
+              RecognitionResultKind.campaign,
+              '0192a6c4-0000-4000-8000-000000000001',
+              'Call us',
+            ],
+            [
+              '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70',
+              '0192a6c4-1111-4000-8000-000000000002',
+              'Station B',
+              '104.3 FM',
+              'Kitwe',
+              RecognitionResultKind.campaign,
+              '0192a6c4-0000-4000-8000-000000000011',
+              'Call us',
+            ],
+          ],
+        );
+        expect(() => answer.candidates.add(answer.candidates.first), throwsUnsupportedError);
+      },
+    );
+
+    test('a station with a null city reads with none, in a result and in a candidate', () {
+      final match =
+          _readResponseFixture(
+                validResponses.firstWhere(
+                  (fixture) => fixture.name == 'match-station-without-city',
+                ),
+              )
+              as MatchAnswer;
+      expect(match.result.stationName, 'Station D');
+      expect(match.result.stationCity, isNull);
+      final four =
+          _readResponseFixture(
+                validResponses.firstWhere(
+                  (fixture) => fixture.name == 'choose-station-four-candidates',
+                ),
+              )
+              as ChooseStationAnswer;
+      expect(four.candidates.map((candidate) => candidate.stationCity), [
+        'Lusaka',
+        'Kitwe',
+        'Ndola',
+        null,
+      ]);
+    });
+
+    test('a match keeps its recognition id and the answer\'s capture time, with its offset', () {
+      final match =
+          _readResponseFixture(
+                validResponses.firstWhere((fixture) => fixture.name == 'match-campaign'),
+              )
+              as MatchAnswer;
+      expect(match.result.recognitionId, '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70');
+      expect(match.capturedAt, DateTime.utc(2026, 10, 7, 6, 30));
+      final noMatch =
+          _readResponseFixture(
+                validResponses.firstWhere(
+                  (fixture) => fixture.name == 'no-match-deferred-with-offset',
+                ),
+              )
+              as NoMatchAnswer;
+      expect(noMatch.recognitionId, '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70');
+      expect(noMatch.capturedAt, DateTime.utc(2026, 10, 7, 4, 30));
+    });
+
     test('match-client-default is the advertiser default card, with the same buttons', () {
       final answer = _readResponseFixture(
         validResponses.firstWhere((fixture) => fixture.name == 'match-client-default'),
@@ -254,11 +353,48 @@ void main() {
         if (expected == 'matched, read as match-campaign') {
           expect(_describe(outcome), 'matched');
           expect(_visibleReading((answer as MatchAnswer).result), campaignReading);
+        } else if (expected == 'matched, read as match-campaign without its city') {
+          expect(_describe(outcome), 'matched');
+          final result = (answer as MatchAnswer).result;
+          expect(result.stationCity, isNull);
+          expect(_visibleReading(result), [
+            ...campaignReading.take(5),
+            null,
+            ...campaignReading.skip(6),
+          ]);
         } else {
           expect(_describe(outcome), expected);
         }
       });
     }
+
+    test('candidate-with-campaign-id: the chooser holds nothing but what a result holds', () {
+      final answer =
+          _readResponseFixture(
+                invalidResponses.firstWhere(
+                  (fixture) => fixture.name == 'candidate-with-campaign-id',
+                ),
+              )
+              as ChooseStationAnswer;
+      final valid =
+          _readResponseFixture(
+                validResponses.firstWhere((fixture) => fixture.name == 'choose-station'),
+              )
+              as ChooseStationAnswer;
+      expect(answer.candidates.map(_visibleReading), valid.candidates.map(_visibleReading));
+      expect(answer.candidates.toString(), isNot(contains('campaign')));
+    });
+
+    test('recognition-id-version-4: a no match with no recognition id, which changes nothing', () {
+      final answer =
+          _readResponseFixture(
+                invalidResponses.firstWhere(
+                  (fixture) => fixture.name == 'recognition-id-version-4',
+                ),
+              )
+              as NoMatchAnswer;
+      expect(answer.recognitionId, isNull);
+    });
 
     test('match-without-result is reported with the API id, which gives the code', () {
       final outcome = _decide(
@@ -484,6 +620,11 @@ void main() {
         'a card that is a list': (response) => resultOf(response)['card'] = <Object?>[],
         'a result that is text': (response) => response['result'] = 'Brand A',
       };
+      breakages['no recognition id'] = (response) => response.remove('recognition_id');
+      breakages['a recognition id of version 4'] = (response) =>
+          response['recognition_id'] = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
+      breakages['a recognition id in capitals'] = (response) =>
+          response['recognition_id'] = '0199B2C4-5A6E-7C3D-8F10-2B3C4D5E6F70';
       for (final MapEntry(key: breakage, value: breakResponse) in breakages.entries) {
         test('$breakage → server failure, reported', () {
           final response = campaignResponse();
@@ -507,6 +648,65 @@ void main() {
         resultOf(response).remove('kind');
         final result = (_parser.read(httpStatus: 200, body: response) as MatchAnswer).result;
         expect(result.kind, RecognitionResultKind.campaign);
+      });
+    });
+
+    group('a CHOOSE_STATION needs its recognition id and 2 to 4 readable stations (T19″)', () {
+      Map<String, Object?> chooserResponse() =>
+          jsonDecode(
+                jsonEncode(
+                  (validResponses.firstWhere((fixture) => fixture.name == 'choose-station').content
+                      as Map<String, Object?>)['response'],
+                ),
+              )
+              as Map<String, Object?>;
+      List<Object?> candidatesOf(Map<String, Object?> response) =>
+          response['candidates']! as List<Object?>;
+
+      final breakages = <String, void Function(Map<String, Object?> response)>{
+        'no recognition id': (response) => response.remove('recognition_id'),
+        'a recognition id of version 4': (response) =>
+            response['recognition_id'] = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f',
+        'no candidates': (response) => response.remove('candidates'),
+        'candidates that are not a list': (response) => response['candidates'] = 'Station A',
+        'an empty list': (response) => response['candidates'] = <Object?>[],
+        'one readable candidate of two': (response) =>
+            (candidatesOf(response)[1]! as Map<String, Object?>).remove('card'),
+        'a result beside the candidates': (response) =>
+            response['result'] = candidatesOf(response).first,
+      };
+      for (final MapEntry(key: breakage, value: breakResponse) in breakages.entries) {
+        test('$breakage → server failure, reported', () {
+          final response = chooserResponse();
+          breakResponse(response);
+          final answer = _parser.read(httpStatus: 200, body: response, requestIdHeader: null);
+          expect(answer, isA<UnreadableAnswer>());
+          expect(_describe(_decide(answer)), 'server failure, reported');
+        });
+      }
+
+      test('three candidates, one unreadable: the chooser offers the two it can show', () {
+        final response = chooserResponse();
+        final third = jsonDecode(jsonEncode(candidatesOf(response).first)) as Map<String, Object?>;
+        (third['station']! as Map<String, Object?>)['id'] = '0192a6c4-1111-4000-8000-000000000003';
+        third.remove('title');
+        candidatesOf(response).add(third);
+        final answer = _parser.read(httpStatus: 200, body: response) as ChooseStationAnswer;
+        expect(answer.candidates.map((candidate) => candidate.stationName), [
+          'Station A',
+          'Station B',
+        ]);
+      });
+
+      test('the app never reorders: the answer\'s order is the sheet\'s', () {
+        final response = chooserResponse();
+        final candidates = candidatesOf(response);
+        candidates.add(candidates.removeAt(0));
+        final answer = _parser.read(httpStatus: 200, body: response) as ChooseStationAnswer;
+        expect(answer.candidates.map((candidate) => candidate.stationName), [
+          'Station B',
+          'Station A',
+        ]);
       });
     });
 

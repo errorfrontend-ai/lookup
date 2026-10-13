@@ -47,6 +47,14 @@ class SetUpProblemScreen extends StatelessWidget {
       words.configurationProblemVerboseLogsOutsideDevelopment,
     ConfigurationProblem.supportWhatsAppNumberMissing =>
       words.configurationProblemSupportWhatsAppNumberMissing,
+    ConfigurationProblem.outboxSendingDelayNotWholeSeconds =>
+      words.configurationProblemOutboxSendingDelayNotWholeSeconds,
+    ConfigurationProblem.outboxSendingDelayOutsideDevelopment =>
+      words.configurationProblemOutboxSendingDelayOutsideDevelopment,
+    ConfigurationProblem.outboxBackoffFirstWaitNotWholeSeconds =>
+      words.configurationProblemOutboxBackoffFirstWaitNotWholeSeconds,
+    ConfigurationProblem.outboxBackoffFirstWaitOutsideDevelopment =>
+      words.configurationProblemOutboxBackoffFirstWaitOutsideDevelopment,
     ConfigurationProblem.supportWhatsAppNumberNotE164 =>
       words.configurationProblemSupportWhatsAppNumberNotE164,
   };

@@ -19,7 +19,8 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 /// ad, the ad's title as the main heading and any notes, then the station's buttons.
 ///
 /// It shows the campaign's own card and the advertiser's default card alike; the default card adds
-/// one note under the title (S4-D21). Below 360 dp wide it takes Result320's tighter spacing,
+/// one note under the title (S4-D21; P6 design §2.7, amendment A7). A result chosen in "Which
+/// station?" is the same screen: its client row reads "via" the tapped station (T44). Below 360 dp wide it takes Result320's tighter spacing,
 /// smaller logo and title, and drops the button icons (S4-D20). The whole screen scrolls when the
 /// text is large.
 ///
@@ -163,8 +164,10 @@ class _ResultCard extends StatelessWidget {
     final headerImage = result.headerImage;
     final words = AppLocalizations.of(context);
     final notes = [
+      // Amendment A7: true whatever made it the usual card (out of its slots, paused after the
+      // capture, at its tap limit), which the answer does not say.
       if (result.kind == RecognitionResultKind.clientDefault)
-        words.resultClientDefaultNote(result.clientName),
+        words.defaultCardNote(result.clientName),
       ..._cardNotes(result.card, words),
     ];
     return Container(

@@ -129,22 +129,18 @@ final class TooManyTriesFailure extends RecognitionFailure {
   String toString() => 'TooManyTriesFailure(isShortWait: $isShortWait)';
 }
 
-/// The answer is one this version of the app cannot show (`CHOOSE_STATION`, a status it does not
-/// know, or 426): "This needs a newer Look Up".
+/// The answer is one this version of the app cannot show (a status it does not know, or 426):
+/// "This needs a newer Look Up". `CHOOSE_STATION` is the chooser since Phase 6, so this failure no
+/// longer has a several-stations wording (P6 design §2.15).
 final class NewerAppNeededFailure extends RecognitionFailure {
-  const NewerAppNeededFailure({required this.isSeveralStations});
-
-  /// Whether the answer was `CHOOSE_STATION` (the ad is on more than one station), which the screen
-  /// explains in its own sentence.
-  final bool isSeveralStations;
+  const NewerAppNeededFailure();
 
   @override
-  bool operator ==(Object other) =>
-      other is NewerAppNeededFailure && other.isSeveralStations == isSeveralStations;
+  bool operator ==(Object other) => other is NewerAppNeededFailure;
 
   @override
-  int get hashCode => Object.hash(NewerAppNeededFailure, isSeveralStations);
+  int get hashCode => (NewerAppNeededFailure).hashCode;
 
   @override
-  String toString() => 'NewerAppNeededFailure(isSeveralStations: $isSeveralStations)';
+  String toString() => 'NewerAppNeededFailure()';
 }

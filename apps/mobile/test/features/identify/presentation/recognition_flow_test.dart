@@ -1,17 +1,23 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show FileSystemException;
 
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
+import 'package:lookup_listener/core/outbox/outbox_store.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder.dart';
+import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/clip_settings.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
+import 'package:lookup_listener/features/result/domain/recognition_result.dart';
+import 'package:lookup_listener/features/settings/data/my_station_store.dart';
+import 'package:lookup_listener/features/settings/domain/listener_station.dart';
 
 import '../../../support/contract_fixtures.dart';
 import '../../../support/example_app_configurations.dart';
@@ -24,6 +30,33 @@ final RegExp _versionFourUuid = RegExp(
 );
 
 const String _acceptedReportId = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+
+/// The chooser fixture's recognition and stations (`recognize-response/valid/choose-station.json`).
+const String _chooserRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+const String _stationAId = '0192a6c4-1111-4000-8000-000000000001';
+const String _stationBId = '0192a6c4-1111-4000-8000-000000000002';
+
+/// "My station" as `MyStationStore` keeps it, for a test's starting preferences.
+const String _stationAStored =
+    '{"id":"$_stationAId","name":"Station A","frequency_label":"98.1 FM","city":"Lusaka"}';
+
+/// An outbox whose disk refuses every change, as a full phone would.
+class _BrokenOutboxStore implements OutboxStore {
+  @override
+  Future<bool> queueStationChoice({
+    required String recognitionId,
+    required String stationId,
+  }) async => throw const FileSystemException('The phone is full');
+
+  @override
+  Object? noSuchMethod(Invocation invocation) => throw UnimplementedError('$invocation');
+}
+
+/// The `station_hint` each recognize request carried, in order; null when it carried none.
+List<String?> _sentHints(RecognitionFlowHarness harness) => [
+  for (final request in harness.recognizeRequests)
+    ReceivedMultipartForm.of(request).fieldValues['station_hint'],
+];
 
 /// A crash reporter whose answers wait until the test releases them, so the listener can act while
 /// a report is on its way (T39).
@@ -501,13 +534,41 @@ void main() {
       });
     });
 
-    test('T19 200 CHOOSE_STATION: error(newer app needed, several stations)', () {
+    test('T19′ 200 CHOOSE_STATION: the chooser, both stations with their cards (P6-STATE-03)', () {
       runFlowTest((harness) {
         identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
-        expect(_failureOf(harness.state), const NewerAppNeededFailure(isSeveralStations: true));
+        final chooser = harness.state as ChooseStationState;
+        expect(chooser.recognitionId, _chooserRecognitionId);
+        expect(chooser.origin, ChooserOrigin.liveIdentify);
+        expect(chooser.candidates.map((candidate) => candidate.stationName), [
+          'Station A',
+          'Station B',
+        ]);
+        expect(chooser.candidates.map((candidate) => candidate.card.shownActions.first.label), [
+          'Call us',
+          'Call us',
+        ]);
         expect(harness.flow.hasKeptClip, isFalse);
+        expect(harness.reporter.reports, isEmpty);
+        expect(harness.outboxItems, isEmpty, reason: 'nothing is queued before a row is tapped');
       });
     });
+
+    for (final fixture in [
+      'choose-station-one-candidate',
+      'choose-station-five-candidates',
+      'choose-station-same-station-twice',
+      'choose-station-with-result',
+    ]) {
+      test('T19″ $fixture: error(server failure), reported, the clip deleted', () {
+        runFlowTest((harness) {
+          identifyAndAnswer(harness, () => harness.answerWithResponseFixture('invalid/$fixture'));
+          expect(_failureOf(harness.state), isA<ServerFailure>());
+          expect(harness.reporter.reports, hasLength(1));
+          expect(harness.flow.hasKeptClip, isFalse);
+        });
+      });
+    }
 
     test('T19 an unknown status, and 426: error(newer app needed)', () {
       runFlowTest((harness) {
@@ -515,7 +576,7 @@ void main() {
           harness,
           () => harness.answerWithResponseFixture('invalid/ambiguous-status'),
         );
-        expect(_failureOf(harness.state), const NewerAppNeededFailure(isSeveralStations: false));
+        expect(_failureOf(harness.state), const NewerAppNeededFailure());
         harness.tap((flow) => flow.backToHome());
         identifyAndAnswer(
           harness,
@@ -523,7 +584,7 @@ void main() {
             'error': {'code': 'APP_UPDATE_REQUIRED', 'message': 'Update the app.'},
           }),
         );
-        expect(_failureOf(harness.state), const NewerAppNeededFailure(isSeveralStations: false));
+        expect(_failureOf(harness.state), const NewerAppNeededFailure());
         expect(harness.flow.hasKeptClip, isFalse);
         expect(harness.reporter.reports, isEmpty);
       });
@@ -1060,7 +1121,7 @@ void main() {
       for (final scriptAnswer in <void Function(RecognitionFlowHarness)>[
         (harness) => harness.adapter.failWithDioType(DioExceptionType.connectionError),
         (harness) => harness.answerWithEnvelopeFixture('rate-limited'),
-        (harness) => harness.answerWithResponseFixture('valid/choose-station'),
+        (harness) => harness.answerWithResponseFixture('invalid/ambiguous-status'),
       ]) {
         runFlowTest((harness) {
           identifyAndAnswer(harness, () => scriptAnswer(harness));
@@ -1110,7 +1171,11 @@ void main() {
       ('no match', (harness) => harness.answerWithResponseFixture('valid/no-match')),
       ('server failure', (harness) => harness.answerWithEnvelopeFixture('internal')),
       ('too many tries', (harness) => harness.answerWithEnvelopeFixture('rate-limited')),
-      ('newer app needed', (harness) => harness.answerWithResponseFixture('valid/choose-station')),
+      (
+        'newer app needed',
+        (harness) => harness.answerWithResponseFixture('invalid/ambiguous-status'),
+      ),
+      ('which station?', (harness) => harness.answerWithResponseFixture('valid/choose-station')),
       ('recording unusable', (harness) => harness.answerWithEnvelopeFixture('invalid-audio')),
       ('phone failure', (harness) => harness.recorder.finishError = StateError('no clip')),
       (
@@ -1229,6 +1294,203 @@ void main() {
         harness.settle();
         expect(harness.permission.readCount, 1);
         expect(harness.recorder.startedIdempotencyKeys, hasLength(1));
+      });
+    });
+  });
+
+  group('Which station? (P6 design §2.6, §2.17)', () {
+    test('T1′ "My station" set: the request carries it as station_hint (P6-MYSTATION-05)', () {
+      runFlowTest(storedPreferences: {MyStationStore.myStationKey: _stationAStored}, (harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/no-match'));
+        expect(_sentHints(harness), [_stationAId]);
+      });
+    });
+
+    test('T1′ no "My station": the request has no station_hint at all (P6-MYSTATION-05)', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/no-match'));
+        expect(_sentHints(harness), [null]);
+        final fieldNames = ReceivedMultipartForm.of(
+          harness.recognizeRequests.single,
+        ).textFields.map((field) => field.key);
+        expect(fieldNames, isNot(contains('station_hint')));
+      });
+    });
+
+    test('T1′ every resend of a clip carries the hint it was captured with', () {
+      runFlowTest(storedPreferences: {MyStationStore.myStationKey: _stationAStored}, (harness) {
+        identifyAndAnswer(
+          harness,
+          () => harness.answerWithEnvelopeFixture('recognition-busy', retryAfter: '2'),
+        );
+        expect(harness.state, isA<BusyState>());
+        // "My station" changes while the clip waits on Busy.
+        unawaited(
+          MyStationStore().remember(
+            const ListenerStation(id: _stationBId, name: 'Station B', frequencyLabel: '104.3 FM'),
+          ),
+        );
+        harness.settle();
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.wait(const Duration(seconds: 2));
+        expect(harness.state, const NoMatchState());
+        expect(_sentHints(harness), [_stationAId, _stationAId]);
+      });
+    });
+
+    test('T1′ the hint is read when recording starts, never again for that clip', () {
+      runFlowTest(storedPreferences: {MyStationStore.myStationKey: _stationAStored}, (harness) {
+        harness.answerWithResponseFixture('valid/no-match');
+        harness.tap((flow) => flow.identify());
+        harness.wait(const Duration(seconds: 3));
+        unawaited(
+          MyStationStore().remember(
+            const ListenerStation(id: _stationBId, name: 'Station B', frequencyLabel: '104.3 FM'),
+          ),
+        );
+        harness.settle();
+        harness.wait(const Duration(seconds: 5));
+        expect(harness.state, const NoMatchState());
+        expect(_sentHints(harness), [_stationAId]);
+
+        harness.tap((flow) => flow.backToHome());
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/no-match'));
+        expect(_sentHints(harness), [_stationAId, _stationBId]);
+      });
+    });
+
+    test('T44 a row shows that station\'s card at once, "via" it, with no request '
+        '(P6-CHOOSER-09)', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        final requestCount = harness.adapter.requests.length;
+
+        harness.flow.chooseStation(stationId: _stationBId, isRemembered: true);
+        // Synchronously, before anything else runs: the Result needs nothing from the network.
+        final shown = harness.state as MatchedState;
+        expect(shown.result.stationName, 'Station B');
+        expect(shown.result.stationFrequencyLabel, '104.3 FM');
+        expect(shown.result.stationCity, 'Kitwe');
+        expect(shown.result.card.shownActions.first.id, '0192a6c4-0000-4000-8000-000000000011');
+        harness.settle();
+        expect(harness.adapter.requests, hasLength(requestCount), reason: 'no request at all');
+        expect(harness.state, same(shown));
+      });
+    });
+
+    test('T44 a default-card candidate shows the fallback result', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(
+          harness,
+          () => harness.answerWithResponseFixture('valid/choose-station-out-of-window'),
+        );
+        final chooser = harness.state as ChooseStationState;
+        expect(chooser.areAllCandidatesDefaultCards, isTrue);
+        harness.tap(
+          (flow) =>
+              flow.chooseStation(stationId: chooser.candidates.last.stationId, isRemembered: false),
+        );
+        expect(harness.state, isA<FallbackState>());
+        expect((harness.state as FallbackState).result.kind, RecognitionResultKind.clientDefault);
+      });
+    });
+
+    test('T44 the choice is queued in the outbox once: the recognition and the tapped station '
+        '(P6-CHOOSER-10)', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: false));
+        final item = harness.outboxItems.single as StationChoiceItem;
+        expect(item.recognitionId, _chooserRecognitionId);
+        expect(item.stationId, _stationBId);
+        expect(item.kind, OutboxItemKind.stationChoice);
+        expect(item.attemptCount, 0);
+        expect(item.nextAttemptAt, isNull);
+        // A second tap while the Result shows changes nothing: one choice per recognition.
+        harness.tap((flow) => flow.chooseStation(stationId: _stationAId, isRemembered: false));
+        expect(harness.outboxItems, hasLength(1));
+        expect((harness.state as MatchedState).result.stationName, 'Station B');
+      });
+    });
+
+    test(
+      'T44 "Remember" ticked: the chosen station is My station and the next hint (P6-CHOOSER-07)',
+      () {
+        runFlowTest(storedPreferences: {MyStationStore.myStationKey: _stationAStored}, (harness) {
+          identifyAndAnswer(
+            harness,
+            () => harness.answerWithResponseFixture('valid/choose-station'),
+          );
+          harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: true));
+          expect(
+            harness.storedPreference(MyStationStore.myStationKey),
+            '{"id":"$_stationBId","name":"Station B","frequency_label":"104.3 FM","city":"Kitwe"}',
+          );
+          harness.tap((flow) => flow.backToHome());
+          identifyAndAnswer(
+            harness,
+            () => harness.answerWithResponseFixture('valid/match-campaign-station-b'),
+          );
+          expect(_sentHints(harness), [_stationAId, _stationBId]);
+        });
+      },
+    );
+
+    test('T44 "Remember" unticked: "My station" stays as it was, and so does the hint '
+        '(P6-CHOOSER-08)', () {
+      runFlowTest(storedPreferences: {MyStationStore.myStationKey: _stationAStored}, (harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: false));
+        expect(harness.storedPreference(MyStationStore.myStationKey), _stationAStored);
+        expect(harness.outboxItems, hasLength(1), reason: 'the choice is queued all the same');
+        harness.tap((flow) => flow.backToHome());
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/no-match'));
+        expect(_sentHints(harness), [_stationAId, _stationAId]);
+      });
+    });
+
+    test('T44 "Remember" unticked with no station set: still none', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap((flow) => flow.chooseStation(stationId: _stationAId, isRemembered: false));
+        expect(harness.storedPreference(MyStationStore.myStationKey), isNull);
+      });
+    });
+
+    test('T44 a station the chooser does not offer, or a tap outside the chooser, is ignored', () {
+      runFlowTest((harness) {
+        harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: true));
+        expect(harness.state, const IdleState());
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap(
+          (flow) => flow.chooseStation(
+            stationId: '0192a6c4-1111-4000-8000-000000000009',
+            isRemembered: true,
+          ),
+        );
+        expect(harness.state, isA<ChooseStationState>());
+        expect(harness.outboxItems, isEmpty);
+        expect(harness.storedPreference(MyStationStore.myStationKey), isNull);
+      });
+    });
+
+    test('T46 Cancel: Home, nothing queued, nothing remembered (P6-CHOOSER-14)', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap((flow) => flow.backToHome());
+        expect(harness.state, const IdleState());
+        expect(harness.outboxItems, isEmpty);
+        expect(harness.storedPreference(MyStationStore.myStationKey), isNull);
+        expect(harness.adapter.requests, hasLength(1), reason: 'no cancel request (gap 28)');
+      });
+    });
+
+    test('a choice the phone cannot keep is reported, and the Result still shows', () {
+      runFlowTest(outboxStore: _BrokenOutboxStore(), (harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: false));
+        expect(harness.state, isA<MatchedState>());
+        expect(harness.reporter.reports.single.description, 'Queueing the station choice failed');
       });
     });
   });

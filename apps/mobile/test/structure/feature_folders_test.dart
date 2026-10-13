@@ -4,16 +4,26 @@ import '../support/repository_file_locator.dart';
 import 'support/feature_folder_scan.dart';
 import 'support/temporary_folder_copy.dart';
 
-/// Feature-first folders (design §3.1; S4-STRUCTURE-01, -02, -04): `identify` and `result`, each with
-/// exactly `presentation`, `domain` and `data`.
+/// Feature-first folders (design §3.1; S4-STRUCTURE-01, -02, -04; P6 design §3.1): `identify` and
+/// `result`, each with exactly `presentation`, `domain` and `data`, and `settings` with its `domain`
+/// and `data` (its screens come in piece 2).
 void main() {
   final libraryFolder = RepositoryFileLocator.mobileAppFolder('lib');
 
-  test('lib/features holds exactly identify and result, each with its three layers', () {
+  test('lib/features holds exactly identify, result and settings, each with its layers', () {
     final scan = FeatureFolderScan.of(libraryFolder);
 
     expect(scan.featureNames, FeatureFolderScan.expectedFeatures);
-    expect(scan.dartFileCountsByLayerFolder.keys, hasLength(6));
+    expect(scan.dartFileCountsByLayerFolder.keys.toSet(), {
+      'identify/presentation',
+      'identify/domain',
+      'identify/data',
+      'result/presentation',
+      'result/domain',
+      'result/data',
+      'settings/domain',
+      'settings/data',
+    });
     for (final entry in scan.dartFileCountsByLayerFolder.entries) {
       expect(entry.value, greaterThan(0), reason: '${entry.key} holds no Dart file');
     }
@@ -26,7 +36,7 @@ void main() {
     setUp(() => copy = TemporaryFolderCopy.of(libraryFolder));
     tearDown(() => copy.delete());
 
-    test('a third feature', () {
+    test('a fourth feature', () {
       copy.writeFile('features/history/presentation/history_screen.dart', 'class HistoryScreen {}');
 
       expect(
@@ -68,6 +78,27 @@ void main() {
       expect(
         FeatureFolderScan.of(copy.folder).violations,
         contains('lib/features/identify/ is missing (S4-STRUCTURE-04)'),
+      );
+    });
+
+    test('a missing settings layer', () {
+      copy.deleteFolder('features/settings/data');
+
+      expect(
+        FeatureFolderScan.of(copy.folder).violations,
+        contains('lib/features/settings/data/ is missing (S4-STRUCTURE-02)'),
+      );
+    });
+
+    test('settings screens before piece 2 adds them to the rule', () {
+      copy.writeFile(
+        'features/settings/presentation/settings_screen.dart',
+        'class SettingsScreen {}',
+      );
+
+      expect(
+        FeatureFolderScan.of(copy.folder).violations,
+        contains(startsWith('lib/features/settings/presentation:')),
       );
     });
 

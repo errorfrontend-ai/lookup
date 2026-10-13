@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_answer.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
@@ -15,10 +16,17 @@ const ErrorState _phoneFailure = ErrorState(
   failure: PhoneFailure(reportRequestId: _reportRequestId, reportDelivery: ReportDelivery.sending),
 );
 
-RecognitionResult _result(RecognitionResultKind kind) => RecognitionResult(
+const String _recognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+
+RecognitionResult _result(
+  RecognitionResultKind kind, {
+  String stationId = '0192a6c4-1111-4000-8000-000000000001',
+  String stationName = 'Station A',
+}) => RecognitionResult(
+  recognitionId: _recognitionId,
   kind: kind,
-  stationId: '0192a6c4-1111-4000-8000-000000000001',
-  stationName: 'Station A',
+  stationId: stationId,
+  stationName: stationName,
   stationFrequencyLabel: '98.1 FM',
   clientName: 'Brand A',
   title: 'Summer service offer',
@@ -102,18 +110,33 @@ void main() {
       );
     });
 
-    test('200 CHOOSE_STATION → newer app needed, several stations; clip deleted', () {
-      _expectFinished(
-        _decide(const ChooseStationAnswer(apiRequestId: _apiRequestId)),
-        const ErrorState(failure: NewerAppNeededFailure(isSeveralStations: true)),
-        isReported: false,
+    test('T19′ 200 CHOOSE_STATION → chooseStation with its candidates, live; clip deleted', () {
+      final stationA = _result(RecognitionResultKind.campaign);
+      final stationB = _result(
+        RecognitionResultKind.campaign,
+        stationId: '0192a6c4-1111-4000-8000-000000000002',
+        stationName: 'Station B',
       );
+      final outcome = _decide(
+        ChooseStationAnswer(
+          recognitionId: _recognitionId,
+          candidates: [stationA, stationB],
+          apiRequestId: _apiRequestId,
+        ),
+      );
+      expect(outcome, isA<FinishedOutcome>());
+      expect(outcome.isClipKept, isFalse, reason: 'the clip is dropped');
+      expect((outcome as FinishedOutcome).problemReport, isNull);
+      final chooser = outcome.nextState as ChooseStationState;
+      expect(chooser.recognitionId, _recognitionId);
+      expect(chooser.candidates, [same(stationA), same(stationB)]);
+      expect(chooser.origin, ChooserOrigin.liveIdentify);
     });
 
     test('200 with a status the app does not know → newer app needed; clip deleted', () {
       _expectFinished(
         _decide(const UnknownStatusAnswer(apiRequestId: _apiRequestId)),
-        const ErrorState(failure: NewerAppNeededFailure(isSeveralStations: false)),
+        const ErrorState(failure: NewerAppNeededFailure()),
         isReported: false,
       );
     });
@@ -217,7 +240,7 @@ void main() {
     test('426 → newer app needed; clip deleted', () {
       _expectFinished(
         _decide(_status(426, errorCode: 'APP_UPDATE_REQUIRED')),
-        const ErrorState(failure: NewerAppNeededFailure(isSeveralStations: false)),
+        const ErrorState(failure: NewerAppNeededFailure()),
         isReported: false,
       );
     });

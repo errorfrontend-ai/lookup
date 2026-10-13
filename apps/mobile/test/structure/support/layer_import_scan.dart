@@ -10,7 +10,11 @@ import 'dart_source_tree.dart';
 ///   from such an adapter file presentation may name only its `…Provider` and `…Repository` names.
 /// - `domain` imports only `dart:core`, `dart:convert`, `dart:math`, `package:meta` and other
 ///   `domain/` files.
-/// - `data` never imports `presentation/` (nor `app/`, the composition root above it).
+/// - `data` never imports `presentation/` (nor `app/`, the composition root above it), nor another
+///   feature's `data/`: where one feature's data must reach another's, the first declares an
+///   interface in its domain and `lib/app` implements it (P6 design §3.2).
+/// - `core/` imports no feature: the outbox and the other shared parts take each feature's part
+///   from `lib/app`, which wires them (P6 design §3.1, P6-D4).
 final class LayerImportScan {
   LayerImportScan._(this.filesByLayer, this.directiveCount, this.violations);
 
@@ -20,6 +24,20 @@ final class LayerImportScan {
     var directiveCount = 0;
     final violations = <String>[];
     for (final file in tree.files) {
+      if (file.path.startsWith('core/')) {
+        for (final directive in file.directives) {
+          if (directive.keyword == 'part') continue;
+          directiveCount++;
+          final libraryPath = _libraryPathOf(file.path, directive.uri);
+          if (libraryPath != null && libraryPath.startsWith('features/')) {
+            violations.add(
+              '${file.path}:${directive.lineNumber} ${directive.uri}: core must never import a '
+              'feature; lib/app wires the features into it (P6 design §3.1, P6-D4)',
+            );
+          }
+        }
+        continue;
+      }
       final layer = layerOf(file.path);
       if (layer == null) continue;
       filesByLayer[layer] = filesByLayer[layer]! + 1;
@@ -98,6 +116,12 @@ final class LayerImportScan {
             (targetLayer == CodeLayer.presentation || libraryPath.startsWith('app/'))) {
           return 'data must never import presentation (§3.2)';
         }
+        if (libraryPath != null &&
+            targetLayer == CodeLayer.data &&
+            _featureOf(libraryPath) != _featureOf(file.path)) {
+          return "a feature's data never imports another feature's data; declare an interface in "
+              'its domain for lib/app to implement (P6 design §3.2)';
+        }
         return null;
     }
   }
@@ -131,6 +155,9 @@ final class LayerImportScan {
     return 'presentation may use only the providers and repositories of $dataFileName, but uses '
         '${otherNames.join(', ')} (§3.2)';
   }
+
+  /// The feature of a `features/<feature>/…` path.
+  static String _featureOf(String libraryPath) => libraryPath.split('/')[1];
 
   static bool _isProviderOrRepositoryName(String name) =>
       name.endsWith('Provider') || name.endsWith('Repository');

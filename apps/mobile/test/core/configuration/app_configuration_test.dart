@@ -362,6 +362,88 @@ void main() {
     });
   });
 
+  group("the outbox's waits, lowered only in development (amendment A1; P6 design §3.9)", () {
+    const sendingDelay = 'LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS';
+    const backoffFirstWait = 'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS';
+
+    test('left out, they are the standard 120 and 30 seconds in every flavour', () {
+      for (final defines in [_developmentDefines, _productionDefines]) {
+        final configuration = _expectAccepted(
+          AppConfiguration.check(defines, gradleFlavour: defines['LOOKUP_FLAVOUR']),
+        );
+        expect(configuration.outboxSendingDelayMaximumSeconds, 120);
+        expect(configuration.outboxBackoffFirstWaitSeconds, 30);
+      }
+    });
+
+    test('a development build may lower both, as the emulator walkthroughs do (5 and 5)', () {
+      final configuration = _expectAccepted(
+        AppConfiguration.check(
+          _with(_developmentDefines, {sendingDelay: '5', backoffFirstWait: '5'}),
+          gradleFlavour: 'development',
+        ),
+      );
+      expect(configuration.outboxSendingDelayMaximumSeconds, 5);
+      expect(configuration.outboxBackoffFirstWaitSeconds, 5);
+      expect(
+        _expectAccepted(
+          AppConfiguration.check(
+            _with(_developmentDefines, {sendingDelay: '0', backoffFirstWait: '1'}),
+            gradleFlavour: 'development',
+          ),
+        ).outboxSendingDelayMaximumSeconds,
+        0,
+      );
+    });
+
+    test('staging and production refuse any value but 120 and 30 at start-up', () {
+      for (final flavour in ['staging', 'production']) {
+        final defines = _with(_productionDefines, {'LOOKUP_FLAVOUR': flavour});
+        expect(_problemsOf(_with(defines, {sendingDelay: '5'}), gradleFlavour: flavour), [
+          ConfigurationProblem.outboxSendingDelayOutsideDevelopment,
+        ]);
+        expect(_problemsOf(_with(defines, {backoffFirstWait: '5'}), gradleFlavour: flavour), [
+          ConfigurationProblem.outboxBackoffFirstWaitOutsideDevelopment,
+        ]);
+        final standard = _expectAccepted(
+          AppConfiguration.check(
+            _with(defines, {sendingDelay: '120', backoffFirstWait: '30'}),
+            gradleFlavour: flavour,
+          ),
+        );
+        expect(standard.outboxSendingDelayMaximumSeconds, 120);
+        expect(standard.outboxBackoffFirstWaitSeconds, 30);
+      }
+    });
+
+    test('a value that is not whole seconds in range is refused, in development too', () {
+      for (final value in ['five', '-1', '121', '5.5', ' 5', '0120', '1000']) {
+        expect(
+          _problemsOf(
+            _with(_developmentDefines, {sendingDelay: value}),
+            gradleFlavour: 'development',
+          ),
+          [ConfigurationProblem.outboxSendingDelayNotWholeSeconds],
+          reason: value,
+        );
+      }
+      for (final value in ['0', '31', 'thirty']) {
+        expect(
+          _problemsOf(
+            _with(_developmentDefines, {backoffFirstWait: value}),
+            gradleFlavour: 'development',
+          ),
+          [ConfigurationProblem.outboxBackoffFirstWaitNotWholeSeconds],
+          reason: value,
+        );
+      }
+    });
+
+    test('both are defines the app reads', () {
+      expect(AppConfiguration.defineNames, containsAll([sendingDelay, backoffFirstWait]));
+    });
+  });
+
   test('every problem has a developer description that names no value', () {
     for (final problem in ConfigurationProblem.values) {
       expect(SetUpProblemScreen.describe(problem, englishWords), isNotEmpty);

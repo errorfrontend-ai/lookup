@@ -187,6 +187,9 @@ abstract final class SourceRules {
       'The recorder could not finish the clip',
       'Sending the clip failed on the phone',
       'Reading the microphone permission on return failed',
+      'Reading My station for the hint failed',
+      'Queueing the station choice failed',
+      'Remembering My station failed',
     },
     'features/identify/presentation/reference_code_panel.dart': {'monospace', 'Menlo', 'Courier'},
     'features/identify/presentation/send_test_error_button.dart': {
@@ -199,6 +202,7 @@ abstract final class SourceRules {
     '/permission',
     '/listening',
     '/identifying',
+    '/choose-station',
     '/result',
     '/no-match',
     '/busy',

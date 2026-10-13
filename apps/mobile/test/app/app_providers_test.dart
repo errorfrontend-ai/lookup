@@ -1,10 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_providers.dart';
+import 'package:lookup_listener/app/outbox_run_scheduler.dart';
+import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:lookup_listener/core/outbox/outbox_providers.dart';
+import 'package:lookup_listener/core/outbox/outbox_sender.dart';
+import 'package:lookup_listener/core/outbox/outbox_store.dart';
+import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
 import 'package:lookup_listener/core/time/clock.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
@@ -47,6 +53,42 @@ void main() {
     );
     expect(container.read(recognitionClockProvider), same(container.read(clockProvider)));
     expect(container.read(recognitionRandomUuidProvider), same(container.read(randomUuidProvider)));
+  });
+
+  test('the outbox is wired once from the app services: its store, its sender with the station '
+      'choice sender, its scheduler, and the waits of the configuration (P6 design §3.6)', () {
+    final container = _appContainer();
+    final store = container.read(outboxStoreProvider);
+    expect(store, isA<OutboxStore>());
+    expect(container.read(outboxStoreProvider), same(store));
+    expect(container.read(outboxSenderProvider), isA<OutboxSender>());
+    expect(container.read(outboxRunSchedulerProvider), isA<OutboxRunScheduler>());
+    expect(container.read(outboxTimingRulesProvider), OutboxTimingRules.standard);
+    final engine = container.read(engineIdentityProvider);
+    expect(engine.isEngineAttached(engine.engineId), isTrue);
+    expect(engine.isEngineAttached('1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e'), isFalse);
+  });
+
+  test("a development build's lowered waits reach the outbox's rules", () {
+    final container = ProviderContainer(
+      overrides: [
+        appConfigurationProvider.overrideWithValue(
+          AppConfiguration(
+            flavour: AppFlavour.development,
+            apiBaseUrl: Uri.parse('http://10.0.2.2:3999/api/v1'),
+            outboxSendingDelayMaximumSeconds: 5,
+            outboxBackoffFirstWaitSeconds: 5,
+          ),
+        ),
+        ...appServiceOverrides,
+      ],
+      retry: (retryCount, error) => null,
+    );
+    addTearDown(container.dispose);
+    expect(
+      container.read(outboxTimingRulesProvider),
+      const OutboxTimingRules(sendingDelayMaximumSeconds: 5, backoffFirstWaitSeconds: 5),
+    );
   });
 
   test('without the configuration nothing can be made: it comes only from the check', () {

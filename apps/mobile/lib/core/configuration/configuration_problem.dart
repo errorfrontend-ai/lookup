@@ -17,4 +17,8 @@ enum ConfigurationProblem {
   verboseLogsOutsideDevelopment,
   supportWhatsAppNumberMissing,
   supportWhatsAppNumberNotE164,
+  outboxSendingDelayNotWholeSeconds,
+  outboxSendingDelayOutsideDevelopment,
+  outboxBackoffFirstWaitNotWholeSeconds,
+  outboxBackoffFirstWaitOutsideDevelopment,
 }

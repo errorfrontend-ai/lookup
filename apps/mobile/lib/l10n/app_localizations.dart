@@ -104,7 +104,7 @@ abstract class AppLocalizations {
   /// **'Close'**
   String get closeButton;
 
-  /// The button that stops listening, identifying or a busy wait and goes Home.
+  /// The button that stops listening, identifying or a busy wait and goes Home, or closes the station sheet without choosing.
   ///
   /// In en, this message translates to:
   /// **'Cancel'**
@@ -272,6 +272,48 @@ abstract class AppLocalizations {
   /// **'Cancel identifying'**
   String get cancelIdentifyingLabel;
 
+  /// The heading of the sheet that asks which station the listener hears, when the ad is on more than one; also the sheet's name for screen readers.
+  ///
+  /// In en, this message translates to:
+  /// **'Which station are you listening to?'**
+  String get chooserTitle;
+
+  /// Under the station sheet's heading, when at least one station shows the ad's own buttons.
+  ///
+  /// In en, this message translates to:
+  /// **'This ad is on more than one station right now.'**
+  String get chooserOnSeveralStationsNow;
+
+  /// Under the station sheet's heading, when every station shows only the advertiser's usual buttons, so "right now" may not be true.
+  ///
+  /// In en, this message translates to:
+  /// **'This ad is played on more than one station.'**
+  String get chooserPlayedOnSeveralStations;
+
+  /// Under a station's name in the station sheet: its frequency and its city, e.g. "98.1 FM · Lusaka". A station with no city shows its frequency alone.
+  ///
+  /// In en, this message translates to:
+  /// **'{frequencyLabel} · {city}'**
+  String chooserStationFrequencyAndCity(String frequencyLabel, String city);
+
+  /// What screen readers announce for one station row of the station sheet, e.g. "Station A, 98.1 FM, Lusaka".
+  ///
+  /// In en, this message translates to:
+  /// **'{stationName}, {frequencyLabel}, {city}'**
+  String chooserStationSpokenWithCity(String stationName, String frequencyLabel, String city);
+
+  /// What screen readers announce for one station row of the station sheet when the station has no city, e.g. "Station A, 98.1 FM".
+  ///
+  /// In en, this message translates to:
+  /// **'{stationName}, {frequencyLabel}'**
+  String chooserStationSpoken(String stationName, String frequencyLabel);
+
+  /// The checkbox under the stations: when ticked, the chosen station becomes "My station" and later identifies of this kind skip the sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Remember my station — skip this next time'**
+  String get chooserRememberMyStation;
+
   /// The heading when the service had no room and the app will send the clip again by itself.
   ///
   /// In en, this message translates to:
@@ -416,12 +458,6 @@ abstract class AppLocalizations {
   /// **'This needs a newer Look Up'**
   String get errorNewerAppHeading;
 
-  /// Under the newer-app heading when the ad is on several stations.
-  ///
-  /// In en, this message translates to:
-  /// **'This ad is on more than one station, and this version of the app can\'t show that yet.'**
-  String get errorNewerAppSeveralStationsExplanation;
-
   /// Under the newer-app heading for any other answer it cannot show.
   ///
   /// In en, this message translates to:
@@ -470,11 +506,11 @@ abstract class AppLocalizations {
   /// **'via {stationName} · {frequencyLabel}'**
   String resultViaStation(String stationName, String frequencyLabel);
 
-  /// Under the ad's title when the card is the advertiser's usual one rather than the campaign's.
+  /// Under the ad's title when the card is the advertiser's usual one rather than the campaign's: the ad may be out of its slots, or its campaign paused or at its limit.
   ///
   /// In en, this message translates to:
-  /// **'This ad isn\'t on air right now, so these are {clientName}\'s usual contact details.'**
-  String resultClientDefaultNote(String clientName);
+  /// **'These are {clientName}\'s usual contact details.'**
+  String defaultCardNote(String clientName);
 
   /// Under the title when some buttons are of a kind this version cannot show.
   ///
@@ -631,6 +667,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'LOOKUP_SUPPORT_WHATSAPP_NUMBER is not an E.164 number such as +260971234567.'**
   String get configurationProblemSupportWhatsAppNumberNotE164;
+
+  /// A build problem, listed only on the set-up screen of a development build; never seen by a listener.
+  ///
+  /// In en, this message translates to:
+  /// **'LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS is not a whole number of seconds from 0 to 120.'**
+  String get configurationProblemOutboxSendingDelayNotWholeSeconds;
+
+  /// A build problem, listed only on the set-up screen of a development build; never seen by a listener.
+  ///
+  /// In en, this message translates to:
+  /// **'LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS must be 120 outside the development flavour.'**
+  String get configurationProblemOutboxSendingDelayOutsideDevelopment;
+
+  /// A build problem, listed only on the set-up screen of a development build; never seen by a listener.
+  ///
+  /// In en, this message translates to:
+  /// **'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS is not a whole number of seconds from 1 to 30.'**
+  String get configurationProblemOutboxBackoffFirstWaitNotWholeSeconds;
+
+  /// A build problem, listed only on the set-up screen of a development build; never seen by a listener.
+  ///
+  /// In en, this message translates to:
+  /// **'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS must be 30 outside the development flavour.'**
+  String get configurationProblemOutboxBackoffFirstWaitOutsideDevelopment;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

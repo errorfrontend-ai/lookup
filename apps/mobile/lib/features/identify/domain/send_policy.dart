@@ -1,3 +1,4 @@
+import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_answer.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
@@ -78,11 +79,16 @@ final class SendPolicy {
           RecognitionResultKind.clientDefault => FallbackState(result: result),
         }),
         NoMatchAnswer() => const FinishedOutcome(NoMatchState()),
-        ChooseStationAnswer() => const FinishedOutcome(
-          ErrorState(failure: NewerAppNeededFailure(isSeveralStations: true)),
+        // T19′: the chooser, from the candidates' own cards; the clip is no longer needed.
+        ChooseStationAnswer(:final recognitionId, :final candidates) => FinishedOutcome(
+          ChooseStationState(
+            recognitionId: recognitionId,
+            candidates: candidates,
+            origin: ChooserOrigin.liveIdentify,
+          ),
         ),
         UnknownStatusAnswer() => const FinishedOutcome(
-          ErrorState(failure: NewerAppNeededFailure(isSeveralStations: false)),
+          ErrorState(failure: NewerAppNeededFailure()),
         ),
         UnreadableAnswer(:final problem) => _serverFailure(
           answer,
@@ -100,9 +106,7 @@ final class SendPolicy {
     400 when answer.errorCode == _invalidAudioCode => _recordingUnusable(answer, reportRequestId),
     401 => _afterRefusedToken(answer, reportRequestId),
     409 => _afterInProgress(answer, reportRequestId),
-    426 => const FinishedOutcome(
-      ErrorState(failure: NewerAppNeededFailure(isSeveralStations: false)),
-    ),
+    426 => const FinishedOutcome(ErrorState(failure: NewerAppNeededFailure())),
     429 => FinishedOutcome(
       ErrorState(
         failure: TooManyTriesFailure(

@@ -12,7 +12,7 @@ void main() {
       RecordingUnusableFailure(requestId: _apiRequestId),
       ConnectionFailure(),
       TooManyTriesFailure(isShortWait: true),
-      NewerAppNeededFailure(isSeveralStations: false),
+      NewerAppNeededFailure(),
     ];
     // No default branch: a seventh failure would not compile until it is named here.
     final variants = oneOfEachFailure.map(
@@ -53,8 +53,7 @@ void main() {
         ConnectionFailure(),
         TooManyTriesFailure(isShortWait: true),
         TooManyTriesFailure(isShortWait: false),
-        NewerAppNeededFailure(isSeveralStations: true),
-        NewerAppNeededFailure(isSeveralStations: false),
+        NewerAppNeededFailure(),
       ]) {
         expect(failure.referenceCodeRequestId, isNull, reason: '$failure');
       }
@@ -77,9 +76,8 @@ void main() {
       isNot(const RecordingUnusableFailure(requestId: 'a')),
     );
     expect(const ConnectionFailure(), const ConnectionFailure());
-    expect(
-      const NewerAppNeededFailure(isSeveralStations: true),
-      isNot(const NewerAppNeededFailure(isSeveralStations: false)),
-    );
+    // The several-stations wording is gone: CHOOSE_STATION is the chooser (P6 design §2.15).
+    expect(const NewerAppNeededFailure(), const NewerAppNeededFailure());
+    expect(const NewerAppNeededFailure(), isNot(const ConnectionFailure()));
   });
 }

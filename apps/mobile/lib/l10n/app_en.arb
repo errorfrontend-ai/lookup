@@ -10,7 +10,7 @@
   },
   "cancelButton": "Cancel",
   "@cancelButton": {
-    "description": "The button that stops listening, identifying or a busy wait and goes Home."
+    "description": "The button that stops listening, identifying or a busy wait and goes Home, or closes the station sheet without choosing."
   },
   "backButton": "Back",
   "@backButton": {
@@ -132,6 +132,75 @@
   "@cancelIdentifyingLabel": {
     "description": "What screen readers announce for the Close × while identifying."
   },
+  "chooserTitle": "Which station are you listening to?",
+  "@chooserTitle": {
+    "description": "The heading of the sheet that asks which station the listener hears, when the ad is on more than one; also the sheet's name for screen readers."
+  },
+  "chooserOnSeveralStationsNow": "This ad is on more than one station right now.",
+  "@chooserOnSeveralStationsNow": {
+    "description": "Under the station sheet's heading, when at least one station shows the ad's own buttons."
+  },
+  "chooserPlayedOnSeveralStations": "This ad is played on more than one station.",
+  "@chooserPlayedOnSeveralStations": {
+    "description": "Under the station sheet's heading, when every station shows only the advertiser's usual buttons, so \"right now\" may not be true."
+  },
+  "chooserStationFrequencyAndCity": "{frequencyLabel} · {city}",
+  "@chooserStationFrequencyAndCity": {
+    "description": "Under a station's name in the station sheet: its frequency and its city, e.g. \"98.1 FM · Lusaka\". A station with no city shows its frequency alone.",
+    "placeholders": {
+      "frequencyLabel": {
+        "type": "String",
+        "description": "The station's frequency.",
+        "example": "98.1 FM"
+      },
+      "city": {
+        "type": "String",
+        "description": "The station's city.",
+        "example": "Lusaka"
+      }
+    }
+  },
+  "chooserStationSpokenWithCity": "{stationName}, {frequencyLabel}, {city}",
+  "@chooserStationSpokenWithCity": {
+    "description": "What screen readers announce for one station row of the station sheet, e.g. \"Station A, 98.1 FM, Lusaka\".",
+    "placeholders": {
+      "stationName": {
+        "type": "String",
+        "description": "The station's name.",
+        "example": "Station A"
+      },
+      "frequencyLabel": {
+        "type": "String",
+        "description": "The station's frequency.",
+        "example": "98.1 FM"
+      },
+      "city": {
+        "type": "String",
+        "description": "The station's city.",
+        "example": "Lusaka"
+      }
+    }
+  },
+  "chooserStationSpoken": "{stationName}, {frequencyLabel}",
+  "@chooserStationSpoken": {
+    "description": "What screen readers announce for one station row of the station sheet when the station has no city, e.g. \"Station A, 98.1 FM\".",
+    "placeholders": {
+      "stationName": {
+        "type": "String",
+        "description": "The station's name.",
+        "example": "Station A"
+      },
+      "frequencyLabel": {
+        "type": "String",
+        "description": "The station's frequency.",
+        "example": "98.1 FM"
+      }
+    }
+  },
+  "chooserRememberMyStation": "Remember my station — skip this next time",
+  "@chooserRememberMyStation": {
+    "description": "The checkbox under the stations: when ticked, the chosen station becomes \"My station\" and later identifies of this kind skip the sheet."
+  },
   "busyHeading": "Lots of people are listening right now",
   "@busyHeading": {
     "description": "The heading when the service had no room and the app will send the clip again by itself."
@@ -240,10 +309,6 @@
   "@errorNewerAppHeading": {
     "description": "The heading when the answer is one this version of the app cannot show."
   },
-  "errorNewerAppSeveralStationsExplanation": "This ad is on more than one station, and this version of the app can't show that yet.",
-  "@errorNewerAppSeveralStationsExplanation": {
-    "description": "Under the newer-app heading when the ad is on several stations."
-  },
   "errorNewerAppUnknownAnswerExplanation": "We found an answer this version of the app can't show yet.",
   "@errorNewerAppUnknownAnswerExplanation": {
     "description": "Under the newer-app heading for any other answer it cannot show."
@@ -295,9 +360,9 @@
       }
     }
   },
-  "resultClientDefaultNote": "This ad isn't on air right now, so these are {clientName}'s usual contact details.",
-  "@resultClientDefaultNote": {
-    "description": "Under the ad's title when the card is the advertiser's usual one rather than the campaign's.",
+  "defaultCardNote": "These are {clientName}'s usual contact details.",
+  "@defaultCardNote": {
+    "description": "Under the ad's title when the card is the advertiser's usual one rather than the campaign's: the ad may be out of its slots, or its campaign paused or at its limit.",
     "placeholders": {
       "clientName": {
         "type": "String",
@@ -408,6 +473,22 @@
   },
   "configurationProblemSupportWhatsAppNumberNotE164": "LOOKUP_SUPPORT_WHATSAPP_NUMBER is not an E.164 number such as +260971234567.",
   "@configurationProblemSupportWhatsAppNumberNotE164": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemOutboxSendingDelayNotWholeSeconds": "LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS is not a whole number of seconds from 0 to 120.",
+  "@configurationProblemOutboxSendingDelayNotWholeSeconds": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemOutboxSendingDelayOutsideDevelopment": "LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS must be 120 outside the development flavour.",
+  "@configurationProblemOutboxSendingDelayOutsideDevelopment": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemOutboxBackoffFirstWaitNotWholeSeconds": "LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS is not a whole number of seconds from 1 to 30.",
+  "@configurationProblemOutboxBackoffFirstWaitNotWholeSeconds": {
+    "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
+  },
+  "configurationProblemOutboxBackoffFirstWaitOutsideDevelopment": "LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS must be 30 outside the development flavour.",
+  "@configurationProblemOutboxBackoffFirstWaitOutsideDevelopment": {
     "description": "A build problem, listed only on the set-up screen of a development build; never seen by a listener."
   }
 }

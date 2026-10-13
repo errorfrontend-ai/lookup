@@ -68,4 +68,11 @@ class MisbuiltAppConfiguration implements AppConfiguration {
 
   @override
   String? get supportWhatsAppNumber => null;
+
+  @override
+  int get outboxSendingDelayMaximumSeconds =>
+      AppConfiguration.standardOutboxSendingDelayMaximumSeconds;
+
+  @override
+  int get outboxBackoffFirstWaitSeconds => AppConfiguration.standardOutboxBackoffFirstWaitSeconds;
 }

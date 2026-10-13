@@ -91,15 +91,14 @@ class ErrorScreen extends ConsumerWidget {
             : words.errorTooManyTriesLaterExplanation,
         footer: _ErrorFooter.backToHomeOnly,
       ),
-      NewerAppNeededFailure(:final isSeveralStations) => _ErrorWording(
+      // An answer this version cannot show; CHOOSE_STATION is the chooser now (P6 design §2.15).
+      NewerAppNeededFailure() => _ErrorWording(
         icon: Icons.info_outline,
         iconColour: colours.accent,
         circleColour: colours.accentSoft,
         heading: words.errorNewerAppHeading,
         headingRole: SemanticsRole.status,
-        explanation: isSeveralStations
-            ? words.errorNewerAppSeveralStationsExplanation
-            : words.errorNewerAppUnknownAnswerExplanation,
+        explanation: words.errorNewerAppUnknownAnswerExplanation,
         footer: _ErrorFooter.backToHomeOnly,
       ),
     };

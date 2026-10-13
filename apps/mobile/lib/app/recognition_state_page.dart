@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_route.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/busy_screen.dart';
+import 'package:lookup_listener/features/identify/presentation/choose_station_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/error_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/identifying_screen.dart';
@@ -51,6 +52,7 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
       secondsLeft: secondsLeft,
     ),
     UploadingState() => const IdentifyingScreen(),
+    ChooseStationState() => ChooseStationScreen(state: state),
     MatchedState(:final result) || FallbackState(:final result) => ResultScreen(
       result: result,
       onBackToHome: ref.read(recognitionFlowProvider.notifier).backToHome,

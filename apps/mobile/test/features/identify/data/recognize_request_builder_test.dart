@@ -23,12 +23,17 @@ CapturedClip _clip({
   String idempotencyKey = _idempotencyKey,
   DateTime? capturedAt,
   List<int> audioBytes = const [0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70],
+  String? stationHintId,
 }) => CapturedClip(
   audioBytes: audioBytes,
   idempotencyKey: idempotencyKey,
   capturedAt: capturedAt ?? DateTime.utc(2026, 10, 8, 9, 15, 2, 123),
   settings: ClipSettings.standard,
+  stationHintId: stationHintId,
 );
+
+/// Station B's id in the shared fixtures.
+const String _stationBId = '0192a6c4-1111-4000-8000-000000000002';
 
 void main() {
   const builder = RecognizeRequestBuilder();
@@ -132,6 +137,49 @@ void main() {
 
     test('cannot be changed after it is built', () {
       expect(() => parts.textFields.add(const MapEntry('x', 'y')), throwsUnsupportedError);
+    });
+  });
+
+  group('"My station" as the hint (P6-MYSTATION-05; P6 design T1′)', () {
+    final sentAt = DateTime.utc(2026, 10, 8, 9, 15, 10, 456);
+
+    test('with a stored station: exactly live-identify-with-station-hint.json, the hint last', () {
+      final parts = builder.build(_clip(stationHintId: _stationBId), sentAt: sentAt);
+      final expectedFields = fieldsOf(
+        validFixtures.firstWhere((fixture) => fixture.name == 'live-identify-with-station-hint'),
+      );
+      expect(parts.textFields.map((field) => field.key), expectedFields.keys);
+      expect(_fieldMap(parts), expectedFields);
+      expect(ContractSchemaChecker.problemsWith(_fieldMap(parts), schema), isEmpty);
+      expect(parts.textFields.last.key, 'station_hint');
+      expect(parts.textFields.last.value, _stationBId);
+    });
+
+    test('without one: no station_hint at all, exactly live-identify.json', () {
+      final parts = builder.build(_clip(), sentAt: sentAt);
+      expect(_fieldMap(parts).containsKey('station_hint'), isFalse);
+      expect(_fieldMap(parts), fieldsOf(liveIdentify));
+    });
+
+    test('station-hint-not-a-uuid: a stored value that is not a station id is left out, so the '
+        'server never refuses the clip for it', () {
+      for (final storedHint in [
+        'Station B',
+        '',
+        '0192a6c4-1111-0000-8000-000000000002',
+        ' $_stationBId',
+      ]) {
+        final fields = _fieldMap(builder.build(_clip(stationHintId: storedHint), sentAt: sentAt));
+        expect(fields.containsKey('station_hint'), isFalse, reason: '"$storedHint"');
+        expect(ContractSchemaChecker.problemsWith(fields, schema), isEmpty);
+      }
+    });
+
+    test('a hint in capitals is sent in lower case, as the contract writes ids', () {
+      final fields = _fieldMap(
+        builder.build(_clip(stationHintId: _stationBId.toUpperCase()), sentAt: sentAt),
+      );
+      expect(fields['station_hint'], _stationBId);
     });
   });
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
@@ -10,7 +11,11 @@ import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_registration.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_repository.dart';
 import 'package:lookup_listener/core/listener_install/listener_install_store.dart';
+import 'package:lookup_listener/core/files/owned_lock_file.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
+import 'package:lookup_listener/core/outbox/outbox_index_file.dart';
+import 'package:lookup_listener/core/outbox/outbox_providers.dart';
+import 'package:lookup_listener/core/outbox/outbox_store.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
@@ -33,11 +38,18 @@ import '../../../support/recording_client_error_reporter.dart';
 const String flowTestInstallId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
 const String flowTestStoredToken = 'stored.install.token';
 
+/// The engine the flow tests' outbox names in its lock files.
+const LockFileOwner flowTestLockOwner = LockFileOwner(
+  processId: 4242,
+  engineId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
+);
+
 /// The recognition flow wired as the app wires it, in fake time: the real repository, API client
 /// and install repository over a fake HTTP adapter, a fake recorder and permission, a clock that
-/// follows the fake time, and a recording crash reporter. Every state the flow passes through is
-/// kept in [states]. The API client uses the production configuration unless [configuration]
-/// replaces it.
+/// follows the fake time, a recording crash reporter, and the real outbox store over a temporary
+/// folder. Every state the flow passes through is kept in [states]. The API client uses the
+/// production configuration unless [configuration] replaces it; [storedPreferences] adds to what
+/// `shared_preferences` holds at the start (e.g. "My station").
 class RecognitionFlowHarness {
   RecognitionFlowHarness(
     this.fakeAsync, {
@@ -45,9 +57,12 @@ class RecognitionFlowHarness {
     MicrophoneAccess? microphoneAccess,
     RecordingClientErrorReporter? reporter,
     AppConfiguration? configuration,
+    Map<String, Object> storedPreferences = const {},
+    OutboxStore? outboxStore,
   }) : reporter = reporter ?? RecordingClientErrorReporter() {
     final storedTokenExpiry = DateTime.utc(2026, 11, 7, 12);
     SharedPreferences.setMockInitialValues({
+      ...storedPreferences,
       'listener_install_id': flowTestInstallId,
       if (hasStoredToken) 'listener_install_token': flowTestStoredToken,
       if (hasStoredToken) 'listener_install_token_expires_at': storedTokenExpiry.toIso8601String(),
@@ -73,12 +88,23 @@ class RecognitionFlowHarness {
       clientErrorReporter: this.reporter,
       clock: clock,
     );
+    this.outboxStore =
+        outboxStore ??
+        OutboxStore(
+          locateFolder: () async => outboxFolder,
+          lockOwner: flowTestLockOwner,
+          isEngineAttached: (engineId) => engineId == flowTestLockOwner.engineId,
+          clock: clock,
+          randomUuid: randomUuid,
+          clientErrorReporter: this.reporter,
+        );
     container = ProviderContainer(
       overrides: [
         clipRecorderProvider.overrideWithValue(recorder),
         microphonePermissionProvider.overrideWithValue(permission),
         recognitionRepositoryProvider.overrideWithValue(repository),
         recognitionClockProvider.overrideWithValue(clock),
+        outboxStoreProvider.overrideWithValue(this.outboxStore),
       ],
       retry: (retryCount, error) => null,
     );
@@ -96,6 +122,11 @@ class RecognitionFlowHarness {
   final FakeClipRecorder recorder = FakeClipRecorder();
   final FakeMicrophonePermission permission = FakeMicrophonePermission();
   final RecordingClientErrorReporter reporter;
+
+  /// The outbox's folder: a new temporary one for each test, deleted at its end.
+  final Directory outboxFolder = Directory.systemTemp.createTempSync('outbox_flow_test_');
+
+  late final OutboxStore outboxStore;
   late final ProviderContainer container;
   late final ProviderSubscription<RecognitionState> _subscription;
 
@@ -111,6 +142,21 @@ class RecognitionFlowHarness {
 
   /// Moves the fake time on by [duration], running every timer due.
   void wait(Duration duration) => fakeAsync.elapse(duration);
+
+  /// What the outbox holds on disk now.
+  List<OutboxItem> get outboxItems => switch (OutboxIndexFile(outboxFolder).read()) {
+    OutboxIndexRead(:final index) => index.items,
+    OutboxIndexMissing() => const [],
+    OutboxIndexUnreadable() => throw StateError('The outbox index cannot be read.'),
+  };
+
+  /// What `shared_preferences` holds under [key] now, e.g. "My station".
+  Object? storedPreference(String key) {
+    Object? value;
+    unawaited(SharedPreferences.getInstance().then((preferences) => value = preferences.get(key)));
+    settle();
+    return value;
+  }
 
   /// Calls a flow method the way a tap does: not awaited, then everything ready is run.
   void tap(FutureOr<void> Function(RecognitionFlow flow) action) {
@@ -195,6 +241,7 @@ class RecognitionFlowHarness {
     _subscription.close();
     container.dispose();
     settle();
+    if (outboxFolder.existsSync()) outboxFolder.deleteSync(recursive: true);
   }
 }
 
@@ -205,6 +252,8 @@ void runFlowTest(
   MicrophoneAccess? microphoneAccess,
   RecordingClientErrorReporter? reporter,
   AppConfiguration? configuration,
+  Map<String, Object> storedPreferences = const {},
+  OutboxStore? outboxStore,
 }) {
   TestWidgetsFlutterBinding.instance.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   fakeAsync((fakeAsync) {
@@ -214,6 +263,8 @@ void runFlowTest(
       microphoneAccess: microphoneAccess,
       reporter: reporter,
       configuration: configuration,
+      storedPreferences: storedPreferences,
+      outboxStore: outboxStore,
     );
     try {
       body(harness);

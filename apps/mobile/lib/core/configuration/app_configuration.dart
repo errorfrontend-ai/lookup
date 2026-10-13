@@ -21,14 +21,18 @@ class AppConfiguration {
     this.showsDeveloperTools = false,
     this.writesVerboseLogs = false,
     this.supportWhatsAppNumber,
+    this.outboxSendingDelayMaximumSeconds = standardOutboxSendingDelayMaximumSeconds,
+    this.outboxBackoffFirstWaitSeconds = standardOutboxBackoffFirstWaitSeconds,
   }) : assert(
          flavour == AppFlavour.development ||
              (apiBaseUrl.scheme == 'https' &&
                  !showsErrorDetails &&
                  !showsDeveloperTools &&
                  !writesVerboseLogs &&
-                 supportWhatsAppNumber != null),
-         'Plain http and the development flags exist only in development, and staging and '
+                 supportWhatsAppNumber != null &&
+                 outboxSendingDelayMaximumSeconds == standardOutboxSendingDelayMaximumSeconds &&
+                 outboxBackoffFirstWaitSeconds == standardOutboxBackoffFirstWaitSeconds),
+         'Plain http and the development settings exist only in development, and staging and '
          'production always have a support number',
        );
 
@@ -39,6 +43,9 @@ class AppConfiguration {
   static const String showDeveloperToolsDefine = 'LOOKUP_SHOW_DEVELOPER_TOOLS';
   static const String verboseLogsDefine = 'LOOKUP_VERBOSE_LOGS';
   static const String supportWhatsAppNumberDefine = 'LOOKUP_SUPPORT_WHATSAPP_NUMBER';
+  static const String outboxSendingDelayMaximumDefine =
+      'LOOKUP_OUTBOX_SENDING_DELAY_MAXIMUM_SECONDS';
+  static const String outboxBackoffFirstWaitDefine = 'LOOKUP_OUTBOX_BACKOFF_FIRST_WAIT_SECONDS';
 
   /// Every define the app reads; a config file key outside this list would be ignored silently.
   static const List<String> defineNames = [
@@ -48,7 +55,14 @@ class AppConfiguration {
     showDeveloperToolsDefine,
     verboseLogsDefine,
     supportWhatsAppNumberDefine,
+    outboxSendingDelayMaximumDefine,
+    outboxBackoffFirstWaitDefine,
   ];
+
+  /// The outbox's waits in every staging and production build (`timing-rules.json`): a run waits a
+  /// random 0 to 120 seconds before its first send, and the backoff starts at 30 seconds.
+  static const int standardOutboxSendingDelayMaximumSeconds = 120;
+  static const int standardOutboxBackoffFirstWaitSeconds = 30;
 
   /// The path every API address ends with; requests use paths relative to it.
   static const String apiPathEnding = '/api/v1';
@@ -73,6 +87,15 @@ class AppConfiguration {
   /// a development build may leave it out, and the support link is then hidden.
   final String? supportWhatsAppNumber;
 
+  /// The largest random wait, in whole seconds, before an outbox run's first send: 120, or lower in
+  /// a development build, so emulator walkthroughs do not wait two minutes (P6 design §3.9 point 5;
+  /// contract §4). Staging and production refuse any other value at start-up.
+  final int outboxSendingDelayMaximumSeconds;
+
+  /// The outbox backoff's first wait, in whole seconds: 30, or lower in a development build
+  /// (amendment A1, e.g. 5). Staging and production refuse any other value at start-up.
+  final int outboxBackoffFirstWaitSeconds;
+
   /// Plain `http` is refused in Dart outside development, because Dart's HTTP client cannot be
   /// relied on to obey Android's network-security settings (design fact 4).
   bool get allowsPlainHttp => flavour == AppFlavour.development;
@@ -88,6 +111,8 @@ class AppConfiguration {
       showDeveloperToolsDefine: String.fromEnvironment(showDeveloperToolsDefine),
       verboseLogsDefine: String.fromEnvironment(verboseLogsDefine),
       supportWhatsAppNumberDefine: String.fromEnvironment(supportWhatsAppNumberDefine),
+      outboxSendingDelayMaximumDefine: String.fromEnvironment(outboxSendingDelayMaximumDefine),
+      outboxBackoffFirstWaitDefine: String.fromEnvironment(outboxBackoffFirstWaitDefine),
     };
     return check(defines, gradleFlavour: appFlavor);
   }
@@ -154,6 +179,29 @@ class AppConfiguration {
       whenOutsideDevelopment: ConfigurationProblem.verboseLogsOutsideDevelopment,
     );
 
+    /// An outbox wait: empty means the standard value; a development build may lower it to
+    /// [lowestSeconds]; any other build accepts only the standard value (amendment A1).
+    int checkOutboxWait(
+      String define, {
+      required int standardSeconds,
+      required int lowestSeconds,
+      required ConfigurationProblem whenNotWholeSeconds,
+      required ConfigurationProblem whenOutsideDevelopment,
+    }) {
+      final text = valueOf(define);
+      if (text.isEmpty) return standardSeconds;
+      final seconds = _wholeSeconds.hasMatch(text) ? int.parse(text) : null;
+      if (seconds == null || seconds < lowestSeconds || seconds > standardSeconds) {
+        problems.add(whenNotWholeSeconds);
+        return standardSeconds;
+      }
+      if (seconds != standardSeconds && !isDevelopment) {
+        problems.add(whenOutsideDevelopment);
+        return standardSeconds;
+      }
+      return seconds;
+    }
+
     final supportWhatsAppNumber = valueOf(supportWhatsAppNumberDefine);
     if (supportWhatsAppNumber.isEmpty) {
       // The Error screen asks the listener to share a code with support (S4-USABILITY-02): a
@@ -164,6 +212,21 @@ class AppConfiguration {
     } else if (!_isPhoneNumberE164(supportWhatsAppNumber)) {
       problems.add(ConfigurationProblem.supportWhatsAppNumberNotE164);
     }
+
+    final outboxSendingDelayMaximumSeconds = checkOutboxWait(
+      outboxSendingDelayMaximumDefine,
+      standardSeconds: standardOutboxSendingDelayMaximumSeconds,
+      lowestSeconds: 0,
+      whenNotWholeSeconds: ConfigurationProblem.outboxSendingDelayNotWholeSeconds,
+      whenOutsideDevelopment: ConfigurationProblem.outboxSendingDelayOutsideDevelopment,
+    );
+    final outboxBackoffFirstWaitSeconds = checkOutboxWait(
+      outboxBackoffFirstWaitDefine,
+      standardSeconds: standardOutboxBackoffFirstWaitSeconds,
+      lowestSeconds: 1,
+      whenNotWholeSeconds: ConfigurationProblem.outboxBackoffFirstWaitNotWholeSeconds,
+      whenOutsideDevelopment: ConfigurationProblem.outboxBackoffFirstWaitOutsideDevelopment,
+    );
 
     if (problems.isNotEmpty || flavour == null || apiBaseUrl == null) {
       return AppConfigurationRefused(
@@ -180,6 +243,8 @@ class AppConfiguration {
         showsDeveloperTools: showsDeveloperTools,
         writesVerboseLogs: writesVerboseLogs,
         supportWhatsAppNumber: supportWhatsAppNumber.isEmpty ? null : supportWhatsAppNumber,
+        outboxSendingDelayMaximumSeconds: outboxSendingDelayMaximumSeconds,
+        outboxBackoffFirstWaitSeconds: outboxBackoffFirstWaitSeconds,
       ),
     );
   }
@@ -215,6 +280,9 @@ class AppConfiguration {
   }
 
   static final RegExp _hasWhitespace = RegExp(r'\s');
+
+  /// A whole number of seconds, written plainly: at most three digits.
+  static final RegExp _wholeSeconds = RegExp(r'^[0-9]{1,3}$');
 
   /// The same E.164 rule as the shared action-card schema (packages/contracts), so the support
   /// number passes the WhatsApp address builder the card buttons use: "+", a country code, 7 to 15
