@@ -22,7 +22,7 @@ from typing import Any
 
 from fake_listener_api import (DEFAULT_SCENARIOS, FIXTURES, PHONE_CHECK_ANSWERS, PHONE_CHECK_LIFETIME_SECONDS,
                                RECENT_REGISTRATIONS_KEPT, RECOGNITION_REPORT_REASONS, ROUTES, SCENARIOS,
-                               SLOW_ANSWER_SECONDS, compare_listener_app_versions, make_server, new_recognition_id,
+                               SLOW_UPLOAD_BYTES_PER_SECOND, compare_listener_app_versions, make_server, new_recognition_id,
                                read_fixture)
 
 CLIP = b'\x00\x00\x00\x20ftypM4A ' + bytes(4_000)
@@ -1221,15 +1221,20 @@ class FakeListenerApiTest(unittest.TestCase):
         listed = re.search(r'RECOGNITION_REPORT_REASONS = \[(.*?)\] as const', source).group(1)
         self.assertEqual(RECOGNITION_REPORT_REASONS, tuple(re.findall(r"'([A-Z_]+)'", listed)))
 
-    def test_match_after_a_wait_holds_its_answer_past_the_apps_five_seconds(self) -> None:
+    def test_slow_upload_reads_the_clip_a_little_each_second_then_answers_match(self) -> None:
         token = self.registered_token()
-        self.queue('match-after-a-wait')
-        status, _, body = self.recognize(token)
+        self.queue('slow-upload')
+        clip = b'\x00\x00\x00\x20ftypM4A ' + bytes(27_000)
+        status, _, body = self.recognize(token, clip=clip)
         self.assertEqual((status, body['status']), (200, 'MATCH'))
-        self.assertEqual(self.waits, [SLOW_ANSWER_SECONDS])
-        self.assertGreater(SLOW_ANSWER_SECONDS, 5)
+        sent = self.request_log()['requests'][-1]
+        self.assertEqual(sent['audio_bytes'], len(clip), 'the whole clip was read')
+        pieces = -(-sent['body_bytes'] // SLOW_UPLOAD_BYTES_PER_SECOND)
+        self.assertEqual(self.waits, [1] * (pieces - 1), 'a second between pieces of 3 KB')
+        self.assertGreater(len(self.waits), 5, "past the app's 5 seconds before \"Still working\"")
         self.assertEqual(self.recognize(token)[0], 200)
-        self.assertEqual(self.waits, [SLOW_ANSWER_SECONDS], 'only the queued answer waits')
+        self.assertEqual(len(self.waits), pieces - 1, 'only the queued answer reads slowly')
+        self.assertEqual(self.state()['queued']['recognize'], [])
 
     def test_pictures_without_a_public_origin_keep_the_fixtures_addresses(self) -> None:
         token = self.registered_token()
@@ -1274,7 +1279,7 @@ class FakeListenerApiTest(unittest.TestCase):
         page = self.get('/__fake/panel')[2].decode('utf-8')
         self.assertIn('Next answer to &quot;Report this&quot;', page)
         for label in ('Next answer: Report accepted<', 'Next answer: Report: busy<', 'Next answer: Report kept, answer lost<',
-                      f'Next answer: Match, after {SLOW_ANSWER_SECONDS} seconds<', 'Next answer: Match with pictures<'):
+                      'Next answer: Slow upload<', 'Next answer: Match with pictures<'):
             self.assertIn(label, page)
         self.assertIn("'Reports: ' + state.reports.length", page)
         self.assertIn("'Pictures loaded: ' + state.pictures_served.length", page)

@@ -1632,7 +1632,7 @@ class PieceFourTest(unittest.TestCase):
     def test_piece_four_journeys_queue_only_answers_the_stand_in_knows(self) -> None:
         import fake_listener_api
 
-        for name in ('match', 'match-after-a-wait', 'match-with-images', 'match-answer-lost', 'choose-station',
+        for name in ('match', 'slow-upload', 'match-with-images', 'match-answer-lost', 'choose-station',
                      'choice-answer-lost', 'engagement-answer-lost'):
             self.assertIn(name, fake_listener_api.SCENARIOS)
         self.assertEqual(runner.pictures_card_title(), CARD.title)
@@ -1690,7 +1690,7 @@ class StandInControlTest(unittest.TestCase):
 
     def test_the_scenarios_the_journeys_queue_are_known_to_the_stand_in(self) -> None:
         names = ['choose-station', 'match-by-hint', 'match', 'drop', 'no-match', 'busy-deferred-shed',
-                 'rate-limited-deferred', 'match-station-b', 'match-after-a-wait', 'match-with-images', 'match-answer-lost']
+                 'rate-limited-deferred', 'match-station-b', 'slow-upload', 'match-with-images', 'match-answer-lost']
         self.fake_api.queue(names)
         self.assertEqual(self.fake_api.state()['queued']['recognize'], names)
 

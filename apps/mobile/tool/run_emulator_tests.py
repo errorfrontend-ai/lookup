@@ -178,7 +178,7 @@ SECONDS_FOR_THE_BACKGROUND_JOB = 180
 DEFERRED_SHED_RETRY_AFTER_SECONDS = 60
 DEFERRED_LIMITED_RETRY_AFTER_SECONDS = 90
 DOCKER_PROCESS_NAMES = ('com.docker.backend', 'docker desktop')
-# A slow identify (piece 4): 8 s of recording, the stand-in's 9 s wait, and a slow emulator.
+# A slow identify (piece 4): 8 s of recording, the stand-in's 9-10 s of slow reading, and a slow emulator.
 SECONDS_FOR_A_SLOW_IDENTIFY = 60
 # How long Android may take to make mobile data its network once Wi-Fi is off, and Wi-Fi again once it is back on.
 SECONDS_FOR_A_NETWORK_CHANGE = 60
@@ -1478,20 +1478,21 @@ def slow_send_problems(seen: SlowSendSeen) -> list[str]:
 
 
 def a_slow_answer_says_still_working(context: RunContext) -> str:
-    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with the stand-in holding its answer 9 seconds,
-    Identifying says "Still working — the connection is slow." after 5 seconds, then how much of the clip has gone or
-    "Clip sent — waiting for the answer", then the Result. The clip fits in the phone's send buffer, so the app counts
-    it all sent at once whatever the network's speed (the widget test proves a growing share); the emulator's console
-    can slow its network, but changing the speed back drops the app's open connection (run 3), so it is left alone."""
+    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with "Slow upload" (the stand-in reads the clip about
+    3 KB a second), Identifying says "Still working — the connection is slow." after 5 seconds, then how much of the
+    clip has gone or "Clip sent — waiting for the answer", then the Result. The clip may fit in the phone's and the
+    emulator's buffers, so the app may count it all sent at once (the widget test proves a growing share); the
+    emulator's console can slow its network, but changing the speed back drops the app's open connection (run 3), so
+    it is left alone."""
     driver, fake_api = context.driver, context.fake_api
     count_before = context.recognize_count()
-    fake_api.queue(['match-after-a-wait'])
+    fake_api.queue(['slow-upload'])
     driver.tap(IDENTIFY_LABELS)
     seen = watch_a_slow_send(driver, SECONDS_FOR_A_SLOW_IDENTIFY)
     problems = slow_send_problems(seen)
     if problems:
         raise StepFailed('; '.join(problems) + f' ({seen.describe()})')
-    check_sends(context, count_before, ['match-after-a-wait'])
+    check_sends(context, count_before, ['slow-upload'])
     context.back_home_from(LABELS['result back'])
     return seen.describe()
 
