@@ -1261,6 +1261,12 @@ screen shows the "result will wait in History" panel.
 - The app keeps its own words for every error code; the API's `message` is never shown in any language
   (S4-D13; gap 23).
 - Phone numbers stay in the +260 display form (P6-LOCALISATION-04, built in Step 4).
+- **English only (the user's decision, 13 October 2026).** No Bemba or Nyanja is planned, so the scratch
+  Bemba build of P6-LOCALISATION-03 is withdrawn. The one English language file stays (it keeps every
+  sentence in one place), and so do the fallbacks for phone languages the app does not have, so every
+  phone gets English. If a language is ever added after all, English must first be made the fallback:
+  the scratch build of piece 2 showed `gen-l10n` listing `bem` before `en`, so a phone set to a language
+  the app did not have (French) got the Bemba words.
 
 ### 3.18 The dark theme (P6-THEME-01)
 
