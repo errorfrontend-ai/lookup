@@ -103,7 +103,25 @@ LABELS: dict[str, str] = {
     'pending': 'Pending',                                              # P6 §2.9, inside the waiting row's label
     'history choose your station': 'Choose your station to see the buttons',     # P6 §2.9
     'update heading': 'Please update the app',                         # P6 §2.15
+    # Piece 4 (P6 design §2.5, §2.11, §2.14).
+    'identifying slow': 'Still working — the connection is slow.',      # P6 §2.5
+    'clip sent': 'Clip sent — waiting for the answer',                 # P6 §2.5
+    'each identify uses': 'Each identify uses',                        # P6 §2.11
+    'about 25 KB': 'about 25 KB',                                      # P6 §2.11
+    'used this month': 'Used this month',                              # P6 §2.11
+    'load pictures': 'Load ad pictures on mobile data',                # P6 §2.11, the switch row's first line
+    'report this': 'Report this',                                      # P6 §2.14
+    'reported': 'Reported',                                            # P6 §2.14
+    'report sheet title': 'Report this ad',                            # P6 §2.14
+    'report reason scam': 'It looks like a scam',                      # P6 §2.14
+    'send report': 'Send report',                                      # P6 §2.14
+    'report thanks': "Thanks — we'll check this ad.",                  # P6 §2.14
 }
+
+# "Clip [n]% sent" (P6 §2.5), and an amount of data as Settings shows it: whole kilobytes below 1,000 KB, then
+# megabytes with one decimal, each 1,000 of the one before (DataAmount.of).
+CLIP_PERCENT_SENT = re.compile(r'^Clip (\d{1,3})% sent$')
+DATA_AMOUNT = re.compile(r'^(\d+(?:\.\d)?) (KB|MB)$')
 
 # A saved clip's notification (P6 design §2.16, amendment A6): the same generic words for every outcome, and none of
 # the ad's, the advertiser's or the stations' words, since it shows on a locked phone.
@@ -124,6 +142,8 @@ APP_FOLDER = Path(__file__).resolve().parents[1]
 REPOSITORY_FOLDER = APP_FOLDER.parents[1]
 MATCH_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition' / 'recognize-response'
                  / 'valid' / 'match-campaign.json')
+PICTURES_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition' / 'recognize-response'
+                    / 'valid' / 'match-with-images.json')
 CHOOSER_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition' / 'recognize-response'
                    / 'valid' / 'choose-station.json')
 STATION_LIST_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition'
@@ -158,6 +178,13 @@ SECONDS_FOR_THE_BACKGROUND_JOB = 180
 DEFERRED_SHED_RETRY_AFTER_SECONDS = 60
 DEFERRED_LIMITED_RETRY_AFTER_SECONDS = 90
 DOCKER_PROCESS_NAMES = ('com.docker.backend', 'docker desktop')
+# A slow identify (piece 4): 8 s of recording, a clip at GSM speed (about 15 s), the stand-in's 9 s wait, and a slow
+# emulator.
+SECONDS_FOR_A_SLOW_IDENTIFY = 75
+# How long Android may take to make mobile data its network once Wi-Fi is off, and Wi-Fi again once it is back on.
+SECONDS_FOR_A_NETWORK_CHANGE = 60
+# The share of the screen's width the 2:1 banner box takes at least: the card spans the screen less its margins.
+BANNER_BOX_SHARE_OF_WIDTH = 0.3
 # S4-REQUEST-02: the request for an 8-second clip never goes over 32 KB (design §3.10). Its audio is at least
 # 16,000 bytes: a real 8-second clip at 24,000 bit/s is about 25-27 KB, so less means the recorder sent too little.
 LARGEST_RECOGNIZE_BODY_BYTES = 32_768
@@ -192,6 +219,8 @@ class ScreenNode:
     package_name: str
     is_clickable: bool
     bounds: tuple[int, int, int, int]
+    # A switch or checkbox: whether it is on; None for a node that cannot be checked.
+    checked: bool | None = None
 
     @property
     def center(self) -> tuple[int, int]:
@@ -242,7 +271,8 @@ def parse_screen_dump(raw_dump: str) -> Screen:
         bounds = (numbers[0], numbers[1], numbers[2], numbers[3]) if len(numbers) >= 4 else (0, 0, 0, 0)
         nodes.append(ScreenNode(element.get('text', ''), element.get('content-desc', ''), element.get('resource-id', ''),
                                 element.get('class', ''), element.get('package', ''),
-                                element.get('clickable') == 'true', bounds))
+                                element.get('clickable') == 'true', bounds,
+                                element.get('checked') == 'true' if element.get('checkable') == 'true' else None))
     return Screen(tuple(nodes), raw_dump)
 
 
@@ -529,6 +559,32 @@ def active_default_network(dumpsys_connectivity: str) -> str | None:
     return match[1] if match else None
 
 
+@dataclass(frozen=True)
+class DefaultNetwork:
+    """Android's default network as `dumpsys connectivity` describes it."""
+    network_id: str
+    transports: tuple[str, ...]
+    is_metered: bool
+
+    def describe(self) -> str:
+        return f"{'/'.join(self.transports) or 'no transport'}, {'metered' if self.is_metered else 'not metered'}"
+
+
+def default_network_of(dumpsys_connectivity: str) -> DefaultNetwork | None:
+    """The default network, its transports and whether it is metered (no NOT_METERED capability), from the
+    `Active default network:` line and that network's NetworkAgentInfo line; None when either is missing."""
+    network_id = active_default_network(dumpsys_connectivity)
+    if network_id in (None, 'none'):
+        return None
+    for line in dumpsys_connectivity.splitlines():
+        if f'network{{{network_id}}}' in line and 'Transports:' in line:
+            transports = re.search(r'Transports:\s*([A-Z_|]+)', line)
+            capabilities = re.search(r'Capabilities:\s*(\S+)', line)
+            return DefaultNetwork(network_id, tuple(transports[1].split('|')) if transports else (),
+                                  'NOT_METERED' not in (capabilities[1] if capabilities else ''))
+    return None
+
+
 def ping_reached(ping_output: str) -> bool | None:
     """Whether one ping got its reply: True, False, or None when the image has no ping to ask."""
     if 'not found' in ping_output or 'inaccessible' in ping_output:
@@ -575,6 +631,9 @@ class Device(Protocol):
     def grant_notifications(self, package_name: str) -> None: ...
     def take_network_away(self) -> str: ...
     def bring_network_back(self) -> None: ...
+    def set_network_speed(self, speed: str) -> bool: ...
+    def use_mobile_data_only(self) -> str: ...
+    def use_wifi_again(self) -> None: ...
 
 
 class FakeApiControl(Protocol):
@@ -1356,6 +1415,291 @@ def two_notifications_open_their_own_results(context: RunContext) -> str:
     return 'two notifications; the older opened Station A\'s result, the newer Station B\'s'
 
 
+# ---- Piece 4: a slow identify, "Report this", data use and the pictures switch (P6 design §4.8) ----------
+
+@dataclass(frozen=True)
+class SlowSendSeen:
+    """What Identifying showed during a slow identify."""
+    is_slow_seen: bool
+    percents: tuple[int, ...]
+    is_clip_sent_seen: bool
+    is_result_seen: bool
+    readable_count: int
+    unreadable_count: int
+
+    def describe(self) -> str:
+        shares = ', '.join(f'{percent}%' for percent in self.percents) or 'no share'
+        return (f'"Still working" {"seen" if self.is_slow_seen else "not seen"}; {shares} sent shown; "Clip sent" '
+                f'{"seen" if self.is_clip_sent_seen else "not seen"} ({self.readable_count} screens read, '
+                f'{self.unreadable_count} unreadable)')
+
+
+def watch_a_slow_send(driver: Driver, timeout_seconds: float) -> SlowSendSeen:
+    """Reads Identifying until the Result shows: whether it said "Still working", each share of the clip it said was
+    sent, in order, and whether it said "Clip sent"."""
+    deadline = driver.monotonic() + timeout_seconds
+    is_slow_seen = is_clip_sent_seen = False
+    percents: list[int] = []
+    readable_count = unreadable_count = 0
+    while True:
+        screen = driver.read_screen()
+        if screen.problem:
+            unreadable_count += 1
+        else:
+            readable_count += 1
+            lines = [line for node in screen.nodes if node.package_name == driver.app_package for line in node.lines]
+            is_slow_seen = is_slow_seen or normalise(LABELS['identifying slow']) in lines
+            is_clip_sent_seen = is_clip_sent_seen or normalise(LABELS['clip sent']) in lines
+            for line in lines:
+                match = CLIP_PERCENT_SENT.match(line)
+                if match and (not percents or percents[-1] != int(match[1])):
+                    percents.append(int(match[1]))
+            if normalise(LABELS['result header']) in lines:
+                return SlowSendSeen(is_slow_seen, tuple(percents), is_clip_sent_seen, True, readable_count,
+                                    unreadable_count)
+        if driver.monotonic() >= deadline:
+            return SlowSendSeen(is_slow_seen, tuple(percents), is_clip_sent_seen, False, readable_count,
+                                unreadable_count)
+        driver.sleep(driver.poll_seconds)
+
+
+def slow_send_problems(seen: SlowSendSeen) -> list[str]:
+    """P6-LISTENING-01: "Still working", then progress (a share of the clip, or "Clip sent"), then the Result."""
+    problems = []
+    if not seen.is_result_seen:
+        problems.append('the Result never showed')
+    if not seen.is_slow_seen:
+        problems.append('Identifying never said "Still working — the connection is slow."')
+    if not seen.percents and not seen.is_clip_sent_seen:
+        problems.append('Identifying showed no progress: neither a share of the clip sent nor "Clip sent"')
+    if list(seen.percents) != sorted(seen.percents):
+        problems.append(f'the share of the clip sent went down: {list(seen.percents)}')
+    if any(percent > 100 for percent in seen.percents):
+        problems.append(f'a share over 100%: {list(seen.percents)}')
+    return problems
+
+
+def a_slow_answer_says_still_working(context: RunContext) -> str:
+    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with the emulator's network slowed to GSM speed
+    where its console allows, and the stand-in holding its answer 9 seconds, Identifying says "Still working — the
+    connection is slow." after 5 seconds, then how much of the clip has gone or "Clip sent — waiting for the answer",
+    then the Result."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    count_before = context.recognize_count()
+    fake_api.queue(['match-after-a-wait'])
+    is_slowed = device.set_network_speed('gsm')
+    try:
+        driver.tap(IDENTIFY_LABELS)
+        seen = watch_a_slow_send(driver, SECONDS_FOR_A_SLOW_IDENTIFY)
+    finally:
+        if is_slowed:
+            device.set_network_speed('full')
+    problems = slow_send_problems(seen)
+    if problems:
+        raise StepFailed('; '.join(problems) + f' ({seen.describe()})')
+    check_sends(context, count_before, ['match-after-a-wait'])
+    context.back_home_from(LABELS['result back'])
+    return f"network {'at GSM speed' if is_slowed else 'at full speed (the console refused GSM)'}; {seen.describe()}"
+
+
+def match_station_id() -> str:
+    """The station of the stand-in's "Match" answer: the one a report on its Result names."""
+    return json.loads(MATCH_FIXTURE.read_text(encoding='utf-8'))['response']['result']['station']['id']
+
+
+def report_requests_since(context: RunContext, requests_before: int) -> list[dict[str, Any]]:
+    return [request for request in context.fake_api.request_log().get('requests', [])[requests_before:]
+            if str(request.get('path', '')).endswith('/report') and 'report' in request]
+
+
+def topmost(nodes: Sequence[ScreenNode]) -> ScreenNode:
+    return min(nodes, key=lambda node: node.bounds[1])
+
+
+def report_this_sends_one_report(context: RunContext) -> str:
+    """Step 12 (P6-RESULT-04, -05 on the device; P6 design §2.14): on a Result, "Report this" → "It looks like a scam"
+    → "Send report" with "No signal" on: the footer says "Reported" at once; once the signal is back the outbox sends
+    exactly one report, naming the station shown and the reason; the saved result in History still says
+    "Reported"."""
+    driver, fake_api, card = context.driver, context.fake_api, context.card
+    count_before = context.recognize_count()
+    fake_api.queue(['match'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+    recognition_id = check_sends(context, count_before, ['match'])[0].get('recognition_id')
+    requests_before = len(fake_api.request_log().get('requests', []))
+    fake_api.set_offline(True)
+    try:
+        driver.tap_scrolling(LABELS['report this'])
+        driver.wait_for(LABELS['report sheet title'], 15)
+        driver.tap(LABELS['report reason scam'])
+        driver.tap(LABELS['send report'])
+        thanks = driver.observe(LABELS['report thanks'], 5)
+        driver.find_scrolling(LABELS['reported'])
+        if driver.shows(LABELS['report this']):
+            raise StepFailed('"Report this" still shows after the report was sent')
+    finally:
+        fake_api.set_offline(False)
+    driver.wait_until(lambda: report_requests_since(context, requests_before), SECONDS_FOR_AN_OUTBOX_RETRY,
+                      'the report to reach the stand-in once the signal was back')
+    driver.pause(5)   # time for a second send, which must not come
+    reports = report_requests_since(context, requests_before)
+    wanted = {'recognition_id': recognition_id, 'station_id': match_station_id(), 'reason': 'LOOKS_LIKE_A_SCAM'}
+    sent = [{key: report.get(key) for key in wanted} for report in reports]
+    if sent != [wanted]:
+        raise StepFailed(f'the stand-in received {sent}, not exactly one report {wanted}')
+    context.back_home_from(LABELS['result back'])
+    driver.tap(LABELS['tab history'])
+    driver.wait_for(LABELS['history earlier'], 15)
+    driver.tap_node(topmost(find_nodes(driver.read_screen().nodes, card.history_title,
+                                       package_name=context.app_package)), card.history_title)
+    driver.wait_for(LABELS['saved result heading'], 15)
+    driver.find_scrolling(LABELS['reported'])
+    if driver.shows(LABELS['report this']):
+        raise StepFailed('the saved result offers "Report this" again')
+    driver.tap_scrolling(LABELS['back'])
+    driver.wait_for(LABELS['history earlier'], 15)
+    go_home(context)
+    return (f'"Reported" at once with no signal; thanks {thanks.describe()}; one report ({wanted["reason"]}, the station '
+            'shown) once the signal was back; the saved result in History says "Reported"')
+
+
+def data_amount_bytes(text: str) -> int | None:
+    """An amount as Settings shows it ("312 KB", "1.4 MB") in bytes, or None for anything else."""
+    match = DATA_AMOUNT.match(normalise(text))
+    if not match:
+        return None
+    return round(float(match[1]) * (1_000 if match[2] == 'KB' else 1_000_000))
+
+
+def used_this_month(screen: Screen, app_package: str) -> int:
+    """The bytes "Used this month" shows: the one amount on the screen ("about 25 KB" is not an amount)."""
+    amounts = {line for node in screen.nodes if node.package_name == app_package for line in node.lines
+               if data_amount_bytes(line) is not None}
+    if len(amounts) != 1:
+        raise StepFailed(f'Settings shows {sorted(amounts) or "no amount"} for "Used this month", not one amount; '
+                         f'{describe_screen(screen, app_package)}')
+    return data_amount_bytes(amounts.pop()) or 0
+
+
+def read_used_this_month(context: RunContext) -> int:
+    context.driver.tap(LABELS['tab settings'])
+    context.driver.find_scrolling(LABELS['used this month'])
+    return used_this_month(context.driver.read_screen(), context.app_package)
+
+
+def pictures_switch(context: RunContext) -> ScreenNode:
+    """The "Load ad pictures on mobile data" row in Settings, scrolled into view; a node that says whether it is
+    on."""
+    node = context.driver.find_scrolling(LABELS['load pictures'])
+    if node.checked is None:
+        raise StepFailed('the "Load ad pictures on mobile data" row does not say whether it is on')
+    return node
+
+
+def set_pictures_switch(context: RunContext, is_on: bool) -> None:
+    """Opens Settings and taps the row's words (the whole row toggles, P6-DATASAVER-04) until it is [is_on]."""
+    context.driver.tap(LABELS['tab settings'])
+    node = pictures_switch(context)
+    if node.checked != is_on:
+        context.driver.tap_node(node, LABELS['load pictures'])
+        node = pictures_switch(context)
+        if node.checked != is_on:
+            raise StepFailed(f'tapping the row did not turn "Load ad pictures on mobile data" {"on" if is_on else "off"}')
+
+
+def data_use_and_the_pictures_switch(context: RunContext) -> str:
+    """Step 20 (P6-DATASAVER-02 to -04 on the device; piece 4 walkthrough (a) steps 1-2): Settings → Data shows "Each
+    identify uses — about 25 KB" and "Used this month"; one identify adds at least its request to it, and less than
+    twice that; the whole row of "Load ad pictures on mobile data", on at first, turns it off, it stays off after a
+    restart, and the row turns it on again."""
+    driver, fake_api, device = context.driver, context.fake_api, context.device
+    driver.tap(LABELS['tab settings'])
+    driver.expect_all([LABELS['each identify uses'], LABELS['about 25 KB'], LABELS['used this month']])
+    before = read_used_this_month(context)
+    go_home(context)
+    count_before = context.recognize_count()
+    fake_api.queue(['match'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+    body_bytes = int(check_sends(context, count_before, ['match'])[0].get('body_bytes') or 0)
+    context.back_home_from(LABELS['result back'])
+    after = read_used_this_month(context)
+    # Settings rounds to whole kilobytes, so each reading may be up to 500 bytes off.
+    if not body_bytes - 1_000 <= after - before < 1.5 * body_bytes:
+        raise StepFailed(f'"Used this month" grew by {after - before:,} bytes for an identify whose request was '
+                         f'{body_bytes:,} bytes')
+    if pictures_switch(context).checked is not True:
+        raise StepFailed('"Load ad pictures on mobile data" is not on at first')
+    set_pictures_switch(context, False)
+    device.stop_app(context.app_package)
+    device.launch_app(context.app_package)
+    driver.wait_for(LABELS['home heading'], 40)
+    driver.tap(LABELS['tab settings'])
+    if pictures_switch(context).checked is not False:
+        raise StepFailed('"Load ad pictures on mobile data" was on again after a restart')
+    set_pictures_switch(context, True)
+    go_home(context)
+    return (f'"about 25 KB" shown; "Used this month" went from {before:,} to {after:,} bytes for a request of '
+            f'{body_bytes:,}; the row turned the switch off, it stayed off after a restart, and the row turned it on')
+
+
+def pictures_card_title() -> str:
+    return json.loads(PICTURES_FIXTURE.read_text(encoding='utf-8'))['response']['result']['title']
+
+
+def title_top_of_a_result_with_pictures(context: RunContext) -> int:
+    """Identifies with "Match with pictures" and returns how far down the Result's title starts, in pixels: the 2:1
+    banner box above it pushes it down (no picture loads on the emulator, fact 17, but the box keeps its size)."""
+    driver = context.driver
+    count_before = context.recognize_count()
+    context.fake_api.queue(['match-with-images'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+    check_sends(context, count_before, ['match-with-images'])
+    titles = find_nodes(driver.read_screen().nodes, pictures_card_title(), package_name=context.app_package)
+    if not titles:
+        raise StepFailed(f'the Result does not show its title in view; {describe_screen(driver.last_screen, context.app_package)}')
+    top = topmost(titles).bounds[1]
+    context.back_home_from(LABELS['result back'])
+    return top
+
+
+def pictures_follow_the_switch_on_mobile_data(context: RunContext) -> str:
+    """Step 21 (P6-DATASAVER-05, -06, the emulator's half): with the switch off, a Result with pictures keeps its
+    banner box on Wi-Fi; on a metered mobile network (Wi-Fi off) it has none, so its title sits higher by at least
+    BANNER_BOX_SHARE_OF_WIDTH of the screen's width; with the switch on again the box is back. That the pictures
+    are then requested, or not, is the widget journey's and the phone's (walkthrough (c))."""
+    device = context.device
+    width = device.screen_size()[0]
+    set_pictures_switch(context, False)
+    go_home(context)
+    try:
+        on_wifi = title_top_of_a_result_with_pictures(context)
+        network = device.use_mobile_data_only()
+        try:
+            held_back = title_top_of_a_result_with_pictures(context)
+            set_pictures_switch(context, True)
+            go_home(context)
+            allowed = title_top_of_a_result_with_pictures(context)
+        finally:
+            device.use_wifi_again()
+    finally:
+        set_pictures_switch(context, True)
+        go_home(context)
+    problems = []
+    if held_back > on_wifi - BANNER_BOX_SHARE_OF_WIDTH * width:
+        problems.append(f'on mobile data with the switch off the title starts at {held_back} px, against {on_wifi} px on '
+                        'Wi-Fi: the banner box still showed')
+    if abs(allowed - on_wifi) > 20:
+        problems.append(f'with the switch on again the title starts at {allowed} px, not about {on_wifi} px as on '
+                        'Wi-Fi: the banner box did not come back')
+    if problems:
+        raise StepFailed('; '.join(problems))
+    return (f'switch off: the title starts at {on_wifi} px on Wi-Fi (box shown) and {held_back} px on {network} '
+            f'(no box); switch on, on mobile data: {allowed} px (box shown)')
+
+
 def a_saved_clip_is_sent_with_the_app_closed(context: RunContext) -> str:
     """Step 7 (P6-OFFLINE-08): with the network away, a clip is saved and the app closed; when the network comes
     back, WorkManager's job sends it with no activity open, and History holds the result at the next start."""
@@ -1459,6 +1803,14 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('with the app closed, the background job sends a saved clip', a_saved_clip_is_sent_with_the_app_closed),
     ('the update gate: "Please update the app", a choice that waits, and the probe at the next start',
      the_update_gate_and_its_end),
+    # Piece 4 (P6 design §4.8 steps 12, 19-21).
+    ('"Report this" with no signal: "Reported" at once, and one report once the signal is back',
+     report_this_sends_one_report),
+    ('a slow identify says "Still working", shows its progress, then the Result', a_slow_answer_says_still_working),
+    ('Data: "about 25 KB", "Used this month" counts an identify, and the pictures switch keeps its place',
+     data_use_and_the_pictures_switch),
+    ('on mobile data the pictures switch decides the banner box; on Wi-Fi it always shows',
+     pictures_follow_the_switch_on_mobile_data),
     # Last: clearing the app's data forgets the install and the microphone grant the journeys above rely on.
     ('"How Look Up works" shows on the first start only', first_open_shows_how_look_up_works_once),
 ]
@@ -1710,6 +2062,39 @@ class AdbDevice:
         while not is_network_back(network_state(self)):
             if time.monotonic() >= deadline:
                 raise StepFailed('the network did not come back')
+            time.sleep(2)
+
+    def set_network_speed(self, speed: str) -> bool:
+        """The emulator console's `network speed` (gsm, edge, full …); whether the emulator accepted it."""
+        return 'OK' in self.adb('emu', 'network', 'speed', speed, check=False, timeout_seconds=30)
+
+    def use_mobile_data_only(self) -> str:
+        """Wi-Fi off and mobile data on; returns once Android's default network is a metered mobile one (P6 design
+        §3.16: "mobile data" means a metered network). Raises, with Wi-Fi back on, when it never is."""
+        self.adb('shell', 'svc', 'data', 'enable', check=False)
+        self.adb('shell', 'svc', 'wifi', 'disable', check=False)
+        deadline = time.monotonic() + SECONDS_FOR_A_NETWORK_CHANGE
+        while True:
+            network = default_network_of(self.adb('shell', 'dumpsys', 'connectivity', check=False, timeout_seconds=60))
+            if network is not None and 'CELLULAR' in network.transports and network.is_metered:
+                return network.describe()
+            if time.monotonic() >= deadline:
+                self.use_wifi_again()
+                raise StepFailed('with Wi-Fi off, Android never made a metered mobile network its default (it reported '
+                                 f'{network.describe() if network else "no network"})')
+            time.sleep(2)
+
+    def use_wifi_again(self) -> None:
+        """Wi-Fi on; returns once Android's default network is Wi-Fi again."""
+        self.adb('shell', 'svc', 'wifi', 'enable', check=False)
+        deadline = time.monotonic() + SECONDS_FOR_A_NETWORK_CHANGE
+        while True:
+            network = default_network_of(self.adb('shell', 'dumpsys', 'connectivity', check=False, timeout_seconds=60))
+            if network is not None and 'WIFI' in network.transports:
+                return
+            if time.monotonic() >= deadline:
+                raise StepFailed('Wi-Fi did not come back as the default network '
+                                 f'(Android reported {network.describe() if network else "no network"})')
             time.sleep(2)
 
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]:

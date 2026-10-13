@@ -1214,7 +1214,7 @@ class FakeListenerApiTest(unittest.TestCase):
 
     def test_pictures_without_a_public_origin_keep_the_fixtures_addresses(self) -> None:
         token = self.registered_token()
-        self.queue('match-with-pictures')
+        self.queue('match-with-images')
         result = self.recognize(token)[2]['result']
         fixture = read_fixture('recognition/recognize-response/valid/match-with-images.json')['response']['result']
         self.assertEqual(result['card']['header_image'], fixture['card']['header_image'])
@@ -1223,7 +1223,7 @@ class FakeListenerApiTest(unittest.TestCase):
     def test_with_a_public_origin_the_pictures_are_drawn_and_served_by_the_stand_in(self) -> None:
         self.use_public_origin('https://walkthrough.example.com')
         token = self.registered_token()
-        self.queue('match-with-pictures')
+        self.queue('match-with-images')
         result = self.recognize(token)[2]['result']
         banner, logo = result['card']['header_image'], result['station']['logo']
         self.assertEqual(banner['address'], 'https://walkthrough.example.com/fake-pictures/720x360.png')
@@ -1255,7 +1255,7 @@ class FakeListenerApiTest(unittest.TestCase):
         page = self.get('/__fake/panel')[2].decode('utf-8')
         self.assertIn('Next answer to &quot;Report this&quot;', page)
         for label in ('Next answer: Report accepted<', 'Next answer: Report: busy<', 'Next answer: Report kept, answer lost<',
-                      f'Next answer: Match, after {SLOW_ANSWER_SECONDS} seconds<', 'Next answer: Match with a banner and logo<'):
+                      f'Next answer: Match, after {SLOW_ANSWER_SECONDS} seconds<', 'Next answer: Match with pictures<'):
             self.assertIn(label, page)
         self.assertIn("'Reports: ' + state.reports.length", page)
         self.assertIn("'Pictures loaded: ' + state.pictures_served.length", page)

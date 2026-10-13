@@ -833,6 +833,8 @@ class ScriptedFakeApi:
         self.is_offline = False
         # Choices the scripted app has queued in its outbox; they reach the fake once "No signal" is off.
         self.outbox: list[dict[str, str]] = []
+        # Reports the scripted app has queued in its outbox; they reach the fake once "No signal" is off.
+        self.report_outbox: list[dict[str, str]] = []
         self.choices: list[dict[str, str]] = []
         self.station_list_requests = 0
 
@@ -867,6 +869,11 @@ class ScriptedFakeApi:
             if all(kept['recognition_id'] != choice['recognition_id'] for kept in self.choices):
                 self.choices.append(dict(choice))
         self.outbox = []
+        for report in self.report_outbox:
+            self.requests.append({'method': 'POST', 'path': f"/api/v1/recognitions/{report['recognition_id']}/report",
+                                  'request_id': f'report-{len(self.requests)}', **report, 'scenario': 'report-recorded',
+                                  'report': 'reported'})
+        self.report_outbox = []
 
     def receive_recognize(self, idempotency_key: str = 'key-1',
                           request_id: str = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f', *,
@@ -1425,7 +1432,7 @@ class FullListenerAppJourneyTest(unittest.TestCase):
 
     def test_the_new_journeys_run_after_step_4s_and_the_first_open_one_last(self) -> None:
         names = [journey for _, journey in runner.JOURNEYS]
-        self.assertEqual(names[-14:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
+        self.assertEqual(names[-18:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
                                        runner.cancel_on_the_sheet_chooses_nothing,
                                        runner.history_keeps_a_result_that_works_with_no_data,
                                        runner.station_list_is_asked_for_once,
@@ -1438,8 +1445,194 @@ class FullListenerAppJourneyTest(unittest.TestCase):
                                        runner.two_notifications_open_their_own_results,
                                        runner.a_saved_clip_is_sent_with_the_app_closed,
                                        runner.the_update_gate_and_its_end,
+                                       # Piece 4.
+                                       runner.report_this_sends_one_report,
+                                       runner.a_slow_answer_says_still_working,
+                                       runner.data_use_and_the_pictures_switch,
+                                       runner.pictures_follow_the_switch_on_mobile_data,
                                        runner.first_open_shows_how_look_up_works_once])
         self.assertLess(names.index(runner.send_test_error), names.index(runner.a_crash_report_waits_for_the_signal))
+
+
+REPORT_RECOGNITION_ID = '01a13703-171b-7993-99e0-71ec6c8d4b32'
+
+
+def report_phone(fake_api: ScriptedFakeApi, *, report_sends: int = 1, does_link_stay: bool = False,
+                 does_saved_result_offer_the_link: bool = False) -> ScriptedPhone:
+    """Identify gives a Result; "Report this" → the sheet → "Send report" shows "Reported" and queues the report in the
+    outbox; History's row opens the saved result."""
+    def answer_the_identify() -> None:
+        fake_api.receive_recognize()
+        fake_api.requests[-1]['recognition_id'] = REPORT_RECOGNITION_ID
+
+    def send_the_report() -> None:
+        fake_api.report_outbox.extend({'recognition_id': REPORT_RECOGNITION_ID, 'station_id': runner.match_station_id(),
+                                       'reason': 'LOOKS_LIKE_A_SCAM'} for _ in range(report_sends))
+
+    saved = [app(LABELS['back']), app(LABELS['saved result heading']), app(CARD.title), app(LABELS['reported']),
+             *([app(LABELS['report this'])] if does_saved_result_offer_the_link else [])]
+    return ScriptedPhone(
+        screens={'home': HOME_WITH_TABS, 'listening': LISTENING, 'result': [*RESULT, app(LABELS['report this'])],
+                 'sheet': [app(LABELS['report sheet title']), app(LABELS['report reason scam']), app('Something else'),
+                           app(LABELS['send report']), app('Cancel')],
+                 'reported': [*RESULT, app(LABELS['report thanks']), app(LABELS['reported']),
+                              *([app(LABELS['report this'])] if does_link_stay else [])],
+                 'history': [app('History'), app(LABELS['history earlier']), app(HISTORY_ROW), *TABS],
+                 'saved': saved},
+        taps={('home', LABELS['identify control']): 'listening',
+              ('result', LABELS['report this']): 'sheet',
+              ('sheet', LABELS['send report']): 'reported',
+              ('reported', LABELS['result back']): 'home',
+              ('home', LABELS['tab history']): 'history',
+              ('history', HISTORY_ROW): 'saved',
+              ('saved', LABELS['back']): 'history',
+              ('history', LABELS['tab identify']): 'home'},
+        moves_after_reads={'listening': (1, 'result')},
+        on_enter={'result': answer_the_identify, 'reported': send_the_report},
+    )
+
+
+def switch_dump(checkable: str | None, checked: str) -> str:
+    attributes = '' if checkable is None else f' checkable="{checkable}" checked="{checked}"'
+    return ("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">"
+            f'<node index="0" text="" resource-id="" class="android.view.View" package="{APP}" '
+            f'content-desc="Load ad pictures on mobile data&#10;Turn off to save data; buttons still work" '
+            f'clickable="true"{attributes} bounds="[0,100][1080,300]" /></hierarchy>')
+
+
+# `dumpsys connectivity` on Android 13, the lines the driver reads, with Wi-Fi (100) and mobile data (101) up.
+CONNECTIVITY_DUMP = (
+    'NetworkProviders for:\n'
+    'Active default network: {default}\n'
+    'Current Networks:\n'
+    '  NetworkAgentInfo{{network{{100}}  handle{{432902426637}}  ni{{WIFI CONNECTED extra: }}  '
+    'nc{{[ Transports: WIFI Capabilities: NOT_METERED&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING'
+    '&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=12000Kbps]}}  factorySerialNumber=3}}\n'
+    '  NetworkAgentInfo{{network{{101}}  handle{{437197393933}}  ni{{MOBILE[LTE] CONNECTED extra: }}  '
+    'nc{{[ Transports: CELLULAR Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING'
+    '&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED LinkUpBandwidth>=51200Kbps]}}  factorySerialNumber=5}}\n'
+)
+
+
+class PieceFourTest(unittest.TestCase):
+    """Piece 4's journeys (P6 design §4.8 steps 12, 19-21) and what they read from the screen and the device."""
+
+    def test_a_switch_says_whether_it_is_on_and_other_nodes_say_nothing(self) -> None:
+        for checkable, checked, expected in (('true', 'true', True), ('true', 'false', False), (None, 'true', None)):
+            with self.subTest(checkable=checkable, checked=checked):
+                node = find_nodes(parse_screen_dump(switch_dump(checkable, checked)).nodes, LABELS['load pictures'])[0]
+                self.assertIs(node.checked, expected)
+
+    def test_the_default_network_and_whether_it_is_metered_come_from_dumpsys(self) -> None:
+        mobile = runner.default_network_of(CONNECTIVITY_DUMP.format(default='101'))
+        self.assertEqual(mobile, runner.DefaultNetwork('101', ('CELLULAR',), True))
+        self.assertEqual(mobile.describe(), 'CELLULAR, metered')
+        wifi = runner.default_network_of(CONNECTIVITY_DUMP.format(default='100'))
+        self.assertEqual(wifi, runner.DefaultNetwork('100', ('WIFI',), False))
+        self.assertIsNone(runner.default_network_of(CONNECTIVITY_DUMP.format(default='none')))
+        self.assertIsNone(runner.default_network_of(CONNECTIVITY_DUMP.format(default='102')))
+        self.assertIsNone(runner.default_network_of('no such lines'))
+
+    def test_amounts_read_as_settings_shows_them(self) -> None:
+        self.assertEqual(runner.data_amount_bytes('312 KB'), 312_000)
+        self.assertEqual(runner.data_amount_bytes('0 KB'), 0)
+        self.assertEqual(runner.data_amount_bytes('1.4 MB'), 1_400_000)
+        for not_an_amount in ('about 25 KB', 'KB', '25 kB', '1,000 KB', 'Used this month'):
+            with self.subTest(not_an_amount):
+                self.assertIsNone(runner.data_amount_bytes(not_an_amount))
+
+    def test_used_this_month_is_the_one_amount_on_the_settings_screen(self) -> None:
+        def screen(*labels: str) -> Screen:
+            return parse_screen_dump(dump_of([app(label) for label in labels]))
+
+        each = f"{LABELS['each identify uses']}\n{LABELS['about 25 KB']}"
+        self.assertEqual(runner.used_this_month(screen(each, f"{LABELS['used this month']}\n87 KB"), APP), 87_000)
+        with self.assertRaises(StepFailed):
+            runner.used_this_month(screen(each, LABELS['used this month']), APP)
+        with self.assertRaises(StepFailed):
+            runner.used_this_month(screen(f"{LABELS['used this month']}\n87 KB", 'Something\n12 KB'), APP)
+
+    def test_a_slow_send_needs_still_working_progress_and_the_result(self) -> None:
+        def seen(**changes: Any) -> runner.SlowSendSeen:
+            return runner.SlowSendSeen(**{'is_slow_seen': True, 'percents': (33, 80), 'is_clip_sent_seen': True,
+                                          'is_result_seen': True, 'readable_count': 9, 'unreadable_count': 0, **changes})
+
+        self.assertEqual(runner.slow_send_problems(seen()), [])
+        self.assertEqual(runner.slow_send_problems(seen(percents=())), [], '"Clip sent" alone is progress')
+        self.assertEqual(runner.slow_send_problems(seen(is_clip_sent_seen=False)), [], 'a share alone is progress')
+        for changes, problem in (({'is_slow_seen': False}, 'Still working'),
+                                 ({'percents': (), 'is_clip_sent_seen': False}, 'no progress'),
+                                 ({'percents': (80, 33)}, 'went down'),
+                                 ({'percents': (33, 140)}, 'over 100%'),
+                                 ({'is_result_seen': False}, 'Result never showed')):
+            with self.subTest(problem):
+                self.assertIn(problem, ' '.join(runner.slow_send_problems(seen(**changes))))
+
+    def test_a_slow_send_is_read_screen_by_screen_until_the_result(self) -> None:
+        identifying = [app('Identifying\u2026')]
+        phone = ScriptedPhone(
+            screens={'identifying': identifying,
+                     'slow at 33': [*identifying, app(LABELS['identifying slow']), app('Clip 33% sent')],
+                     'slow at 80': [*identifying, app(LABELS['identifying slow']), app('Clip 80% sent')],
+                     'clip sent': [*identifying, app(LABELS['identifying slow']), app(LABELS['clip sent'])],
+                     'result': RESULT},
+            taps={}, start='identifying',
+            moves_after_reads={'identifying': (2, 'slow at 33'), 'slow at 33': (2, 'slow at 80'),
+                               'slow at 80': (2, 'clip sent'), 'clip sent': (2, 'result')})
+        context, _ = context_for(phone, ScriptedFakeApi())
+
+        seen = runner.watch_a_slow_send(context.driver, 60)
+
+        self.assertEqual((seen.is_slow_seen, seen.percents, seen.is_clip_sent_seen, seen.is_result_seen),
+                         (True, (33, 80), True, True))
+        self.assertEqual(runner.slow_send_problems(seen), [])
+
+    def test_a_slow_send_that_never_reaches_the_result_stops_at_its_time(self) -> None:
+        phone = ScriptedPhone(screens={'identifying': [app('Identifying\u2026')]}, taps={}, start='identifying')
+        context, clock = context_for(phone, ScriptedFakeApi())
+
+        seen = runner.watch_a_slow_send(context.driver, 30)
+
+        self.assertFalse(seen.is_result_seen)
+        self.assertGreaterEqual(clock.now, 30)
+
+    def test_the_report_journey_sees_reported_at_once_and_one_report_once_the_signal_is_back(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = report_phone(fake_api)
+        context, _ = context_for(phone, fake_api)
+
+        detail = runner.report_this_sends_one_report(context)
+
+        self.assertEqual(phone.tapped[:4], [LABELS['identify control'], LABELS['report this'], LABELS['report reason scam'],
+                                            LABELS['send report']])
+        self.assertEqual(phone.current, 'home')
+        self.assertFalse(fake_api.is_offline, '"No signal" is switched off again')
+        self.assertIn('one report (LOOKS_LIKE_A_SCAM', detail)
+        self.assertIn('the saved result in History says "Reported"', detail)
+
+    def test_the_report_journey_fails_when_the_report_goes_twice_or_never_or_the_link_stays(self) -> None:
+        for name, options, problem in (('twice', {'report_sends': 2}, 'not exactly one report'),
+                                       ('never', {'report_sends': 0}, 'the report to reach the stand-in'),
+                                       ('link stays', {'does_link_stay': True}, '"Report this" still shows'),
+                                       ('saved result', {'does_saved_result_offer_the_link': True},
+                                        'offers "Report this" again')):
+            with self.subTest(name):
+                fake_api = ScriptedFakeApi()
+                context, _ = context_for(report_phone(fake_api, **options), fake_api)
+
+                with self.assertRaises(StepFailed) as failure:
+                    runner.report_this_sends_one_report(context)
+
+                self.assertIn(problem, str(failure.exception))
+                self.assertFalse(fake_api.is_offline)
+
+    def test_piece_four_journeys_queue_only_answers_the_stand_in_knows(self) -> None:
+        import fake_listener_api
+
+        for name in ('match', 'match-after-a-wait', 'match-with-images'):
+            self.assertIn(name, fake_listener_api.SCENARIOS)
+        self.assertEqual(runner.pictures_card_title(), CARD.title)
+        self.assertEqual(runner.match_station_id(), runner.CHOOSER_STATIONS[0].station_id)
 
 
 class StandInControlTest(unittest.TestCase):
@@ -1472,7 +1665,7 @@ class StandInControlTest(unittest.TestCase):
 
     def test_the_scenarios_the_journeys_queue_are_known_to_the_stand_in(self) -> None:
         names = ['choose-station', 'match-by-hint', 'match', 'drop', 'no-match', 'busy-deferred-shed',
-                 'rate-limited-deferred', 'match-station-b']
+                 'rate-limited-deferred', 'match-station-b', 'match-after-a-wait', 'match-with-images']
         self.fake_api.queue(names)
         self.assertEqual(self.fake_api.state()['queued']['recognize'], names)
 

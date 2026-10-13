@@ -47,7 +47,7 @@ Listener routes (contract §1 and §4), each with its own queue of answers:
                                                     304 when the app sends that ETag back (P4 design §5.6)
     POST /api/v1/client-errors                      a crash report, with no token
 
-Pictures (P6 design §3.16): "Match with a banner and logo" answers with the shared fixture whose card has a banner
+Pictures (P6 design §3.16): "Match with pictures" answers with the shared fixture whose card has a banner
 and a station logo. Started with --public-origin, the https address the phone reaches the stand-in by (an ngrok
 tunnel), their addresses become drawn pictures it serves itself, so the app can load them; without it they keep the
 fixture's addresses, which never load.
@@ -205,7 +205,7 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     'match-after-a-wait': {'route': RECOGNIZE_ROUTE, 'label': f'Match, after {SLOW_ANSWER_SECONDS} seconds',
                            'response': f'{RESPONSES}/match-campaign.json', 'wait_seconds': SLOW_ANSWER_SECONDS},
     # A card with a banner and a station logo (P6 design §3.16): drawn pictures with --public-origin.
-    'match-with-pictures': {'route': RECOGNIZE_ROUTE, 'label': 'Match with a banner and logo',
+    'match-with-images': {'route': RECOGNIZE_ROUTE, 'label': 'Match with pictures',
                             'response': f'{RESPONSES}/match-with-images.json', 'pictures': True},
     # A station choice (contract §1.3). Every choice is checked first: a "Which station?" answer this install was
     # given, and one of its stations; anything else is refused, so the run fails.
@@ -1599,7 +1599,7 @@ def main() -> None:
     parser.add_argument('--port', type=int, default=3999)
     parser.add_argument('--save-audio-to', type=Path)
     parser.add_argument('--public-origin', help='the https address the phone reaches this stand-in by (an ngrok '
-                                                'tunnel), for the drawn pictures of "Match with a banner and logo"')
+                                                'tunnel), for the drawn pictures of "Match with pictures"')
     arguments = parser.parse_args()
     try:
         server = make_server(arguments.host, arguments.port, arguments.save_audio_to,
