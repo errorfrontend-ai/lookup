@@ -7,6 +7,7 @@ import 'package:lookup_listener/core/error_reporting/client_error_report_outcome
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
 import 'package:lookup_listener/core/outbox/outbox_providers.dart';
 import 'package:lookup_listener/core/time/clock.dart';
+import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
@@ -31,9 +32,13 @@ import 'package:lookup_listener/features/settings/domain/listener_station.dart';
 /// - T19′: a `CHOOSE_STATION` answer shows the chooser; the clip is dropped.
 /// - T44: a row shows that candidate's result at once, from its card, with no request
 ///   (P6-CHOOSER-09); in the background, never delaying the screen, the choice goes to the outbox
-///   (P6-CHOOSER-10) and, with "Remember" ticked, the station becomes "My station" (P6-CHOOSER-07,
-///   -08). A failure there is reported and never changes the screen.
-/// - T46: Cancel goes Home; nothing is queued and nothing is remembered (P6-CHOOSER-14).
+///   (P6-CHOOSER-10), the result is saved to History with the chosen station (P6-HISTORY-01) and,
+///   with "Remember" ticked, the station becomes "My station" (P6-CHOOSER-07, -08). A failure there
+///   is reported and never changes the screen.
+/// - T46: Cancel goes Home; nothing is queued, saved or remembered (P6-CHOOSER-14, gap 28).
+/// - A live result (matched or fallback) is saved to History in the background as it shows, with
+///   the answer exactly as it came and the phone's capture time (P6 design §3.14; P6-HISTORY-01,
+///   -14); a save that fails is reported, and the Result then shows no "Saved to History".
 ///
 /// Screens read the state and call the methods below; the router follows the state (S4-D5).
 /// Only Home accepts a new identify (T41). The clip is held here, privately, never in a state, and
@@ -60,6 +65,10 @@ class RecognitionFlow extends Notifier<RecognitionState> {
 
   /// The clip in memory, kept only while Identifying, Busy or "No connection" (S4-D7).
   CapturedClip? _clip;
+
+  /// The `CHOOSE_STATION` answer the chooser shows, kept until a row is tapped so the chosen
+  /// result can be saved to History as the answer came (T44); dropped on every way out.
+  ({String recognitionId, Map<String, Object?> answer, DateTime capturedAtOnPhone})? _chooserAnswer;
 
   /// The counts for [_clip] so far; a fresh policy for every capture.
   SendPolicy _sendPolicy = const SendPolicy();
@@ -131,12 +140,24 @@ class RecognitionFlow extends Notifier<RecognitionState> {
         .where((candidate) => candidate.stationId == stationId)
         .firstOrNull;
     if (candidate == null) return;
+    final chooserAnswer = _chooserAnswer;
+    _chooserAnswer = null;
     _beginIdentify();
     state = switch (candidate.kind) {
       RecognitionResultKind.campaign => MatchedState(result: candidate),
       RecognitionResultKind.clientDefault => FallbackState(result: candidate),
     };
     unawaited(_queueStationChoice(recognitionId: current.recognitionId, stationId: stationId));
+    if (chooserAnswer != null && chooserAnswer.recognitionId == current.recognitionId) {
+      unawaited(
+        _saveToHistory(
+          recognitionId: current.recognitionId,
+          answer: chooserAnswer.answer,
+          capturedAtOnPhone: chooserAnswer.capturedAtOnPhone,
+          chosenStationId: stationId,
+        ),
+      );
+    }
     if (isRemembered) unawaited(_rememberStation(candidate));
   }
 
@@ -230,6 +251,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _isStartingCapture = true;
     final identifyNumber = _beginIdentify();
     _dropClip();
+    _chooserAnswer = null;
     try {
       final access = await _microphonePermission.readAccess();
       if (!_isCurrent(identifyNumber)) return;
@@ -415,6 +437,33 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _sendCancellation = null;
     final outcome = _sendPolicy.decide(answer, reportRequestId: _randomUuid.generate());
     await _follow(identifyNumber, outcome);
+    if (_isCurrent(identifyNumber)) _keepForHistory(answer, capturedAtOnPhone: clip.capturedAt);
+  }
+
+  /// What History keeps of [answer], once its state shows: a match (or the advertiser's usual card)
+  /// is saved at once; a chooser's answer is kept until a row is tapped (T44), and never saved
+  /// when the listener cancels (gap 28).
+  void _keepForHistory(RecognitionAnswer answer, {required DateTime capturedAtOnPhone}) {
+    switch (answer) {
+      case MatchAnswer(:final result, :final answerBody)
+          when state is MatchedState || state is FallbackState:
+        unawaited(
+          _saveToHistory(
+            recognitionId: result.recognitionId,
+            answer: answerBody,
+            capturedAtOnPhone: capturedAtOnPhone,
+          ),
+        );
+      case ChooseStationAnswer(:final recognitionId, :final answerBody)
+          when state is ChooseStationState:
+        _chooserAnswer = (
+          recognitionId: recognitionId,
+          answer: answerBody,
+          capturedAtOnPhone: capturedAtOnPhone,
+        );
+      case _:
+        break;
+    }
   }
 
   Future<void> _follow(int identifyNumber, RecognitionOutcome outcome) async {
@@ -535,12 +584,12 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   }
 
   /// T44 with "Remember" ticked: [candidate]'s station becomes "My station", so later clips carry
-  /// it as their hint (P6-CHOOSER-07). Never throws.
+  /// it as their hint (P6-CHOOSER-07), and Home's chip and Settings show it at once. Never throws.
   Future<void> _rememberStation(RecognitionResult candidate) async {
     try {
       await ref
-          .read(myStationStoreProvider)
-          .remember(
+          .read(myStationProvider.notifier)
+          .choose(
             ListenerStation(
               id: candidate.stationId,
               name: candidate.stationName,
@@ -550,6 +599,29 @@ class RecognitionFlow extends Notifier<RecognitionState> {
           );
     } on Object catch (error, stackTrace) {
       _reportQuietly(error, stackTrace, description: 'Remembering My station failed');
+    }
+  }
+
+  /// Saves a result to History, as the answer came, in the background: the Result already shows
+  /// and never waits for it (P6-HISTORY-01, -14). A save that fails is reported; the Result then
+  /// shows no "Saved to History". Never throws.
+  Future<void> _saveToHistory({
+    required String recognitionId,
+    required Map<String, Object?> answer,
+    required DateTime capturedAtOnPhone,
+    String? chosenStationId,
+  }) async {
+    try {
+      await ref
+          .read(historyRepositoryProvider)
+          .saveResult(
+            recognitionId: recognitionId,
+            answer: answer,
+            capturedAtOnPhone: capturedAtOnPhone,
+            chosenStationId: chosenStationId,
+          );
+    } on Object catch (error, stackTrace) {
+      _reportQuietly(error, stackTrace, description: 'Saving the result to History failed');
     }
   }
 
@@ -699,6 +771,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   void _goHome() {
     _beginIdentify();
     _dropClip();
+    _chooserAnswer = null;
     state = const IdleState();
     _deleteLeftoverClips();
   }
@@ -748,6 +821,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _identifyNumber++;
     _stopActivities();
     _dropClip();
+    _chooserAnswer = null;
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
   }

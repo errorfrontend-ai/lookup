@@ -8,11 +8,13 @@ import 'package:lookup_listener/core/configuration/app_configuration_provider.da
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/core/widgets/state_icon_circle.dart';
+import 'package:lookup_listener/features/identify/data/how_it_works_note_store.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/result/data/action_launcher.dart';
 import 'package:lookup_listener/features/result/data/clipboard_writer.dart';
 import 'package:lookup_listener/l10n/fallback_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../support/example_app_configurations.dart';
 import '../../../support/expect_no_technical_text.dart';
@@ -26,14 +28,21 @@ import 'recording_recognition_flow.dart';
 /// whose flow records the calls the screen makes, with a fake launcher and clipboard and the
 /// configuration the test chooses (production by default) — so a test can check its wording, its
 /// semantics, its layout and which flow method each control calls (design §4.3).
+///
+/// `shared_preferences` holds [preferences]: by default only the first-open note's flag, so Home
+/// shows as on any later launch, with "My station" not set.
 final class IdentifyScreenHarness {
   IdentifyScreenHarness({
     RecognitionState state = const IdleState(),
     AppConfiguration? configuration,
     bool launcherOpens = true,
+    this.preferences = const {HowItWorksNoteStore.shownKey: true},
   }) : flow = RecordingRecognitionFlow(state),
        configuration = configuration ?? ExampleAppConfigurations.production(),
        launcher = FakeActionLauncher(opens: launcherOpens);
+
+  /// What `shared_preferences` holds when the screen is shown.
+  final Map<String, Object> preferences;
 
   final RecordingRecognitionFlow flow;
   final AppConfiguration configuration;
@@ -48,6 +57,7 @@ final class IdentifyScreenHarness {
     ThemeData? theme,
   }) async {
     phoneScreen.applyTo(tester);
+    SharedPreferences.setMockInitialValues(preferences);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -72,6 +82,7 @@ final class IdentifyScreenHarness {
   Future<void> expectFitsEveryPhone(WidgetTester tester, Widget screen) async {
     for (final phoneScreen in PhoneScreen.layoutChecks) {
       await pump(tester, screen, phoneScreen: phoneScreen);
+      await tester.pump();
       await tester.pump();
       expect(tester.takeException(), isNull, reason: 'on $phoneScreen');
       expectNoClippedText(tester);

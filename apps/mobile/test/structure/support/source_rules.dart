@@ -190,15 +190,24 @@ abstract final class SourceRules {
       'Reading My station for the hint failed',
       'Queueing the station choice failed',
       'Remembering My station failed',
+      'Saving the result to History failed',
     },
+    'app/bootstrap.dart': {'Deleting old History entries at start failed'},
     'features/identify/presentation/reference_code_panel.dart': {'monospace', 'Menlo', 'Courier'},
     'features/identify/presentation/send_test_error_button.dart': {
       'A test error, thrown on purpose from the developer tools',
     },
   };
 
-  /// The routes' paths (design §3.6), in the router and in the flow that names each state's route.
+  /// The routes' paths (design §3.6; P6 design §3.7), in the router and in the flow that names each
+  /// state's route.
   static const Set<String> _routePaths = {
+    '/history',
+    '/settings',
+    '/settings/my-station',
+    '/settings/privacy',
+    '/settings/about',
+    '/r/:recognitionId',
     '/permission',
     '/listening',
     '/identifying',

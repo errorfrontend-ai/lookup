@@ -47,7 +47,7 @@ final class RecognizeResponseParser {
     final recognitionId = _readRecognitionId(body['recognition_id']);
     final capturedAt = _readTime(body['captured_at']);
     return switch (body['status']) {
-      'MATCH' => _readMatch(body['result'], recognitionId, capturedAt, apiRequestId, unreadable),
+      'MATCH' => _readMatch(body, recognitionId, capturedAt, apiRequestId, unreadable),
       'NO_MATCH' => NoMatchAnswer(
         apiRequestId: apiRequestId,
         recognitionId: recognitionId,
@@ -92,16 +92,21 @@ final class RecognizeResponseParser {
 
   /// The match, or the unreadable answer when it is not one the screen can show.
   RecognitionAnswer _readMatch(
-    Object? result,
+    Map<Object?, Object?> body,
     String? recognitionId,
     DateTime? capturedAt,
     String? apiRequestId,
     UnreadableAnswer Function(String problem) unreadable,
   ) {
     if (recognitionId == null) return unreadable(_unreadableRecognitionIdProblem('MATCH'));
-    final readResult = _readResult(result, recognitionId);
+    final readResult = _readResult(body['result'], recognitionId);
     if (readResult == null) return unreadable(_unreadableMatchProblem);
-    return MatchAnswer(result: readResult, apiRequestId: apiRequestId, capturedAt: capturedAt);
+    return MatchAnswer(
+      result: readResult,
+      answerBody: _answerBodyOf(body),
+      apiRequestId: apiRequestId,
+      capturedAt: capturedAt,
+    );
   }
 
   /// The chooser of T19′, or the unreadable answer of T19″: the sheet needs the recognition id the
@@ -140,10 +145,17 @@ final class RecognizeResponseParser {
     return ChooseStationAnswer(
       recognitionId: recognitionId,
       candidates: candidates,
+      answerBody: _answerBodyOf(body),
       apiRequestId: apiRequestId,
       capturedAt: capturedAt,
     );
   }
+
+  /// [body] as History keeps it: the answer exactly as it came, its keys as text, as JSON has them.
+  static Map<String, Object?> _answerBodyOf(Map<Object?, Object?> body) => Map.unmodifiable({
+    for (final MapEntry(:key, :value) in body.entries)
+      if (key is String) key: value,
+  });
 
   /// The result of a match, or one candidate of a chooser, for [recognitionId]; null when [result]
   /// is not one the screen can show.

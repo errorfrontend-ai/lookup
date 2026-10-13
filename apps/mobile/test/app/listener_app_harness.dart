@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
@@ -14,7 +15,9 @@ import 'package:lookup_listener/core/configuration/app_configuration_provider.da
 import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/network/api_client.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
+import 'package:lookup_listener/features/history/data/history_store.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
+import 'package:lookup_listener/features/identify/data/how_it_works_note_store.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -37,13 +40,19 @@ import '../support/recording_client_error_reporter.dart';
 /// The whole listener app — `LookUpApp`, its router, the real recognition flow and the app's own
 /// service wiring (`appServiceOverrides`) — with only the edges replaced by fakes (design §4.1):
 /// the HTTP transport, the microphone, the permission, the crash reporter, the launcher and the
-/// clipboard. Journey, router and transition tests drive it by tapping, as a listener would.
+/// clipboard; History and the station list live in temporary folders of their own. Journey, router
+/// and transition tests drive it by tapping, as a listener would.
+///
+/// The app starts as on a later launch, with Home's first-open note already shown, unless
+/// [isFirstLaunch]; [storedPreferences] adds to what `shared_preferences` holds (e.g. "My station").
 final class ListenerAppHarness {
   ListenerAppHarness({
     AppConfiguration? configuration,
     MicrophoneAccess microphoneAccess = MicrophoneAccess.granted,
     MicrophoneAccess answerToPrompt = MicrophoneAccess.granted,
     this.hasStoredToken = true,
+    this.isFirstLaunch = false,
+    this.storedPreferences = const {},
   }) : configuration = configuration ?? ExampleAppConfigurations.production(),
        permission = FakeMicrophonePermission(
          access: microphoneAccess,
@@ -52,6 +61,8 @@ final class ListenerAppHarness {
 
   final AppConfiguration configuration;
   final bool hasStoredToken;
+  final bool isFirstLaunch;
+  final Map<String, Object> storedPreferences;
   final FakeHttpClientAdapter adapter = FakeHttpClientAdapter();
   final FakeClipRecorder recorder = FakeClipRecorder();
   final FakeMicrophonePermission permission;
@@ -63,7 +74,25 @@ final class ListenerAppHarness {
   /// is false.
   static const String installId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
 
-  /// The fakes in place of the services, then the app's own wiring of the identify feature.
+  /// The app's support folder in this test: History's and the station list's folders are made in
+  /// it. A new temporary one per started app, deleted when the test ends.
+  late final Directory supportFolder = _makeSupportFolder();
+
+  /// History's folder (`history/` of [supportFolder]).
+  Directory get historyFolder => HistoryStore.folderIn(supportFolder);
+
+  /// The station list's folder (`stations/` of [supportFolder]).
+  Directory get stationListFolder => Directory('${supportFolder.path}/stations');
+
+  static Directory _makeSupportFolder() {
+    final folder = Directory.systemTemp.createTempSync('listener_app_support_');
+    addTearDown(() {
+      if (folder.existsSync()) folder.deleteSync(recursive: true);
+    });
+    return folder;
+  }
+
+  /// The fakes in place of the services, then the app's own wiring of the features.
   List<Override> get overrides => [
     appConfigurationProvider.overrideWithValue(configuration),
     apiClientProvider.overrideWith(
@@ -79,6 +108,8 @@ final class ListenerAppHarness {
     microphonePermissionProvider.overrideWithValue(permission),
     actionLauncherProvider.overrideWithValue(launcher),
     clipboardWriterProvider.overrideWithValue(clipboard),
+    historyFolderLocatorProvider.overrideWithValue(() async => historyFolder),
+    stationListFolderLocatorProvider.overrideWithValue(() async => stationListFolder),
     ...appServiceOverrides,
   ];
 
@@ -92,6 +123,8 @@ final class ListenerAppHarness {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     final tokenExpiry = DateTime.now().toUtc().add(const Duration(days: 30));
     SharedPreferences.setMockInitialValues({
+      if (!isFirstLaunch) HowItWorksNoteStore.shownKey: true,
+      ...storedPreferences,
       'listener_install_id': installId,
       if (hasStoredToken) 'listener_install_token': 'stored.install.token',
       if (hasStoredToken) 'listener_install_token_expires_at': tokenExpiry.toIso8601String(),
@@ -142,9 +175,9 @@ final class ListenerAppHarness {
 
   GoRouter router(WidgetTester tester) => container(tester).read(appRouterProvider);
 
-  /// The router's current location, e.g. `/listening`.
-  String location(WidgetTester tester) =>
-      router(tester).routerDelegate.currentConfiguration.uri.path;
+  /// The router's current location, e.g. `/listening`: the top page's, a pushed one included (a
+  /// saved result opened from History).
+  String location(WidgetTester tester) => router(tester).state.uri.path;
 
   /// The recognize requests received, in order.
   List<FakeHttpRequest> get recognizeRequests => [

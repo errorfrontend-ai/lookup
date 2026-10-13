@@ -74,8 +74,15 @@ void main() {
         clientErrorReporterProvider.overrideWithValue(reporter),
         clipRecorderProvider.overrideWithValue(recorder),
         microphonePermissionProvider.overrideWithValue(FakeMicrophonePermission()),
-        // The app's outbox, in a temporary folder in place of the phone's support folder.
+        // The app's outbox, History and station list, in temporary folders in place of the
+        // phone's support folder.
         outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
+        historyFolderLocatorProvider.overrideWithValue(
+          () async => Directory('${outboxFolder.path}/history'),
+        ),
+        stationListFolderLocatorProvider.overrideWithValue(
+          () async => Directory('${outboxFolder.path}/stations'),
+        ),
         outboxRandomProvider.overrideWithValue(Random(5)),
       ],
       startApp: (app) => startedApp = app,

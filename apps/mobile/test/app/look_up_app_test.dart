@@ -41,8 +41,13 @@ void main() {
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     await ListenerAppHarness().pumpApp(tester);
+    // Home's own Scaffold, inside the tab shell's.
     Color homeBackground() =>
-        tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor ??
+        tester
+            .widget<Scaffold>(
+              find.descendant(of: find.byType(HomeScreen), matching: find.byType(Scaffold)),
+            )
+            .backgroundColor ??
         Theme.of(tester.element(find.byType(HomeScreen))).scaffoldBackgroundColor;
 
     var theme = Theme.of(tester.element(find.byType(HomeScreen)));

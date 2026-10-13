@@ -6,8 +6,8 @@ import 'support/layer_import_scan.dart';
 import 'support/temporary_folder_copy.dart';
 
 /// The layer rules of design §3.2 (S4-D2, S4-STRUCTURE-03) and of the P6 design's §3.1 and §3.2
-/// (no feature's data imports another's; core imports no feature), read from the import lines of
-/// `lib/`.
+/// (no feature's data imports another's; no feature's screen is imported by another feature; core
+/// imports no feature), read from the import lines of `lib/`.
 void main() {
   final libraryFolder = RepositoryFileLocator.mobileAppFolder('lib');
 
@@ -144,5 +144,11 @@ import 'package:lookup_listener/features/identify/data/station_choice_sender.dar
 ''',
   'core/planted_feature_domain.dart': '''
 import '../features/identify/domain/recognition_state.dart';
+''',
+  'features/history/presentation/planted_other_feature_screen.dart': '''
+import 'package:lookup_listener/features/result/presentation/result_screen.dart';
+''',
+  'features/history/data/planted_other_feature_data.dart': '''
+import 'package:lookup_listener/features/identify/data/recognize_response_parser.dart';
 ''',
 };

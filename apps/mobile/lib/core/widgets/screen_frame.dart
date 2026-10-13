@@ -22,6 +22,7 @@ class ScreenFrame extends StatelessWidget {
     this.footer = const <Widget>[],
     this.isBodyAtBottom = false,
     this.bodyPadding,
+    this.bodyTop,
   });
 
   /// The screen's content between the header and the footer.
@@ -45,6 +46,11 @@ class ScreenFrame extends StatelessWidget {
 
   /// Space around the body; the wireframes' 24 dp on the sides and top when not given.
   final EdgeInsetsGeometry? bodyPadding;
+
+  /// Content at the top of the body's space, above the room that keeps [body] at the bottom when
+  /// [isBodyAtBottom]: Home's first-open note sits under the header while "Tap to identify" stays
+  /// in the thumb zone. Like the body, it scrolls with the screen when the text is large.
+  final Widget? bodyTop;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +76,13 @@ class ScreenFrame extends StatelessWidget {
                             ? MainAxisAlignment.end
                             : MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [body],
+                        children: [
+                          ...?switch (bodyTop) {
+                            final bodyTop? => [bodyTop, if (isBodyAtBottom) const Spacer()],
+                            null => null,
+                          },
+                          body,
+                        ],
                       ),
                     ),
                   ),

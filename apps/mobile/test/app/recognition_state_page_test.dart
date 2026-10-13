@@ -41,7 +41,7 @@ void main() {
     final harness = IdentifyScreenHarness(state: MatchedState(result: resultWith()));
     await harness.pump(tester, const RecognitionStatePage(route: AppRoute.result));
     expect(find.byType(ResultScreen), findsOneWidget);
-    tester.widget<ResultScreen>(find.byType(ResultScreen)).onBackToHome();
+    tester.widget<ResultScreen>(find.byType(ResultScreen)).onBack();
     expect(harness.flow.calls, ['backToHome']);
   });
 

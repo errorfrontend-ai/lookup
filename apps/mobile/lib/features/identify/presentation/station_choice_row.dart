@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/features/result/domain/recognition_result.dart';
-import 'package:lookup_listener/features/result/presentation/public_image_view.dart';
+import 'package:lookup_listener/features/result/presentation/station_logo.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// One station of "Which station?" (P6 design §2.6; wireframe Chooser; P6-CHOOSER-03, -04): the
@@ -67,7 +67,11 @@ class StationChoiceRow extends StatelessWidget {
             padding: EdgeInsets.all(spacing.space3),
             child: Row(
               children: [
-                _StationLogo(candidate: candidate, position: position),
+                StationLogo(
+                  stationName: candidate.stationName,
+                  logo: candidate.stationLogo,
+                  fillColour: [colours.ink, colours.muted, colours.accent][position % 3],
+                ),
                 SizedBox(width: spacing.space3),
                 Expanded(
                   child: Column(
@@ -87,62 +91,6 @@ class StationChoiceRow extends StatelessWidget {
                 ),
                 SizedBox(width: spacing.space2),
                 Icon(Icons.chevron_right, color: colours.muted),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The station's logo, 40 dp with medium corners, or the first letter of its name in the surface
-/// colour on ink, muted or accent by the row's place; the letter also shows while a logo loads.
-/// Hidden from screen readers: the row's label names the station.
-class _StationLogo extends StatelessWidget {
-  const _StationLogo({required this.candidate, required this.position});
-
-  final RecognitionResult candidate;
-  final int position;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.lookUpTokens;
-    final colours = tokens.colours;
-    final size = tokens.spacing.space10;
-    final logo = candidate.stationLogo;
-    final fills = [colours.ink, colours.muted, colours.accent];
-    final trimmedName = candidate.stationName.trim();
-    final initial = trimmedName.isEmpty ? '' : trimmedName.characters.first.toUpperCase();
-    return ExcludeSemantics(
-      child: SizedBox.square(
-        dimension: size,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(tokens.radii.medium),
-          child: ColoredBox(
-            color: fills[position % fills.length],
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Center(
-                  // The square keeps its size at large text; the letter shrinks to fit it.
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      initial,
-                      style: tokens.typeStyles.body.copyWith(
-                        color: colours.surface,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                if (logo != null)
-                  PublicImageView(
-                    image: logo,
-                    displaySize: Size.square(size),
-                    loadedBackgroundColour: colours.surface,
-                  ),
               ],
             ),
           ),

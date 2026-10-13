@@ -170,6 +170,72 @@ abstract class AppLocalizations {
   /// **'Send a test error'**
   String get sendTestErrorButton;
 
+  /// What screen readers announce for the tab bar at the bottom (or the rail at the side on a tablet): the app's main navigation.
+  ///
+  /// In en, this message translates to:
+  /// **'Main'**
+  String get mainNavigationLabel;
+
+  /// The first tab: Home, where the listener identifies an ad.
+  ///
+  /// In en, this message translates to:
+  /// **'Identify'**
+  String get tabIdentify;
+
+  /// The second tab: the results the listener identified before.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get tabHistory;
+
+  /// The third tab: My station, the language, privacy and the app's details.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get tabSettings;
+
+  /// The small button at the top right of Home that names the listener's station and opens Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'My station: {stationName}'**
+  String homeMyStationChip(String stationName);
+
+  /// The same small button on Home when the listener has not chosen a station.
+  ///
+  /// In en, this message translates to:
+  /// **'My station: Not set'**
+  String get homeMyStationChipNotSet;
+
+  /// What screen readers add after the My station button on Home: where it leads.
+  ///
+  /// In en, this message translates to:
+  /// **'Opens Settings'**
+  String get homeMyStationChipHint;
+
+  /// The heading of the short note Home shows the first time the app opens, and never again.
+  ///
+  /// In en, this message translates to:
+  /// **'How Look Up works'**
+  String get howItWorksTitle;
+
+  /// The first sentence of the first-open note: what identifying does.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap Identify while an ad plays on the radio, and Look Up shows the advertiser\'s buttons: call, chat, directions or website.'**
+  String get howItWorksIdentify;
+
+  /// The second sentence of the first-open note: what History is for.
+  ///
+  /// In en, this message translates to:
+  /// **'Ads you identify are saved in History, so their buttons work even without data.'**
+  String get howItWorksHistory;
+
+  /// The button that closes the first-open note.
+  ///
+  /// In en, this message translates to:
+  /// **'Got it'**
+  String get gotItButton;
+
   /// The heading of the screen that asks for the microphone.
   ///
   /// In en, this message translates to:
@@ -529,6 +595,276 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'More options'**
   String get moreOptionsButton;
+
+  /// Under a result's buttons, after a tick, once the result is kept on the phone.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to History'**
+  String get resultSavedToHistory;
+
+  /// The heading beside the Back arrow when a result is opened again from History.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved result'**
+  String get savedResultHeading;
+
+  /// A short message when the result asked for is not in History any more.
+  ///
+  /// In en, this message translates to:
+  /// **'That result is no longer saved on this phone.'**
+  String get savedResultMissing;
+
+  /// The heading of the History tab.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get historyHeading;
+
+  /// The heading over the results identified before, newest first; drawn in capitals, read normally.
+  ///
+  /// In en, this message translates to:
+  /// **'Earlier'**
+  String get historyEarlierHeading;
+
+  /// A History row's first line: the advertiser and the ad, e.g. "Brand A — Summer service offer".
+  ///
+  /// In en, this message translates to:
+  /// **'{clientName} — {adTitle}'**
+  String historyResultTitle(String clientName, String adTitle);
+
+  /// A History row's second line: the station that played the ad and when the clip was recorded, e.g. "via Station A · Today, 09:12".
+  ///
+  /// In en, this message translates to:
+  /// **'via {stationName} · {dayAndTime}'**
+  String historyResultDetail(String stationName, String dayAndTime);
+
+  /// A day and a time together, e.g. "Today, 09:12", "Yesterday, 18:40", "Mon, 07:55" or "3 Oct, 14:32".
+  ///
+  /// In en, this message translates to:
+  /// **'{day}, {time}'**
+  String dayAndTime(String day, String time);
+
+  /// The day label for something that happened today, before its time.
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get dayToday;
+
+  /// The day label for something that happened yesterday, before its time.
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday'**
+  String get dayYesterday;
+
+  /// Under the list of saved results.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved results keep working without data — call, chat or get directions any time.'**
+  String get historyOfflineNote;
+
+  /// The heading of History before anything has been identified.
+  ///
+  /// In en, this message translates to:
+  /// **'No results yet'**
+  String get historyEmptyHeading;
+
+  /// Under the heading of an empty History.
+  ///
+  /// In en, this message translates to:
+  /// **'Ads you identify are saved here, so their buttons work even without data.'**
+  String get historyEmptyExplanation;
+
+  /// The heading of the Settings tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsHeading;
+
+  /// The heading of the Settings section with My station; drawn in capitals, read normally.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening'**
+  String get settingsListeningHeading;
+
+  /// The Settings row that opens the station list, and the heading of that list.
+  ///
+  /// In en, this message translates to:
+  /// **'My station'**
+  String get settingsMyStation;
+
+  /// Under "My station" in Settings when a station is chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'{stationName} · {frequencyLabel} — used when an ad is on more than one station'**
+  String settingsMyStationChosen(String stationName, String frequencyLabel);
+
+  /// Under "My station" in Settings when no station is chosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Not set — used when an ad is on more than one station'**
+  String get settingsMyStationNotSet;
+
+  /// The heading of the Settings section about the app itself; drawn in capitals, read normally.
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get settingsAppHeading;
+
+  /// The Settings row that names the app's language.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// The name of this file's language, in that language, shown under "Language" in Settings.
+  ///
+  /// In en, this message translates to:
+  /// **'English'**
+  String get settingsLanguageName;
+
+  /// The Settings row that opens the privacy summary, and that page's heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy'**
+  String get settingsPrivacy;
+
+  /// The Settings row that opens the page about the app, and that page's heading.
+  ///
+  /// In en, this message translates to:
+  /// **'About Look Up'**
+  String get settingsAbout;
+
+  /// The Settings row that deletes everything History keeps on the phone, after asking.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear history'**
+  String get settingsClearHistory;
+
+  /// The heading of the question asked before History is cleared.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear history?'**
+  String get clearHistoryQuestion;
+
+  /// What clearing History deletes, under the question.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved results and any clips waiting to be sent are deleted from this phone.'**
+  String get clearHistoryExplanation;
+
+  /// The button that clears History, in the question's footer.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get clearButton;
+
+  /// The short confirmation after History was cleared.
+  ///
+  /// In en, this message translates to:
+  /// **'History cleared'**
+  String get historyClearedConfirmation;
+
+  /// Under the heading of the My station list: what the choice is for.
+  ///
+  /// In en, this message translates to:
+  /// **'Used when an ad is on more than one station.'**
+  String get stationPickerLead;
+
+  /// The label of the search field over a long station list.
+  ///
+  /// In en, this message translates to:
+  /// **'Search stations'**
+  String get stationPickerSearchLabel;
+
+  /// The hint inside the station search field: what it matches.
+  ///
+  /// In en, this message translates to:
+  /// **'Name, frequency or city'**
+  String get stationPickerSearchHint;
+
+  /// The first choice of the My station list: no station kept.
+  ///
+  /// In en, this message translates to:
+  /// **'No station'**
+  String get stationPickerNoStation;
+
+  /// Under "No station": what happens when an ad is on more than one station.
+  ///
+  /// In en, this message translates to:
+  /// **'Look Up will ask each time'**
+  String get stationPickerNoStationDetail;
+
+  /// Under the kept station at the top of the list when the station list no longer has it.
+  ///
+  /// In en, this message translates to:
+  /// **'Not in the current list'**
+  String get stationPickerNotListed;
+
+  /// While the station list is fetched the first time.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading stations…'**
+  String get stationPickerLoading;
+
+  /// Over the station list when a newer list could not be fetched and the saved one is shown.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t refresh the list. These are the stations saved on {dayAndTime}.'**
+  String stationPickerRefreshFailed(String dayAndTime);
+
+  /// When no station list could be fetched and none is saved on the phone.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load the stations.'**
+  String get stationPickerLoadFailed;
+
+  /// When the station list is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No stations are listed in Look Up yet.'**
+  String get stationPickerEmpty;
+
+  /// The privacy summary's first point: when the app listens and for how long.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds, plural, =1{Look Up listens only when you tap Identify, for about 1 second.} other{Look Up listens only when you tap Identify, for about {seconds} seconds.}}'**
+  String privacyListensOnlyWhenYouTap(int seconds);
+
+  /// The privacy summary's point on the recording.
+  ///
+  /// In en, this message translates to:
+  /// **'The clip is sent to Look Up to find the ad, and is not kept after it has been checked.'**
+  String get privacyClipNotKept;
+
+  /// The privacy summary's point on History.
+  ///
+  /// In en, this message translates to:
+  /// **'Your History stays on this phone. You can clear it in Settings.'**
+  String get privacyHistoryStaysOnPhone;
+
+  /// Under the privacy summary: it is not the full notice yet.
+  ///
+  /// In en, this message translates to:
+  /// **'This is a short summary. The full privacy notice comes before Look Up\'s public release.'**
+  String get privacySummaryNote;
+
+  /// The app's version on the About page, e.g. "Version 0.1.0 (build 1)".
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version} (build {buildNumber})'**
+  String aboutVersion(String version, String buildNumber);
+
+  /// What the app does, on the About page.
+  ///
+  /// In en, this message translates to:
+  /// **'Heard an ad on the radio? Tap Identify while it plays, and Look Up shows the advertiser\'s buttons: call, chat, directions or website.'**
+  String get aboutDescription;
+
+  /// The message typed into the support chat opened from the About page, which has no reference code.
+  ///
+  /// In en, this message translates to:
+  /// **'Hello Look Up support.'**
+  String get supportChatGreeting;
 
   /// The heading of the sheet shown when the phone could not open a button's address.
   ///

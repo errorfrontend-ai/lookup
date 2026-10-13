@@ -4,31 +4,39 @@ import '../support/repository_file_locator.dart';
 import 'support/feature_folder_scan.dart';
 import 'support/temporary_folder_copy.dart';
 
-/// Feature-first folders (design §3.1; S4-STRUCTURE-01, -02, -04; P6 design §3.1): `identify` and
-/// `result`, each with exactly `presentation`, `domain` and `data`, and `settings` with its `domain`
-/// and `data` (its screens come in piece 2).
+/// Feature-first folders (design §3.1; S4-STRUCTURE-01, -02, -04; P6 design §3.1, P6-STRUCTURE-01):
+/// `identify`, `result`, `history` and `settings`, each with exactly `presentation`, `domain` and
+/// `data`.
 void main() {
   final libraryFolder = RepositoryFileLocator.mobileAppFolder('lib');
 
-  test('lib/features holds exactly identify, result and settings, each with its layers', () {
-    final scan = FeatureFolderScan.of(libraryFolder);
+  test(
+    'lib/features holds exactly identify, result, history and settings, each with its three layers (P6-STRUCTURE-01)',
+    () {
+      final scan = FeatureFolderScan.of(libraryFolder);
 
-    expect(scan.featureNames, FeatureFolderScan.expectedFeatures);
-    expect(scan.dartFileCountsByLayerFolder.keys.toSet(), {
-      'identify/presentation',
-      'identify/domain',
-      'identify/data',
-      'result/presentation',
-      'result/domain',
-      'result/data',
-      'settings/domain',
-      'settings/data',
-    });
-    for (final entry in scan.dartFileCountsByLayerFolder.entries) {
-      expect(entry.value, greaterThan(0), reason: '${entry.key} holds no Dart file');
-    }
-    expect(scan.violations, isEmpty);
-  });
+      expect(scan.featureNames, FeatureFolderScan.expectedFeatures);
+      expect(scan.featureNames, containsAll(['history', 'settings']));
+      expect(scan.dartFileCountsByLayerFolder.keys.toSet(), {
+        'history/presentation',
+        'history/domain',
+        'history/data',
+        'identify/presentation',
+        'identify/domain',
+        'identify/data',
+        'result/presentation',
+        'result/domain',
+        'result/data',
+        'settings/presentation',
+        'settings/domain',
+        'settings/data',
+      });
+      for (final entry in scan.dartFileCountsByLayerFolder.entries) {
+        expect(entry.value, greaterThan(0), reason: '${entry.key} holds no Dart file');
+      }
+      expect(scan.violations, isEmpty);
+    },
+  );
 
   group('the folder scan fails on a copy of lib/ with', () {
     late TemporaryFolderCopy copy;
@@ -36,12 +44,12 @@ void main() {
     setUp(() => copy = TemporaryFolderCopy.of(libraryFolder));
     tearDown(() => copy.delete());
 
-    test('a fourth feature', () {
-      copy.writeFile('features/history/presentation/history_screen.dart', 'class HistoryScreen {}');
+    test('a fifth feature', () {
+      copy.writeFile('features/library/presentation/library_screen.dart', 'class LibraryScreen {}');
 
       expect(
         FeatureFolderScan.of(copy.folder).violations,
-        contains(startsWith('lib/features/history:')),
+        contains(startsWith('lib/features/library:')),
       );
     });
 
@@ -82,23 +90,25 @@ void main() {
     });
 
     test('a missing settings layer', () {
-      copy.deleteFolder('features/settings/data');
+      copy.deleteFolder('features/settings/presentation');
 
       expect(
         FeatureFolderScan.of(copy.folder).violations,
-        contains('lib/features/settings/data/ is missing (S4-STRUCTURE-02)'),
+        contains('lib/features/settings/presentation/ is missing (S4-STRUCTURE-02)'),
       );
     });
 
-    test('settings screens before piece 2 adds them to the rule', () {
-      copy.writeFile(
-        'features/settings/presentation/settings_screen.dart',
-        'class SettingsScreen {}',
-      );
-
+    test('a missing history layer, or no history feature at all (P6-STRUCTURE-01)', () {
+      copy.deleteFolder('features/history/domain');
       expect(
         FeatureFolderScan.of(copy.folder).violations,
-        contains(startsWith('lib/features/settings/presentation:')),
+        contains('lib/features/history/domain/ is missing (S4-STRUCTURE-02)'),
+      );
+
+      copy.deleteFolder('features/history');
+      expect(
+        FeatureFolderScan.of(copy.folder).violations,
+        contains('lib/features/history/ is missing (S4-STRUCTURE-04)'),
       );
     });
 

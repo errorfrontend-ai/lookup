@@ -14,24 +14,44 @@ import 'package:lookup_listener/features/result/presentation/banner_box.dart';
 import 'package:lookup_listener/features/result/presentation/client_logo.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 
-/// The Result screen (design §2.6 and §2.7; wireframes Result and Result320): "Found it", then a
-/// card with the banner (only when there is one), the advertiser and the station that played the
-/// ad, the ad's title as the main heading and any notes, then the station's buttons.
+/// The Result screen (design §2.6 and §2.7; P6 design §2.7, §2.10; wireframes Result and
+/// Result320): "Found it", then a card with the banner (only when there is one), the advertiser and
+/// the station that played the ad, the ad's title as the main heading and any notes, then the
+/// station's buttons, and under them "✓ Saved to History" once History holds the result
+/// (P6-HISTORY-14).
 ///
 /// It shows the campaign's own card and the advertiser's default card alike; the default card adds
 /// one note under the title (S4-D21; P6 design §2.7, amendment A7). A result chosen in "Which
-/// station?" is the same screen: its client row reads "via" the tapped station (T44). Below 360 dp wide it takes Result320's tighter spacing,
-/// smaller logo and title, and drops the button icons (S4-D20). The whole screen scrolls when the
-/// text is large.
+/// station?" is the same screen: its client row reads "via" the tapped station (T44). Below 360 dp
+/// wide it takes Result320's tighter spacing, smaller logo and title, and drops the button icons
+/// (S4-D20). The whole screen scrolls when the text is large.
 ///
-/// It knows nothing of the recognition flow: it is given the result and what Back does.
+/// **A saved result** ([ResultScreen.saved], `/r/<recognition id>`, §2.10) is the same screen
+/// filled from History with no request: "Saved result" instead of "Found it", a Back arrow
+/// labelled "Back" that returns where it was opened, and no haptic tick, because nothing new
+/// arrived. Its buttons work with no data where the app they open needs none (P6-HISTORY-02).
+///
+/// It knows nothing of the recognition flow or of History: it is given the result, whether History
+/// holds it, and what Back does.
 class ResultScreen extends StatefulWidget {
+  /// The result of the identify just made (or the station just chosen).
   const ResultScreen({
     super.key,
     required this.result,
-    required this.onBackToHome,
+    required VoidCallback onBackToHome,
+    this.isSavedToHistory = false,
     this.actionRegistry = ActionRegistry.standard,
-  });
+  }) : onBack = onBackToHome,
+       isSavedResult = false;
+
+  /// A result opened again from History (§2.10).
+  const ResultScreen.saved({
+    super.key,
+    required this.result,
+    required this.onBack,
+    this.actionRegistry = ActionRegistry.standard,
+  }) : isSavedResult = true,
+       isSavedToHistory = true;
 
   /// Below this width, in logical pixels, the screen takes Result320's compact layout. The tokens
   /// have no breakpoint, so the line is the width of the wireframes' standard board.
@@ -39,8 +59,15 @@ class ResultScreen extends StatefulWidget {
 
   final RecognitionResult result;
 
-  /// The Back arrow and the system Back gesture both lead Home (T35).
-  final VoidCallback onBackToHome;
+  /// What the Back arrow and the system Back gesture both do: Home after an identify (T35), back
+  /// where it was opened for a saved result.
+  final VoidCallback onBack;
+
+  /// Whether this is a result opened again from History.
+  final bool isSavedResult;
+
+  /// Whether History holds this result, so the footer says "Saved to History" (P6-HISTORY-14).
+  final bool isSavedToHistory;
 
   final ActionRegistry actionRegistry;
 
@@ -53,8 +80,8 @@ class _ResultScreenState extends State<ResultScreen> {
   void initState() {
     super.initState();
     // One haptic tick as the result appears (S4-LISTENING-14), for the campaign's card and the
-    // advertiser's default card alike (S4-D21).
-    unawaited(HapticFeedback.selectionClick());
+    // advertiser's default card alike (S4-D21); none for a saved result, which the listener opened.
+    if (!widget.isSavedResult) unawaited(HapticFeedback.selectionClick());
   }
 
   @override
@@ -66,18 +93,19 @@ class _ResultScreenState extends State<ResultScreen> {
     // 16 dp at the sides and between the card and the buttons; 12 dp at 320 dp (Result320).
     final sideSpace = isCompact ? spacing.space3 : spacing.space4;
     final cardWidth = mediaQueryWidth - MediaQuery.paddingOf(context).horizontal - 2 * sideSpace;
+    final words = AppLocalizations.of(context);
     return PopScope(
       // System Back does what the Back arrow does (design §2.1).
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) widget.onBackToHome();
+        if (!didPop) widget.onBack();
       },
       child: ScreenFrame(
         exitButton: ScreenExitButton.back(
-          label: AppLocalizations.of(context).backToHomeButton,
-          onPressed: widget.onBackToHome,
+          label: widget.isSavedResult ? words.backButton : words.backToHomeButton,
+          onPressed: widget.onBack,
         ),
-        title: const _FoundItHeading(),
+        title: widget.isSavedResult ? const _SavedResultHeading() : const _FoundItHeading(),
         bodyPadding: EdgeInsets.fromLTRB(
           sideSpace,
           isCompact ? spacing.space1 : spacing.space2,
@@ -101,6 +129,10 @@ class _ResultScreenState extends State<ResultScreen> {
               showsIcons: !isCompact,
               registry: widget.actionRegistry,
             ),
+            if (widget.isSavedToHistory) ...[
+              SizedBox(height: sideSpace),
+              const _SavedToHistoryLine(),
+            ],
           ],
         ),
       ),
@@ -132,6 +164,49 @@ class _FoundItHeading extends StatelessWidget {
           style: context.lookUpTokens.typeStyles.body.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
+    );
+  }
+}
+
+/// "Saved result" beside the Back arrow of a result opened again from History (§2.10): a heading,
+/// read when the screen opens, but no announcement, because the listener opened it.
+class _SavedResultHeading extends StatelessWidget {
+  const _SavedResultHeading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      header: true,
+      child: Text(
+        AppLocalizations.of(context).savedResultHeading,
+        style: context.lookUpTokens.typeStyles.body.copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+/// "✓ Saved to History" under the buttons (§2.7; wireframe Result, footer; P6-HISTORY-14): a green
+/// tick, hidden from screen readers, and the words in the muted caption.
+class _SavedToHistoryLine extends StatelessWidget {
+  const _SavedToHistoryLine();
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.lookUpTokens;
+    final spacing = tokens.spacing;
+    return Row(
+      children: [
+        ExcludeSemantics(
+          child: Icon(Icons.check, size: spacing.space4, color: tokens.colours.success),
+        ),
+        SizedBox(width: spacing.space1),
+        Flexible(
+          child: Text(
+            AppLocalizations.of(context).resultSavedToHistory,
+            style: tokens.typeStyles.caption.copyWith(color: tokens.colours.muted),
+          ),
+        ),
+      ],
     );
   }
 }

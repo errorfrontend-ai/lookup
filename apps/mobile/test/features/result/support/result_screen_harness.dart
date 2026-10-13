@@ -190,6 +190,28 @@ Future<void> loadRobotoBold(WidgetTester tester) async {
   await tester.runAsync(loader.load);
 }
 
+/// Loads Roboto Regular, Medium and Bold, the system font of Android phones, from the Flutter SDK's
+/// own copy (nothing is downloaded), as one family named "Roboto", so a layout can be measured as a
+/// phone draws it rather than in Flutter's square test font.
+Future<void> loadRobotoFamily(WidgetTester tester) async {
+  final flutterRoot = Platform.environment['FLUTTER_ROOT'];
+  if (flutterRoot == null) throw StateError('FLUTTER_ROOT is not set: run with `flutter test`.');
+  // One loader per file: the test engine never finishes one loader that holds several fonts.
+  for (final name in ['roboto-regular.ttf', 'roboto-medium.ttf', 'roboto-bold.ttf']) {
+    final fontFile = File('$flutterRoot/bin/cache/artifacts/material_fonts/$name');
+    if (!fontFile.existsSync()) throw StateError('No $name at ${fontFile.path}.');
+    final loader = FontLoader('Roboto')
+      ..addFont(Future.value(ByteData.sublistView(fontFile.readAsBytesSync())));
+    await tester.runAsync(loader.load);
+  }
+}
+
+/// [theme] with every text in Roboto, as a phone's system font draws it; load the family first
+/// with [loadRobotoFamily]. The app's theme names no font family (S4-THEME-04), so the default text
+/// style carries it to every text.
+ThemeData themeInRoboto(ThemeData theme) =>
+    theme.copyWith(textTheme: theme.textTheme.apply(fontFamily: 'Roboto'));
+
 /// The app's theme with the buttons' labels in Roboto, as a phone's system font draws them. The
 /// app's theme names no font family (S4-THEME-04), which on a phone means Roboto and in a test
 /// means the square test font.

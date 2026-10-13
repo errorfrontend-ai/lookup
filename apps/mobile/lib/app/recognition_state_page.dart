@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_route.dart';
+import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/busy_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/choose_station_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/error_screen.dart';
-import 'package:lookup_listener/features/identify/presentation/home_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/identifying_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/listening_screen.dart';
 import 'package:lookup_listener/features/identify/presentation/no_match_screen.dart';
@@ -13,12 +13,14 @@ import 'package:lookup_listener/features/identify/presentation/permission_screen
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
-/// What one route's page shows: the screen for the newest recognition state that belongs to
-/// [route] (design §3.6, S4-D5).
+/// What one flow route's page shows: the screen for the newest recognition state that belongs to
+/// [route] (design §3.6, S4-D5). Home, the `idle` state's screen, is the Identify tab of the tab
+/// shell instead (P6 design §3.7).
 ///
 /// It keeps showing that state after the flow has moved on, while the router fades the page out,
 /// so a leaving screen never flashes another state's content. Screens never navigate: they call
-/// the flow, and the router follows.
+/// the flow, and the router follows. The Result says "Saved to History" once History holds its
+/// result (P6-HISTORY-14).
 class RecognitionStatePage extends ConsumerStatefulWidget {
   const RecognitionStatePage({super.key, required this.route});
 
@@ -43,7 +45,8 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
 
   /// The screen for [state]: an exhaustive switch with no default branch (S4-STATE-09).
   Widget _screenFor(RecognitionState state) => switch (state) {
-    IdleState() => const HomeScreen(),
+    // Never shown here: no flow route belongs to `idle`, whose screen is the Identify tab.
+    IdleState() => const Scaffold(),
     PermissionNeededState(:final microphoneAccess) => PermissionScreen(
       microphoneAccess: microphoneAccess,
     ),
@@ -56,6 +59,8 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
     MatchedState(:final result) || FallbackState(:final result) => ResultScreen(
       result: result,
       onBackToHome: ref.read(recognitionFlowProvider.notifier).backToHome,
+      isSavedToHistory:
+          ref.watch(historyViewProvider).value?.holdsResult(result.recognitionId) ?? false,
     ),
     NoMatchState() => const NoMatchScreen(),
     BusyState(:final retryDelaySeconds, :final secondsUntilRetry) => BusyScreen(

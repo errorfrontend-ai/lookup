@@ -36,7 +36,7 @@ void main() {
   }
 
   final identifyScreens = <String, Widget>{
-    'Home': const HomeScreen(),
+    'Home': HomeScreen(onOpenSettings: () {}),
     'Permission, never asked': const PermissionScreen(
       microphoneAccess: MicrophoneAccess.notAskedYet,
     ),

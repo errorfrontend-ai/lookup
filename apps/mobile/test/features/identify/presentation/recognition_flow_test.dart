@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show FileSystemException;
+import 'dart:io' show File, FileSystemException;
 
 import 'package:dio/dio.dart' show DioExceptionType, ResponseBody;
 import 'package:flutter/widgets.dart' show AppLifecycleState;
@@ -35,6 +35,9 @@ const String _acceptedReportId = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
 const String _chooserRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
 const String _stationAId = '0192a6c4-1111-4000-8000-000000000001';
 const String _stationBId = '0192a6c4-1111-4000-8000-000000000002';
+
+/// The recognition id the shared answer fixtures carry, which History keys their results by.
+const String _savedRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
 
 /// "My station" as `MyStationStore` keeps it, for a test's starting preferences.
 const String _stationAStored =
@@ -1491,6 +1494,83 @@ void main() {
         harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: false));
         expect(harness.state, isA<MatchedState>());
         expect(harness.reporter.reports.single.description, 'Queueing the station choice failed');
+      });
+    });
+  });
+
+  group('History (P6 design §2.7, §3.14; P6-HISTORY-01, -14)', () {
+    test('T16 a match is saved to History with its card and the phone\'s capture time', () {
+      runFlowTest((harness) {
+        harness.tap((flow) => flow.identify());
+        final capturedAt = harness.clock.now();
+        harness.answerWithResponseFixture('valid/match-campaign');
+        harness.wait(const Duration(seconds: 8));
+        expect(harness.state, isA<MatchedState>());
+
+        final entry = harness.historyView.resultFor(_savedRecognitionId)!;
+        expect(entry.capturedAtOnPhone, capturedAt.toUtc());
+        expect(entry.result.clientName, 'Brand A');
+        expect(entry.result.stationName, 'Station A');
+        expect(entry.result.card.shownActions, hasLength(4));
+        expect(harness.reporter.reports, isEmpty);
+      });
+    });
+
+    test('T17 the advertiser\'s usual card is saved as such', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(
+          harness,
+          () => harness.answerWithResponseFixture('valid/match-client-default'),
+        );
+        expect(harness.state, isA<FallbackState>());
+        expect(
+          harness.historyView.resultFor(_savedRecognitionId)!.result.kind,
+          RecognitionResultKind.clientDefault,
+        );
+      });
+    });
+
+    test('T44 a chosen station is saved with its own card, once a row is tapped', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        expect(harness.historyView.isEmpty, isTrue, reason: 'nothing before the choice');
+        harness.tap((flow) => flow.chooseStation(stationId: _stationBId, isRemembered: false));
+        final entry = harness.historyView.resultFor(_savedRecognitionId)!;
+        expect(entry.result.stationId, _stationBId);
+        expect(entry.result.stationName, 'Station B');
+      });
+    });
+
+    test('T46 Cancel on the chooser saves nothing, and nor does the next identify', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/choose-station'));
+        harness.tap((flow) => flow.backToHome());
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/no-match'));
+        expect(harness.historyView.isEmpty, isTrue);
+      });
+    });
+
+    test('no match, an error or a busy answer saves nothing', () {
+      runFlowTest((harness) {
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/no-match'));
+        harness.tap((flow) => flow.backToHome());
+        identifyAndAnswer(harness, () => harness.answerWithEnvelopeFixture('internal'));
+        harness.tap((flow) => flow.backToHome());
+        identifyAndAnswer(harness, () => harness.answerWithEnvelopeFixture('recognition-busy'));
+        expect(harness.state, isA<BusyState>());
+        expect(harness.historyView.isEmpty, isTrue);
+      });
+    });
+
+    test('a save the phone cannot make is reported quietly, and the Result still shows', () {
+      runFlowTest((harness) {
+        // A file where History's folder should be: the phone cannot write History.
+        harness.historyFolder.deleteSync(recursive: true);
+        File(harness.historyFolder.path).writeAsStringSync('in the way');
+        identifyAndAnswer(harness, () => harness.answerWithResponseFixture('valid/match-campaign'));
+        expect(harness.state, isA<MatchedState>());
+        expect(harness.reporter.reports.single.description, 'Saving the result to History failed');
+        File(harness.historyFolder.path).deleteSync();
       });
     });
   });

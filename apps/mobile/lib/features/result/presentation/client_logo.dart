@@ -8,9 +8,18 @@ import 'package:lookup_listener/features/result/presentation/public_image_view.d
 /// case, in the surface colour on ink, as the wireframes draw "A" for "Brand A". The letter also
 /// shows while a logo loads and if it never does, so the circle is never empty.
 ///
+/// History's rows draw the same circle, its letter on ink, muted or accent by the row's place
+/// ([fillColour]; P6 design §2.9).
+///
 /// Hidden from screen readers: the client's name beside it is read instead.
 class ClientLogo extends StatelessWidget {
-  const ClientLogo({super.key, required this.clientName, required this.diameter, this.logo});
+  const ClientLogo({
+    super.key,
+    required this.clientName,
+    required this.diameter,
+    this.logo,
+    this.fillColour,
+  });
 
   final String clientName;
 
@@ -18,6 +27,9 @@ class ClientLogo extends StatelessWidget {
   final double diameter;
 
   final PublicImage? logo;
+
+  /// The circle behind the letter, from the tokens; ink when not given.
+  final Color? fillColour;
 
   /// The letter shown without a logo: the name's first character as a person sees it (a whole
   /// emoji or accented letter, not half of one), upper case; empty for a blank name.
@@ -36,7 +48,7 @@ class ClientLogo extends StatelessWidget {
         dimension: diameter,
         child: ClipOval(
           child: ColoredBox(
-            color: colours.ink,
+            color: fillColour ?? colours.ink,
             child: Stack(
               fit: StackFit.expand,
               children: [

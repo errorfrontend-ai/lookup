@@ -5,7 +5,8 @@ import 'package:lookup_listener/features/result/domain/recognition_result.dart';
 /// The response parser makes it from the status, the body and the headers; `SendPolicy` decides
 /// what it leads to. Sealed, so the policy handles every kind with no default branch. Nothing here
 /// keeps the API's `message`, so it cannot reach the screen (S4-D13), and nothing internal from a
-/// match survives the reading (S4-D15).
+/// match survives the reading into what a screen shows (S4-D15); a 200 answer's body is kept beside
+/// its reading only for History, which reads it again the same way (P6 design §3.14).
 sealed class RecognitionAnswer {
   const RecognitionAnswer();
 }
@@ -50,9 +51,19 @@ sealed class ReceivedAnswer extends RecognitionAnswer {
 /// advertiser's default card; a kind the app does not know has already been read as a campaign.
 /// The recognition id is the result's own.
 final class MatchAnswer extends ReceivedAnswer {
-  const MatchAnswer({required this.result, required super.apiRequestId, this.capturedAt});
+  const MatchAnswer({
+    required this.result,
+    required this.answerBody,
+    required super.apiRequestId,
+    this.capturedAt,
+  });
 
   final RecognitionResult result;
+
+  /// The 200 answer exactly as it came, kept only so History can store it as received and read it
+  /// again with this same reader each time it is shown (P6 design §3.14). No screen reads it: the
+  /// screen shows [result], which holds nothing internal (S4-D15).
+  final Map<String, Object?> answerBody;
 
   /// The answer's `captured_at`, the capture time as the server corrected it; null when missing or
   /// unreadable. Kept, never shown: History shows the phone's own capture time (contract §5.14).
@@ -77,6 +88,7 @@ final class ChooseStationAnswer extends ReceivedAnswer {
   ChooseStationAnswer({
     required this.recognitionId,
     required List<RecognitionResult> candidates,
+    required this.answerBody,
     required super.apiRequestId,
     this.capturedAt,
   }) : candidates = List.unmodifiable(candidates);
@@ -86,6 +98,9 @@ final class ChooseStationAnswer extends ReceivedAnswer {
 
   /// Each candidate with its own card, in the answer's order, which the app never changes.
   final List<RecognitionResult> candidates;
+
+  /// As [MatchAnswer.answerBody]: History keeps it with the station the listener chose (T44).
+  final Map<String, Object?> answerBody;
 
   /// As [MatchAnswer.capturedAt].
   final DateTime? capturedAt;

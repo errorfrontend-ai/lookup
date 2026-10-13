@@ -1,11 +1,10 @@
 import 'dart:io';
 
-/// The folder rules of design §3.1 (S4-STRUCTURE-01, -02, -04; P6 design §3.1), checked over a
-/// `lib/` folder: `features/` holds exactly `identify`, `result` and `settings`; each holds exactly
-/// its layers — `presentation`, `domain` and `data`, except `settings`, which has only `domain` and
-/// `data` until its screens arrive in piece 2 — and no loose files; each layer holds Dart code; and
-/// `lib/` itself holds only `app/`, `core/`, `features/`, `l10n/` (the language files, P6 design
-/// §3.1, §3.17) and `main.dart`.
+/// The folder rules of design §3.1 (S4-STRUCTURE-01, -02, -04; P6 design §3.1, P6-STRUCTURE-01),
+/// checked over a `lib/` folder: `features/` holds exactly `identify`, `result`, `history` and
+/// `settings`; each holds exactly its three layers — `presentation`, `domain` and `data` — and no
+/// loose files; each layer holds Dart code; and `lib/` itself holds only `app/`, `core/`,
+/// `features/`, `l10n/` (the language files, P6 design §3.1, §3.17) and `main.dart`.
 final class FeatureFolderScan {
   FeatureFolderScan._(this.featureNames, this.dartFileCountsByLayerFolder, this.violations);
 
@@ -77,19 +76,20 @@ final class FeatureFolderScan {
     return FeatureFolderScan._(featureNames, dartFileCounts, violations);
   }
 
-  /// The features the app has (S4-STRUCTURE-04; P6 design §3.1: `settings` from piece 1, `history`
-  /// from piece 2).
-  static const List<String> expectedFeatures = ['identify', 'result', 'settings'];
+  /// The features the app has (S4-STRUCTURE-04; P6 design §3.1, P6-STRUCTURE-01: `settings` from
+  /// piece 1, `history` from piece 2).
+  static const List<String> expectedFeatures = ['history', 'identify', 'result', 'settings'];
 
   /// The layers every finished feature has (S4-STRUCTURE-02).
   static const List<String> expectedLayers = ['presentation', 'domain', 'data'];
 
-  /// Each feature's layers: `settings` holds its domain and data in piece 1, for "My station" and
-  /// the hint, and gains `presentation` with its screens in piece 2 (P6 design §5).
+  /// Each feature's layers: all three, for every feature (P6-STRUCTURE-01; `settings` gained its
+  /// screens in piece 2).
   static const Map<String, List<String>> expectedLayersByFeature = {
+    'history': expectedLayers,
     'identify': expectedLayers,
     'result': expectedLayers,
-    'settings': ['domain', 'data'],
+    'settings': expectedLayers,
   };
 
   /// What `lib/` may hold at its top (§3.1; `l10n` from the P6 design's §3.1).

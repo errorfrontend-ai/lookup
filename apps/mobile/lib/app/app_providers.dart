@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:lookup_listener/app/engine_identity.dart';
+import 'package:lookup_listener/app/history_answer_reader.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/error_reporting/client_error_reporter.dart';
@@ -18,9 +19,15 @@ import 'package:lookup_listener/core/outbox/outbox_sender.dart';
 import 'package:lookup_listener/core/outbox/outbox_store.dart';
 import 'package:lookup_listener/core/outbox/outbox_timing_rules.dart';
 import 'package:lookup_listener/core/time/clock.dart';
+import 'package:lookup_listener/features/history/data/history_providers.dart';
+import 'package:lookup_listener/features/history/data/history_repository.dart';
+import 'package:lookup_listener/features/history/data/history_store.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
 import 'package:lookup_listener/features/identify/data/station_choice_sender.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
+import 'package:lookup_listener/features/settings/data/settings_providers.dart';
+import 'package:lookup_listener/features/settings/data/station_list_cache.dart';
+import 'package:lookup_listener/features/settings/data/station_list_repository.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// The app's one clock (design §3.5): wall-clock time for the API and a monotonic one for waits.
@@ -99,6 +106,24 @@ final Provider<Future<Directory> Function()> outboxFolderLocatorProvider =
       retry: (retryCount, error) => null,
     );
 
+/// Where History lives: the `history` folder of the app's support folder (P6 design §3.14). Tests
+/// point it at a temporary folder.
+final Provider<Future<Directory> Function()> historyFolderLocatorProvider =
+    Provider<Future<Directory> Function()>(
+      (ref) =>
+          () async => HistoryStore.folderIn(await getApplicationSupportDirectory()),
+      retry: (retryCount, error) => null,
+    );
+
+/// Where the station list is kept: the `stations` folder of the app's support folder (P6 design
+/// §3.13). Tests point it at a temporary folder.
+final Provider<Future<Directory> Function()> stationListFolderLocatorProvider =
+    Provider<Future<Directory> Function()>(
+      (ref) =>
+          () async => StationListCache.folderIn(await getApplicationSupportDirectory()),
+      retry: (retryCount, error) => null,
+    );
+
 /// The outbox's numbers (`timing-rules.json`), with the build's sending delay and backoff base,
 /// which only a development build may lower (amendment A1). Tests override it.
 final Provider<OutboxTimingRules> outboxTimingRulesProvider = Provider<OutboxTimingRules>((ref) {
@@ -150,10 +175,12 @@ final Provider<OutboxRunScheduler> outboxRunSchedulerProvider = Provider<OutboxR
   return scheduler;
 }, retry: (retryCount, error) => null);
 
-/// Connects the identify feature to the app's services: the recognize repository made from the
-/// one API client, install repository, crash reporter and clock, the flow's clock and ids from the
-/// app's own, and the outbox in the app's support folder for this engine. `bootstrap()` adds these to the app's provider container; a test that wires the
-/// whole app adds them too, after overriding the services above with fakes.
+/// Connects the features to the app's services: the recognize repository made from the one API
+/// client, install repository, crash reporter and clock, the flow's clock and ids from the app's
+/// own, the outbox and History in the app's support folder for this engine (History reading its
+/// answers with the recognize answer's reader), and the station list over the same API client.
+/// `bootstrap()` adds these to the app's provider container; a test that wires the whole app adds
+/// them too, after overriding the services above with fakes.
 List<Override> get appServiceOverrides => [
   recognitionRepositoryProvider.overrideWith(
     (ref) => RecognitionRepository(
@@ -176,4 +203,31 @@ List<Override> get appServiceOverrides => [
       clientErrorReporter: ref.watch(clientErrorReporterProvider),
     );
   }),
+  historyRepositoryProvider.overrideWith((ref) {
+    final engineIdentity = ref.watch(engineIdentityProvider);
+    final clock = ref.watch(clockProvider);
+    final clientErrorReporter = ref.watch(clientErrorReporterProvider);
+    return HistoryRepository(
+      store: HistoryStore(
+        locateFolder: ref.watch(historyFolderLocatorProvider),
+        lockOwner: engineIdentity.lockOwner,
+        isEngineAttached: engineIdentity.isEngineAttached,
+        clock: clock,
+        clientErrorReporter: clientErrorReporter,
+      ),
+      answerReader: const HistoryAnswerReader(),
+      clientErrorReporter: clientErrorReporter,
+      clock: clock,
+    );
+  }),
+  historyClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
+  stationListRepositoryProvider.overrideWith(
+    (ref) => StationListRepository(
+      apiClient: ref.watch(apiClientProvider),
+      listenerInstallRepository: ref.watch(listenerInstallRepositoryProvider),
+      cache: StationListCache(locateFolder: ref.watch(stationListFolderLocatorProvider)),
+      clientErrorReporter: ref.watch(clientErrorReporterProvider),
+      clock: ref.watch(clockProvider),
+    ),
+  ),
 ];

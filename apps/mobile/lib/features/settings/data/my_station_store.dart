@@ -1,17 +1,18 @@
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/features/settings/domain/listener_station.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Keeps "My station" in `shared_preferences` under `my_station`, as the JSON object
 /// `{id, name, frequency_label, city}` (P6 design §3.13): app-private storage, never backed up.
 ///
-/// - It is written by the foreground engine only ("Remember my station", and the picker from piece
-///   2), so it needs no reload between engines (§3.12, P6-D45).
+/// - It is written by the foreground engine only ("Remember my station" and the picker), so it needs
+///   no reload between engines (§3.12, P6-D45).
 /// - A stored value that is not such an object, or whose id is not a UUID, reads as no station: the
 ///   app then sends no hint, which is what it did before one was set, and never a value the server
 ///   would refuse. The broken value is left as it is; the next "Remember" replaces it.
-/// - The app never clears it by itself (contract §5.8); the picker's "No station" (piece 2) will.
+/// - The app never clears it by itself (contract §5.8); only the picker's "No station" does.
 ///
 /// A failure to read or write is thrown to the caller, which decides what it means: the recognition
 /// flow sends no hint when the read fails and reports a failed write quietly.
@@ -73,12 +74,28 @@ class MyStationStore {
     );
     if (!isWritten) throw const MyStationNotWritten();
   }
+
+  /// The picker's "No station": no station is kept, so the app sends no hint and Look Up asks
+  /// each time. The only way "My station" is ever cleared.
+  Future<void> clear() async {
+    final preferences = await _openPreferences();
+    final isRemoved = await preferences.remove(myStationKey);
+    if (!isRemoved) throw const MyStationNotWritten();
+  }
 }
 
-/// The phone's storage refused to keep "My station".
+/// The phone's storage refused to keep, or to clear, "My station".
 final class MyStationNotWritten implements Exception {
   const MyStationNotWritten();
 
   @override
   String toString() => 'MyStationNotWritten: the phone did not keep My station';
 }
+
+/// Where "My station" is kept (P6 design §3.13): read by the recognition flow at capture for the
+/// hint (T1′) and by `MyStationSetting`, which every screen watches and every change goes through.
+/// Tests override it, or give `shared_preferences` its mock values.
+final Provider<MyStationStore> myStationStoreProvider = Provider<MyStationStore>(
+  (ref) => MyStationStore(),
+  retry: (retryCount, error) => null,
+);

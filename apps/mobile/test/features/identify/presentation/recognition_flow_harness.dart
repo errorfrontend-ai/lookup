@@ -5,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/app/history_answer_reader.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
 import 'package:lookup_listener/core/configuration/app_version.dart';
 import 'package:lookup_listener/core/identifiers/random_uuid.dart';
@@ -16,6 +17,10 @@ import 'package:lookup_listener/core/network/api_client.dart';
 import 'package:lookup_listener/core/outbox/outbox_index_file.dart';
 import 'package:lookup_listener/core/outbox/outbox_providers.dart';
 import 'package:lookup_listener/core/outbox/outbox_store.dart';
+import 'package:lookup_listener/features/history/data/history_providers.dart';
+import 'package:lookup_listener/features/history/data/history_repository.dart';
+import 'package:lookup_listener/features/history/data/history_store.dart';
+import 'package:lookup_listener/features/history/domain/history_view.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/features/identify/data/microphone_permission_provider.dart';
 import 'package:lookup_listener/features/identify/data/recognition_repository.dart';
@@ -46,8 +51,8 @@ const LockFileOwner flowTestLockOwner = LockFileOwner(
 
 /// The recognition flow wired as the app wires it, in fake time: the real repository, API client
 /// and install repository over a fake HTTP adapter, a fake recorder and permission, a clock that
-/// follows the fake time, a recording crash reporter, and the real outbox store over a temporary
-/// folder. Every state the flow passes through is kept in [states]. The API client uses the
+/// follows the fake time, a recording crash reporter, and the real outbox store and History over
+/// temporary folders. Every state the flow passes through is kept in [states]. The API client uses the
 /// production configuration unless [configuration] replaces it; [storedPreferences] adds to what
 /// `shared_preferences` holds at the start (e.g. "My station").
 class RecognitionFlowHarness {
@@ -98,6 +103,18 @@ class RecognitionFlowHarness {
           randomUuid: randomUuid,
           clientErrorReporter: this.reporter,
         );
+    history = HistoryRepository(
+      store: HistoryStore(
+        locateFolder: () async => historyFolder,
+        lockOwner: flowTestLockOwner,
+        isEngineAttached: (engineId) => engineId == flowTestLockOwner.engineId,
+        clock: clock,
+        clientErrorReporter: this.reporter,
+      ),
+      answerReader: const HistoryAnswerReader(),
+      clientErrorReporter: this.reporter,
+      clock: clock,
+    );
     container = ProviderContainer(
       overrides: [
         clipRecorderProvider.overrideWithValue(recorder),
@@ -105,6 +122,7 @@ class RecognitionFlowHarness {
         recognitionRepositoryProvider.overrideWithValue(repository),
         recognitionClockProvider.overrideWithValue(clock),
         outboxStoreProvider.overrideWithValue(this.outboxStore),
+        historyRepositoryProvider.overrideWithValue(history),
       ],
       retry: (retryCount, error) => null,
     );
@@ -126,7 +144,13 @@ class RecognitionFlowHarness {
   /// The outbox's folder: a new temporary one for each test, deleted at its end.
   final Directory outboxFolder = Directory.systemTemp.createTempSync('outbox_flow_test_');
 
+  /// History's folder: a new temporary one for each test, deleted at its end.
+  final Directory historyFolder = Directory.systemTemp.createTempSync('history_flow_test_');
+
   late final OutboxStore outboxStore;
+
+  /// History, as the flow saves results in it.
+  late final HistoryRepository history;
   late final ProviderContainer container;
   late final ProviderSubscription<RecognitionState> _subscription;
 
@@ -149,6 +173,14 @@ class RecognitionFlowHarness {
     OutboxIndexMissing() => const [],
     OutboxIndexUnreadable() => throw StateError('The outbox index cannot be read.'),
   };
+
+  /// What History holds now, read as the History tab reads it.
+  HistoryView get historyView {
+    HistoryView? view;
+    unawaited(history.readView().then((read) => view = read));
+    settle();
+    return view!;
+  }
 
   /// What `shared_preferences` holds under [key] now, e.g. "My station".
   Object? storedPreference(String key) {
@@ -242,6 +274,7 @@ class RecognitionFlowHarness {
     container.dispose();
     settle();
     if (outboxFolder.existsSync()) outboxFolder.deleteSync(recursive: true);
+    if (historyFolder.existsSync()) historyFolder.deleteSync(recursive: true);
   }
 }
 

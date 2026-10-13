@@ -57,6 +57,43 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sendTestErrorButton => 'Send a test error';
 
   @override
+  String get mainNavigationLabel => 'Main';
+
+  @override
+  String get tabIdentify => 'Identify';
+
+  @override
+  String get tabHistory => 'History';
+
+  @override
+  String get tabSettings => 'Settings';
+
+  @override
+  String homeMyStationChip(String stationName) {
+    return 'My station: $stationName';
+  }
+
+  @override
+  String get homeMyStationChipNotSet => 'My station: Not set';
+
+  @override
+  String get homeMyStationChipHint => 'Opens Settings';
+
+  @override
+  String get howItWorksTitle => 'How Look Up works';
+
+  @override
+  String get howItWorksIdentify =>
+      'Tap Identify while an ad plays on the radio, and Look Up shows the advertiser\'s buttons: call, chat, directions or website.';
+
+  @override
+  String get howItWorksHistory =>
+      'Ads you identify are saved in History, so their buttons work even without data.';
+
+  @override
+  String get gotItButton => 'Got it';
+
+  @override
   String get permissionHeading => 'Look Up needs your microphone';
 
   @override
@@ -277,6 +314,168 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get moreOptionsButton => 'More options';
+
+  @override
+  String get resultSavedToHistory => 'Saved to History';
+
+  @override
+  String get savedResultHeading => 'Saved result';
+
+  @override
+  String get savedResultMissing => 'That result is no longer saved on this phone.';
+
+  @override
+  String get historyHeading => 'History';
+
+  @override
+  String get historyEarlierHeading => 'Earlier';
+
+  @override
+  String historyResultTitle(String clientName, String adTitle) {
+    return '$clientName — $adTitle';
+  }
+
+  @override
+  String historyResultDetail(String stationName, String dayAndTime) {
+    return 'via $stationName · $dayAndTime';
+  }
+
+  @override
+  String dayAndTime(String day, String time) {
+    return '$day, $time';
+  }
+
+  @override
+  String get dayToday => 'Today';
+
+  @override
+  String get dayYesterday => 'Yesterday';
+
+  @override
+  String get historyOfflineNote =>
+      'Saved results keep working without data — call, chat or get directions any time.';
+
+  @override
+  String get historyEmptyHeading => 'No results yet';
+
+  @override
+  String get historyEmptyExplanation =>
+      'Ads you identify are saved here, so their buttons work even without data.';
+
+  @override
+  String get settingsHeading => 'Settings';
+
+  @override
+  String get settingsListeningHeading => 'Listening';
+
+  @override
+  String get settingsMyStation => 'My station';
+
+  @override
+  String settingsMyStationChosen(String stationName, String frequencyLabel) {
+    return '$stationName · $frequencyLabel — used when an ad is on more than one station';
+  }
+
+  @override
+  String get settingsMyStationNotSet => 'Not set — used when an ad is on more than one station';
+
+  @override
+  String get settingsAppHeading => 'App';
+
+  @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsLanguageName => 'English';
+
+  @override
+  String get settingsPrivacy => 'Privacy';
+
+  @override
+  String get settingsAbout => 'About Look Up';
+
+  @override
+  String get settingsClearHistory => 'Clear history';
+
+  @override
+  String get clearHistoryQuestion => 'Clear history?';
+
+  @override
+  String get clearHistoryExplanation =>
+      'Saved results and any clips waiting to be sent are deleted from this phone.';
+
+  @override
+  String get clearButton => 'Clear';
+
+  @override
+  String get historyClearedConfirmation => 'History cleared';
+
+  @override
+  String get stationPickerLead => 'Used when an ad is on more than one station.';
+
+  @override
+  String get stationPickerSearchLabel => 'Search stations';
+
+  @override
+  String get stationPickerSearchHint => 'Name, frequency or city';
+
+  @override
+  String get stationPickerNoStation => 'No station';
+
+  @override
+  String get stationPickerNoStationDetail => 'Look Up will ask each time';
+
+  @override
+  String get stationPickerNotListed => 'Not in the current list';
+
+  @override
+  String get stationPickerLoading => 'Loading stations…';
+
+  @override
+  String stationPickerRefreshFailed(String dayAndTime) {
+    return 'Couldn\'t refresh the list. These are the stations saved on $dayAndTime.';
+  }
+
+  @override
+  String get stationPickerLoadFailed => 'Couldn\'t load the stations.';
+
+  @override
+  String get stationPickerEmpty => 'No stations are listed in Look Up yet.';
+
+  @override
+  String privacyListensOnlyWhenYouTap(int seconds) {
+    String _temp0 = intl.Intl.pluralLogic(
+      seconds,
+      locale: localeName,
+      other: 'Look Up listens only when you tap Identify, for about $seconds seconds.',
+      one: 'Look Up listens only when you tap Identify, for about 1 second.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get privacyClipNotKept =>
+      'The clip is sent to Look Up to find the ad, and is not kept after it has been checked.';
+
+  @override
+  String get privacyHistoryStaysOnPhone =>
+      'Your History stays on this phone. You can clear it in Settings.';
+
+  @override
+  String get privacySummaryNote =>
+      'This is a short summary. The full privacy notice comes before Look Up\'s public release.';
+
+  @override
+  String aboutVersion(String version, String buildNumber) {
+    return 'Version $version (build $buildNumber)';
+  }
+
+  @override
+  String get aboutDescription =>
+      'Heard an ad on the radio? Tap Identify while it plays, and Look Up shows the advertiser\'s buttons: call, chat, directions or website.';
+
+  @override
+  String get supportChatGreeting => 'Hello Look Up support.';
 
   @override
   String get launchFailureHeading => 'Couldn\'t open this';

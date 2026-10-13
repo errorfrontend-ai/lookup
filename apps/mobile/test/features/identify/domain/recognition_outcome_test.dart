@@ -75,7 +75,7 @@ void main() {
     test('200 MATCH, kind CAMPAIGN → matched; clip deleted', () {
       final result = _result(RecognitionResultKind.campaign);
       _expectFinished(
-        _decide(MatchAnswer(result: result, apiRequestId: _apiRequestId)),
+        _decide(MatchAnswer(result: result, answerBody: const {}, apiRequestId: _apiRequestId)),
         MatchedState(result: result),
         isReported: false,
       );
@@ -84,7 +84,7 @@ void main() {
     test('200 MATCH, kind CLIENT_DEFAULT → fallback; clip deleted', () {
       final result = _result(RecognitionResultKind.clientDefault);
       _expectFinished(
-        _decide(MatchAnswer(result: result, apiRequestId: _apiRequestId)),
+        _decide(MatchAnswer(result: result, answerBody: const {}, apiRequestId: _apiRequestId)),
         FallbackState(result: result),
         isReported: false,
       );
@@ -96,7 +96,7 @@ void main() {
         // The parser test proves an unknown kind arrives here as a campaign (unknown-result-kind).
         final result = _result(RecognitionResultKind.campaign);
         expect(
-          _decide(MatchAnswer(result: result, apiRequestId: null)).nextState,
+          _decide(MatchAnswer(result: result, answerBody: const {}, apiRequestId: null)).nextState,
           MatchedState(result: result),
         );
       },
@@ -121,6 +121,7 @@ void main() {
         ChooseStationAnswer(
           recognitionId: _recognitionId,
           candidates: [stationA, stationB],
+          answerBody: const {},
           apiRequestId: _apiRequestId,
         ),
       );

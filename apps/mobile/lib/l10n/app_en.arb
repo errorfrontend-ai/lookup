@@ -58,6 +58,57 @@
   "@sendTestErrorButton": {
     "description": "A development-only button on Home that throws a test error on purpose; never in a listener's build."
   },
+  "mainNavigationLabel": "Main",
+  "@mainNavigationLabel": {
+    "description": "What screen readers announce for the tab bar at the bottom (or the rail at the side on a tablet): the app's main navigation."
+  },
+  "tabIdentify": "Identify",
+  "@tabIdentify": {
+    "description": "The first tab: Home, where the listener identifies an ad."
+  },
+  "tabHistory": "History",
+  "@tabHistory": {
+    "description": "The second tab: the results the listener identified before."
+  },
+  "tabSettings": "Settings",
+  "@tabSettings": {
+    "description": "The third tab: My station, the language, privacy and the app's details."
+  },
+  "homeMyStationChip": "My station: {stationName}",
+  "@homeMyStationChip": {
+    "description": "The small button at the top right of Home that names the listener's station and opens Settings.",
+    "placeholders": {
+      "stationName": {
+        "type": "String",
+        "description": "The station's name.",
+        "example": "Station A"
+      }
+    }
+  },
+  "homeMyStationChipNotSet": "My station: Not set",
+  "@homeMyStationChipNotSet": {
+    "description": "The same small button on Home when the listener has not chosen a station."
+  },
+  "homeMyStationChipHint": "Opens Settings",
+  "@homeMyStationChipHint": {
+    "description": "What screen readers add after the My station button on Home: where it leads."
+  },
+  "howItWorksTitle": "How Look Up works",
+  "@howItWorksTitle": {
+    "description": "The heading of the short note Home shows the first time the app opens, and never again."
+  },
+  "howItWorksIdentify": "Tap Identify while an ad plays on the radio, and Look Up shows the advertiser's buttons: call, chat, directions or website.",
+  "@howItWorksIdentify": {
+    "description": "The first sentence of the first-open note: what identifying does."
+  },
+  "howItWorksHistory": "Ads you identify are saved in History, so their buttons work even without data.",
+  "@howItWorksHistory": {
+    "description": "The second sentence of the first-open note: what History is for."
+  },
+  "gotItButton": "Got it",
+  "@gotItButton": {
+    "description": "The button that closes the first-open note."
+  },
   "permissionHeading": "Look Up needs your microphone",
   "@permissionHeading": {
     "description": "The heading of the screen that asks for the microphone."
@@ -382,6 +433,259 @@
   "moreOptionsButton": "More options",
   "@moreOptionsButton": {
     "description": "The button under the fourth button that shows the rest."
+  },
+  "resultSavedToHistory": "Saved to History",
+  "@resultSavedToHistory": {
+    "description": "Under a result's buttons, after a tick, once the result is kept on the phone."
+  },
+  "savedResultHeading": "Saved result",
+  "@savedResultHeading": {
+    "description": "The heading beside the Back arrow when a result is opened again from History."
+  },
+  "savedResultMissing": "That result is no longer saved on this phone.",
+  "@savedResultMissing": {
+    "description": "A short message when the result asked for is not in History any more."
+  },
+  "historyHeading": "History",
+  "@historyHeading": {
+    "description": "The heading of the History tab."
+  },
+  "historyEarlierHeading": "Earlier",
+  "@historyEarlierHeading": {
+    "description": "The heading over the results identified before, newest first; drawn in capitals, read normally."
+  },
+  "historyResultTitle": "{clientName} — {adTitle}",
+  "@historyResultTitle": {
+    "description": "A History row's first line: the advertiser and the ad, e.g. \"Brand A — Summer service offer\".",
+    "placeholders": {
+      "clientName": {
+        "type": "String",
+        "description": "The advertiser's name.",
+        "example": "Brand A"
+      },
+      "adTitle": {
+        "type": "String",
+        "description": "The ad's title.",
+        "example": "Summer service offer"
+      }
+    }
+  },
+  "historyResultDetail": "via {stationName} · {dayAndTime}",
+  "@historyResultDetail": {
+    "description": "A History row's second line: the station that played the ad and when the clip was recorded, e.g. \"via Station A · Today, 09:12\".",
+    "placeholders": {
+      "stationName": {
+        "type": "String",
+        "description": "The station's name.",
+        "example": "Station A"
+      },
+      "dayAndTime": {
+        "type": "String",
+        "description": "The day and the 24-hour time, e.g. \"Today, 09:12\" or \"Mon, 07:55\".",
+        "example": "Today, 09:12"
+      }
+    }
+  },
+  "dayAndTime": "{day}, {time}",
+  "@dayAndTime": {
+    "description": "A day and a time together, e.g. \"Today, 09:12\", \"Yesterday, 18:40\", \"Mon, 07:55\" or \"3 Oct, 14:32\".",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "description": "Today, Yesterday, a short weekday or a day and short month.",
+        "example": "Today"
+      },
+      "time": {
+        "type": "String",
+        "description": "The time on the 24-hour clock.",
+        "example": "09:12"
+      }
+    }
+  },
+  "dayToday": "Today",
+  "@dayToday": {
+    "description": "The day label for something that happened today, before its time."
+  },
+  "dayYesterday": "Yesterday",
+  "@dayYesterday": {
+    "description": "The day label for something that happened yesterday, before its time."
+  },
+  "historyOfflineNote": "Saved results keep working without data — call, chat or get directions any time.",
+  "@historyOfflineNote": {
+    "description": "Under the list of saved results."
+  },
+  "historyEmptyHeading": "No results yet",
+  "@historyEmptyHeading": {
+    "description": "The heading of History before anything has been identified."
+  },
+  "historyEmptyExplanation": "Ads you identify are saved here, so their buttons work even without data.",
+  "@historyEmptyExplanation": {
+    "description": "Under the heading of an empty History."
+  },
+  "settingsHeading": "Settings",
+  "@settingsHeading": {
+    "description": "The heading of the Settings tab."
+  },
+  "settingsListeningHeading": "Listening",
+  "@settingsListeningHeading": {
+    "description": "The heading of the Settings section with My station; drawn in capitals, read normally."
+  },
+  "settingsMyStation": "My station",
+  "@settingsMyStation": {
+    "description": "The Settings row that opens the station list, and the heading of that list."
+  },
+  "settingsMyStationChosen": "{stationName} · {frequencyLabel} — used when an ad is on more than one station",
+  "@settingsMyStationChosen": {
+    "description": "Under \"My station\" in Settings when a station is chosen.",
+    "placeholders": {
+      "stationName": {
+        "type": "String",
+        "description": "The station's name.",
+        "example": "Station A"
+      },
+      "frequencyLabel": {
+        "type": "String",
+        "description": "The station's frequency.",
+        "example": "98.1 FM"
+      }
+    }
+  },
+  "settingsMyStationNotSet": "Not set — used when an ad is on more than one station",
+  "@settingsMyStationNotSet": {
+    "description": "Under \"My station\" in Settings when no station is chosen."
+  },
+  "settingsAppHeading": "App",
+  "@settingsAppHeading": {
+    "description": "The heading of the Settings section about the app itself; drawn in capitals, read normally."
+  },
+  "settingsLanguage": "Language",
+  "@settingsLanguage": {
+    "description": "The Settings row that names the app's language."
+  },
+  "settingsLanguageName": "English",
+  "@settingsLanguageName": {
+    "description": "The name of this file's language, in that language, shown under \"Language\" in Settings."
+  },
+  "settingsPrivacy": "Privacy",
+  "@settingsPrivacy": {
+    "description": "The Settings row that opens the privacy summary, and that page's heading."
+  },
+  "settingsAbout": "About Look Up",
+  "@settingsAbout": {
+    "description": "The Settings row that opens the page about the app, and that page's heading."
+  },
+  "settingsClearHistory": "Clear history",
+  "@settingsClearHistory": {
+    "description": "The Settings row that deletes everything History keeps on the phone, after asking."
+  },
+  "clearHistoryQuestion": "Clear history?",
+  "@clearHistoryQuestion": {
+    "description": "The heading of the question asked before History is cleared."
+  },
+  "clearHistoryExplanation": "Saved results and any clips waiting to be sent are deleted from this phone.",
+  "@clearHistoryExplanation": {
+    "description": "What clearing History deletes, under the question."
+  },
+  "clearButton": "Clear",
+  "@clearButton": {
+    "description": "The button that clears History, in the question's footer."
+  },
+  "historyClearedConfirmation": "History cleared",
+  "@historyClearedConfirmation": {
+    "description": "The short confirmation after History was cleared."
+  },
+  "stationPickerLead": "Used when an ad is on more than one station.",
+  "@stationPickerLead": {
+    "description": "Under the heading of the My station list: what the choice is for."
+  },
+  "stationPickerSearchLabel": "Search stations",
+  "@stationPickerSearchLabel": {
+    "description": "The label of the search field over a long station list."
+  },
+  "stationPickerSearchHint": "Name, frequency or city",
+  "@stationPickerSearchHint": {
+    "description": "The hint inside the station search field: what it matches."
+  },
+  "stationPickerNoStation": "No station",
+  "@stationPickerNoStation": {
+    "description": "The first choice of the My station list: no station kept."
+  },
+  "stationPickerNoStationDetail": "Look Up will ask each time",
+  "@stationPickerNoStationDetail": {
+    "description": "Under \"No station\": what happens when an ad is on more than one station."
+  },
+  "stationPickerNotListed": "Not in the current list",
+  "@stationPickerNotListed": {
+    "description": "Under the kept station at the top of the list when the station list no longer has it."
+  },
+  "stationPickerLoading": "Loading stations…",
+  "@stationPickerLoading": {
+    "description": "While the station list is fetched the first time."
+  },
+  "stationPickerRefreshFailed": "Couldn't refresh the list. These are the stations saved on {dayAndTime}.",
+  "@stationPickerRefreshFailed": {
+    "description": "Over the station list when a newer list could not be fetched and the saved one is shown.",
+    "placeholders": {
+      "dayAndTime": {
+        "type": "String",
+        "description": "When the saved list was fetched, e.g. \"Today, 09:12\".",
+        "example": "Today, 09:12"
+      }
+    }
+  },
+  "stationPickerLoadFailed": "Couldn't load the stations.",
+  "@stationPickerLoadFailed": {
+    "description": "When no station list could be fetched and none is saved on the phone."
+  },
+  "stationPickerEmpty": "No stations are listed in Look Up yet.",
+  "@stationPickerEmpty": {
+    "description": "When the station list is empty."
+  },
+  "privacyListensOnlyWhenYouTap": "{seconds, plural, =1{Look Up listens only when you tap Identify, for about 1 second.} other{Look Up listens only when you tap Identify, for about {seconds} seconds.}}",
+  "@privacyListensOnlyWhenYouTap": {
+    "description": "The privacy summary's first point: when the app listens and for how long.",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "description": "The length of the clip in seconds, e.g. 8."
+      }
+    }
+  },
+  "privacyClipNotKept": "The clip is sent to Look Up to find the ad, and is not kept after it has been checked.",
+  "@privacyClipNotKept": {
+    "description": "The privacy summary's point on the recording."
+  },
+  "privacyHistoryStaysOnPhone": "Your History stays on this phone. You can clear it in Settings.",
+  "@privacyHistoryStaysOnPhone": {
+    "description": "The privacy summary's point on History."
+  },
+  "privacySummaryNote": "This is a short summary. The full privacy notice comes before Look Up's public release.",
+  "@privacySummaryNote": {
+    "description": "Under the privacy summary: it is not the full notice yet."
+  },
+  "aboutVersion": "Version {version} (build {buildNumber})",
+  "@aboutVersion": {
+    "description": "The app's version on the About page, e.g. \"Version 0.1.0 (build 1)\".",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "description": "The version, e.g. 0.1.0.",
+        "example": "0.1.0"
+      },
+      "buildNumber": {
+        "type": "String",
+        "description": "The build number, e.g. 1.",
+        "example": "1"
+      }
+    }
+  },
+  "aboutDescription": "Heard an ad on the radio? Tap Identify while it plays, and Look Up shows the advertiser's buttons: call, chat, directions or website.",
+  "@aboutDescription": {
+    "description": "What the app does, on the About page."
+  },
+  "supportChatGreeting": "Hello Look Up support.",
+  "@supportChatGreeting": {
+    "description": "The message typed into the support chat opened from the About page, which has no reference code."
   },
   "launchFailureHeading": "Couldn't open this",
   "@launchFailureHeading": {

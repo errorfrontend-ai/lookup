@@ -14,6 +14,12 @@ void main() {
       {for (final route in AppRoute.values) route.name: route.path},
       {
         'home': '/',
+        'history': '/history',
+        'settings': '/settings',
+        'myStation': '/settings/my-station',
+        'privacy': '/settings/privacy',
+        'about': '/settings/about',
+        'savedResult': '/r/:recognitionId',
         'permission': '/permission',
         'listening': '/listening',
         'identifying': '/identifying',
@@ -53,6 +59,45 @@ void main() {
     for (final MapEntry(key: state, value: route) in routes.entries) {
       expect(AppRoute.forState(state), route, reason: '$state');
     }
-    expect(routes.values.toSet(), AppRoute.values.toSet(), reason: 'every route shows a state');
+    expect(routes.values.toSet(), {
+      AppRoute.home,
+      ...AppRoute.flowRoutes,
+    }, reason: 'every flow route shows a state, and idle shows Home');
+  });
+
+  test(
+    'flow routes are only the screens of an identify; tabs and pages are not (P6 design §3.7)',
+    () {
+      expect(AppRoute.flowRoutes, [
+        AppRoute.permission,
+        AppRoute.listening,
+        AppRoute.identifying,
+        AppRoute.chooseStation,
+        AppRoute.result,
+        AppRoute.noMatch,
+        AppRoute.busy,
+        AppRoute.error,
+      ]);
+    },
+  );
+
+  test('a location names its route; any one segment after /r/ is a saved result', () {
+    expect(AppRoute.forLocation('/'), AppRoute.home);
+    expect(AppRoute.forLocation('/history'), AppRoute.history);
+    expect(AppRoute.forLocation('/settings/my-station'), AppRoute.myStation);
+    expect(AppRoute.forLocation('/no-match'), AppRoute.noMatch);
+    expect(AppRoute.forLocation('/r/$fixtureRecognitionId'), AppRoute.savedResult);
+    expect(AppRoute.forLocation('/r/not-a-recognition'), AppRoute.savedResult);
+    for (final unknown in ['/ads', '/r/', '/r/one/two', '/settings/ads', '']) {
+      expect(AppRoute.forLocation(unknown), isNull, reason: unknown);
+    }
+  });
+
+  test('a saved result\'s location and the path below its tab are made from the patterns', () {
+    expect(AppRoute.savedResultLocation(fixtureRecognitionId), '/r/$fixtureRecognitionId');
+    expect(AppRoute.recognitionIdParameter, 'recognitionId');
+    expect(AppRoute.myStation.pathBelowTab, 'my-station');
+    expect(AppRoute.privacy.pathBelowTab, 'privacy');
+    expect(AppRoute.about.pathBelowTab, 'about');
   });
 }

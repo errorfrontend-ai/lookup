@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsRole;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/data/recognize_response_parser.dart';
@@ -83,7 +84,7 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('no "Saved to History" and no "Report this": both wait for Phase 6 (S4-D1)', (
+    testWidgets('no "Report this" yet: it comes with piece 4 (P6 design §2.7, §2.14)', (
       tester,
     ) async {
       final semantics = tester.ensureSemantics();
@@ -92,17 +93,7 @@ void main() {
           tester,
           resultWith(kind: kind, card: fixtureCard('action-card/valid/six-actions.json')),
         );
-        // Everything the screen can show, "More options" opened (it stays open for the second
-        // kind, as the same screen is shown again).
-        if (find.byType(MoreOptionsButton).evaluate().isNotEmpty) {
-          await tester.ensureVisible(find.byType(MoreOptionsButton));
-          await tester.pump();
-          await tester.tap(find.byType(MoreOptionsButton));
-          await tester.pump();
-        }
-        expect(find.byType(ActionButton), findsNWidgets(6));
-
-        for (final missing in ['Saved to History', 'Report this', 'History', 'Report']) {
+        for (final missing in ['Report this', 'Reported']) {
           expect(find.textContaining(missing), findsNothing, reason: '${kind.name}: $missing');
           expect(find.bySemanticsLabel(RegExp(missing)), findsNothing, reason: kind.name);
         }
@@ -122,6 +113,137 @@ void main() {
       // The flow moves Home; the screen itself never closes the app.
       expect(find.byType(ResultScreen), findsOneWidget);
     });
+  });
+
+  group('"✓ Saved to History" (P6 design §2.7; P6-HISTORY-14)', () {
+    Future<void> showResult(WidgetTester tester, {required bool isSavedToHistory}) async {
+      await ResultScreenHarness().pump(
+        tester,
+        ResultScreen(result: resultWith(), onBackToHome: () {}, isSavedToHistory: isSavedToHistory),
+      );
+    }
+
+    testWidgets(
+      'once History holds the result: a green tick and "Saved to History" under the last button (P6-HISTORY-14)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        await showResult(tester, isSavedToHistory: true);
+        final words = find.text('Saved to History');
+        await tester.ensureVisible(words);
+        await tester.pumpAndSettle();
+        expect(words, findsOneWidget);
+        expect(
+          tester.getTopLeft(words).dy,
+          greaterThan(tester.getBottomLeft(find.byType(ActionButton).last).dy),
+        );
+        final tick = tester.widget<Icon>(
+          find.descendant(
+            of: find.ancestor(of: words, matching: find.byType(Row)).first,
+            matching: find.byIcon(Icons.check),
+          ),
+        );
+        expect(tick.color, LookUpTokens.light.colours.success);
+        expect(tick.size, 16);
+        expect(
+          tester.widget<Text>(words).style!.color,
+          LookUpTokens.light.colours.muted,
+          reason: 'the muted caption',
+        );
+        expect(find.bySemanticsLabel('Saved to History'), findsOneWidget);
+        semantics.dispose();
+      },
+    );
+
+    testWidgets('before History holds it, or when the save failed: no line at all', (tester) async {
+      await showResult(tester, isSavedToHistory: false);
+      expect(find.text('Saved to History'), findsNothing);
+      expect(find.byIcon(Icons.check), findsNothing);
+    });
+
+    testWidgets('meets the contrast guideline in both themes', (tester) async {
+      for (final theme in [LookUpTheme.light(), LookUpTheme.dark()]) {
+        final semantics = tester.ensureSemantics();
+        await ResultScreenHarness().pump(
+          tester,
+          ResultScreen(result: resultWith(), onBackToHome: () {}, isSavedToHistory: true),
+          theme: theme,
+        );
+        await tester.ensureVisible(find.text('Saved to History'));
+        await tester.pumpAndSettle();
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        semantics.dispose();
+      }
+    });
+  });
+
+  group('a saved result, opened from History (P6 design §2.10)', () {
+    testWidgets(
+      '"Saved result" as its heading, a Back arrow labelled "Back" that goes back, the buttons, and "Saved to History"',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        var backCount = 0;
+        await ResultScreenHarness().pump(
+          tester,
+          ResultScreen.saved(result: resultWith(), onBack: () => backCount++),
+        );
+        expect(find.text('Saved result'), findsOneWidget);
+        expect(find.text('Found it'), findsNothing);
+        expect(
+          tester
+              .getSemantics(find.text('Saved result'))
+              .getSemanticsData()
+              .flagsCollection
+              .isHeader,
+          isTrue,
+        );
+        expect(find.bySemanticsLabel('Back'), findsOneWidget);
+        expect(find.bySemanticsLabel('Back to home'), findsNothing);
+        expect(find.byType(ActionButton), findsNWidgets(4));
+        expect(find.text('Saved to History'), findsOneWidget);
+        await tester.tap(find.byType(ScreenExitButton));
+        await _pressSystemBack(tester);
+        expect(backCount, 2);
+        semantics.dispose();
+      },
+    );
+
+    testWidgets('no haptic tick: nothing new arrived, the listener opened it', (tester) async {
+      final platformCalls = recordPlatformCalls(tester);
+      await ResultScreenHarness().pump(
+        tester,
+        ResultScreen.saved(result: resultWith(), onBack: () {}),
+      );
+      await tester.pump();
+      expect(platformCalls.where((call) => call.method == 'HapticFeedback.vibrate'), isEmpty);
+    });
+
+    testWidgets('its buttons open their addresses as on a live result (P6-HISTORY-02)', (
+      tester,
+    ) async {
+      final harness = ResultScreenHarness();
+      await harness.pump(tester, ResultScreen.saved(result: resultWith(), onBack: () {}));
+      await tester.tap(find.byType(ActionButton).first);
+      await tester.pump();
+      expect(harness.launcher.openedAddresses.single, startsWith('tel:+'));
+    });
+
+    for (final (name, theme) in [('light', LookUpTheme.light()), ('dark', LookUpTheme.dark())]) {
+      testWidgets('meets the tap target, label and contrast guidelines in the $name theme', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        await ResultScreenHarness().pump(
+          tester,
+          ResultScreen.saved(result: resultWith(), onBack: () {}),
+          theme: theme,
+        );
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+        expectEveryControlShowsText(tester);
+        semantics.dispose();
+      });
+    }
   });
 
   group('the card (S4-RESULT-03 to -07)', () {
@@ -287,31 +409,33 @@ void main() {
       'its campaign was paused after the clip was heard',
       'its campaign reached its tap limit',
     ]) {
-      testWidgets('the advertiser\'s default card has the one note that is true when $reason '
-          '(A7)', (tester) async {
-        final answer = const RecognizeResponseParser().read(
-          httpStatus: 200,
-          body:
-              (ContractFixtures.readFile(
-                    'recognition/recognize-response/valid/match-client-default.json',
-                  )!
-                  as Map<String, Object?>)['response'],
-        );
-        final result = (answer as MatchAnswer).result;
-        expect(result.kind, RecognitionResultKind.clientDefault);
-        await ResultScreenHarness().pumpResultScreen(tester, result);
+      testWidgets(
+        'the advertiser\'s default card has the one note that is true when $reason (A7)',
+        (tester) async {
+          final answer = const RecognizeResponseParser().read(
+            httpStatus: 200,
+            body:
+                (ContractFixtures.readFile(
+                      'recognition/recognize-response/valid/match-client-default.json',
+                    )!
+                    as Map<String, Object?>)['response'],
+          );
+          final result = (answer as MatchAnswer).result;
+          expect(result.kind, RecognitionResultKind.clientDefault);
+          await ResultScreenHarness().pumpResultScreen(tester, result);
 
-        const note = "These are Brand A's usual contact details.";
-        expect(find.text(note), findsOneWidget);
-        expect(
-          tester.getRect(find.text(note)).top,
-          greaterThan(tester.getRect(find.text('Summer service offer')).bottom),
-        );
-        // Step 4's sentence is no longer true from P4, and is gone.
-        expect(find.textContaining("isn't on air"), findsNothing);
-        expect(find.textContaining('right now'), findsNothing);
-        expect(_shownButtons(tester), hasLength(4));
-      });
+          const note = "These are Brand A's usual contact details.";
+          expect(find.text(note), findsOneWidget);
+          expect(
+            tester.getRect(find.text(note)).top,
+            greaterThan(tester.getRect(find.text('Summer service offer')).bottom),
+          );
+          // Step 4's sentence is no longer true from P4, and is gone.
+          expect(find.textContaining("isn't on air"), findsNothing);
+          expect(find.textContaining('right now'), findsNothing);
+          expect(_shownButtons(tester), hasLength(4));
+        },
+      );
     }
 
     testWidgets('the campaign\'s own card has no note', (tester) async {

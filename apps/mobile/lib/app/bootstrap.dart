@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:lookup_listener/app/app_providers.dart';
+import 'package:lookup_listener/app/app_route.dart';
 import 'package:lookup_listener/app/app_router.dart';
 import 'package:lookup_listener/app/look_up_app.dart';
 import 'package:lookup_listener/core/configuration/app_configuration.dart';
@@ -14,6 +15,7 @@ import 'package:lookup_listener/core/error_reporting/global_error_handlers.dart'
 import 'package:lookup_listener/core/error_reporting/isolate_error_listener.dart';
 import 'package:lookup_listener/core/theme/look_up_theme.dart';
 import 'package:lookup_listener/core/widgets/set_up_problem_screen.dart';
+import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/data/clip_recorder_provider.dart';
 import 'package:lookup_listener/l10n/fallback_localizations.dart';
 
@@ -27,8 +29,8 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
 /// 3. Installs the global error handlers and the isolate error listener before anything runs, so
 ///    no failure goes unreported and no listener sees Flutter's red screen (S4-D26).
 /// 4. Deletes any clip file a crash left behind (S4-D7), runs the app, and after the first frame
-///    registers the install in the background (S4-D14) and starts the outbox's runs (P6 design
-///    §3.9 point 1).
+///    registers the install in the background (S4-D14), starts the outbox's runs (P6 design §3.9
+///    point 1) and deletes History's entries past their 30 days (§3.14).
 ///
 /// The parameters exist for the start-up test: [checkConfiguration] is the build's own check,
 /// [serviceOverrides] replace services with fakes through the container (never a test branch in
@@ -74,9 +76,10 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
       );
       final reporter = container.read(clientErrorReporterProvider);
 
-      // The route the listener is on, e.g. `/listening`, for each report's `location`.
+      // The route the listener is on, e.g. `/listening`, for each report's `location`: the top
+      // page's route as declared, so a saved result reports `/r/:recognitionId`, never its id.
       String readCurrentLocation() =>
-          container.read(appRouterProvider).routerDelegate.currentConfiguration.uri.path;
+          container.read(appRouterProvider).state.fullPath ?? AppRoute.home.path;
 
       GlobalErrorHandlers(
         reporter: reporter,
@@ -100,6 +103,20 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
       WidgetsBinding.instance.addPostFrameCallback((_) {
         container.read(listenerInstallRepositoryProvider).registerInBackground();
         container.read(outboxRunSchedulerProvider).start();
+        unawaited(
+          container
+              .read(historyRepositoryProvider)
+              .removeExpiredEntries()
+              .then<void>(
+                (_) {},
+                onError: (Object error, StackTrace stackTrace) => reporter.report(
+                  kind: ClientErrorKind.reported,
+                  error: error,
+                  stackTrace: stackTrace,
+                  description: 'Deleting old History entries at start failed',
+                ),
+              ),
+        );
       });
       return (container: container, isolateErrorListener: isolateErrorListener);
   }

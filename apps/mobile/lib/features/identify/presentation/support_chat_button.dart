@@ -8,12 +8,13 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// "Message support on WhatsApp", under the Error screen's reference code (S4-D32): it opens a
 /// WhatsApp chat with Look Up support with "Hello Look Up support, my reference code is
-/// [code]." typed in, so the listener only has to press send.
+/// [code]." typed in, so the listener only has to press send. On the About page (P6 design §2.13),
+/// which has no code, the chat starts with "Hello Look Up support." instead.
 ///
 /// The address comes from the same builder as the card's WhatsApp buttons, and it opens the same
 /// way; when the phone cannot open it, the same sheet offers to copy support's number instead.
-/// The Error screen shows it only when the build has a support number, so a code is never
-/// offered with a promise of support that cannot be reached.
+/// The Error screen and the About page show it only when the build has a support number, so a code
+/// is never offered with a promise of support that cannot be reached.
 class SupportChatButton extends ConsumerWidget {
   const SupportChatButton({
     super.key,
@@ -24,15 +25,18 @@ class SupportChatButton extends ConsumerWidget {
   /// Support's WhatsApp number in E.164, from the build's configuration.
   final String supportWhatsAppNumber;
 
-  /// The code the message carries, e.g. "6F1C-2D3E".
-  final String referenceCode;
+  /// The code the message carries, e.g. "6F1C-2D3E"; null where there is none (About).
+  final String? referenceCode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final words = AppLocalizations.of(context);
+    final referenceCode = this.referenceCode;
     final address = buildSupportChatAddress(
       supportWhatsAppNumber: supportWhatsAppNumber,
-      message: words.supportChatMessage(referenceCode),
+      message: referenceCode == null
+          ? words.supportChatGreeting
+          : words.supportChatMessage(referenceCode),
     );
     // An address that cannot be built safely gives no link at all, never a dead one.
     if (address == null) return const SizedBox.shrink();

@@ -8,6 +8,8 @@ import 'dart_source_tree.dart';
 ///   provider or a repository: the identify feature keeps those in `*_provider.dart` and
 ///   `*_repository.dart` files, and the result feature keeps each provider in its adapter file, so
 ///   from such an adapter file presentation may name only its `…Provider` and `…Repository` names.
+///   It never imports another feature's screen (`*_screen.dart`): the screens of two features are
+///   composed only in `lib/app` (P6 design §3.2).
 /// - `domain` imports only `dart:core`, `dart:convert`, `dart:math`, `package:meta` and other
 ///   `domain/` files.
 /// - `data` never imports `presentation/` (nor `app/`, the composition root above it), nor another
@@ -104,6 +106,13 @@ final class LayerImportScan {
         }
         if (libraryPath != null && targetLayer == CodeLayer.data) {
           return _problemWithDataImport(tree, file, directive, libraryPath);
+        }
+        if (libraryPath != null &&
+            targetLayer == CodeLayer.presentation &&
+            _featureOf(libraryPath) != _featureOf(file.path) &&
+            libraryPath.endsWith('_screen.dart')) {
+          return "presentation never imports another feature's screen; screens of two features "
+              'are composed only in lib/app (P6 design §3.2)';
         }
         return null;
       case CodeLayer.domain:
