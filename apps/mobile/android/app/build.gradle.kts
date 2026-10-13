@@ -48,6 +48,15 @@ android {
         }
     }
 
+    // Native libraries stored compressed (P6 design §3.21, Q10): each APK split per ABI stays below
+    // 15 MB (tool/check_apk_sizes.py); Android unpacks them at install, so the app takes more room on
+    // the phone instead.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildTypes {
         release {
             // Test builds for the emulator and the user's phone are signed with the debug key; a real

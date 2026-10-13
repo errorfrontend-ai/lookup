@@ -7,7 +7,12 @@ import 'package:lookup_listener/l10n/fallback_localizations.dart';
 /// and the small 320 × 640 dp, each at text scale 1.0 and 2.0. A layout that overflows makes
 /// Flutter report an error, which fails the test.
 class PhoneScreen {
-  const PhoneScreen({required this.width, required this.height, required this.textScale});
+  const PhoneScreen({
+    required this.width,
+    required this.height,
+    required this.textScale,
+    this.devicePixelRatio = _typicalDevicePixelRatio,
+  });
 
   /// Every size and text scale a shared widget must fit.
   static const List<PhoneScreen> layoutChecks = [
@@ -26,13 +31,17 @@ class PhoneScreen {
   final double textScale;
 
   /// A typical phone's pixel density, so drawing is at a realistic resolution.
-  static const double _devicePixelRatio = 3;
+  static const double _typicalDevicePixelRatio = 3;
+
+  /// Physical pixels per dp: 3 unless a test asks otherwise (the golden images use 1, to keep their
+  /// files small).
+  final double devicePixelRatio;
 
   /// Sets the test's screen to this size and text scale; both are undone after the test.
   void applyTo(WidgetTester tester) {
     tester.view
-      ..devicePixelRatio = _devicePixelRatio
-      ..physicalSize = Size(width, height) * _devicePixelRatio;
+      ..devicePixelRatio = devicePixelRatio
+      ..physicalSize = Size(width, height) * devicePixelRatio;
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.view.reset);
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);

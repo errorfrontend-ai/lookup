@@ -148,6 +148,14 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     await _startCapture();
   }
 
+  /// "Tap to identify" in the identify pane beside a Result, at medium and expanded widths (T52):
+  /// a new capture starts as from Home (T1, T2), and the result stays in History. Ignored anywhere
+  /// but a matched or fallback Result, and while a tap is already being handled.
+  Future<void> identifyBesideResult() async {
+    if (state is! MatchedState && state is! FallbackState) return;
+    await _startCapture();
+  }
+
   /// A row of "Which station?" (T44): [stationId] is the tapped candidate's station, and
   /// [isRemembered] the sheet's "Remember my station" tick at the moment of the tap. The Result of
   /// that candidate shows at once — matched or fallback by its kind — and the screen never waits

@@ -762,4 +762,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get errorPleaseUpdateExplanation => 'This version of Look Up is too old to identify ads.';
+
+  @override
+  String get historyPaneNote => 'Tap a result to see it here.';
+
+  @override
+  String get settingsPaneNote => 'Tap an item to see it here.';
 }

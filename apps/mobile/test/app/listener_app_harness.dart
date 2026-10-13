@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -108,6 +109,8 @@ final class ListenerAppHarness {
         randomUuid: ref.watch(randomUuidProvider),
         clock: ref.watch(clockProvider),
         httpClientAdapter: adapter,
+        // As the app counts "Used this month" (P6 design §3.16).
+        onBytesUsed: (bytes) => unawaited(ref.read(dataUseMeterProvider).add(bytes)),
       ),
     ),
     clientErrorReporterProvider.overrideWithValue(reporter),
@@ -119,6 +122,9 @@ final class ListenerAppHarness {
     outboxFolderLocatorProvider.overrideWithValue(() async => outboxFolder),
     historyFolderLocatorProvider.overrideWithValue(() async => historyFolder),
     stationListFolderLocatorProvider.overrideWithValue(() async => stationListFolder),
+    dataUseFolderLocatorProvider.overrideWithValue(
+      () async => Directory('${supportFolder.path}/data_use'),
+    ),
     ...appServiceOverrides,
   ];
 

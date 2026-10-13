@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../layout/room_sized_media_query.dart';
 import '../theme/look_up_tokens.dart';
 
 /// The frame every screen sits in (design §2.1), so the layout rules live in one place: the safe
@@ -15,6 +16,9 @@ import '../theme/look_up_tokens.dart';
 /// The frame measures the body's natural height to decide whether to scroll, so the body must not
 /// use `LayoutBuilder` (which cannot report a natural height); read the width from
 /// `MediaQuery.sizeOf` instead.
+///
+/// On a wide window the screen is one centred column at most as wide as a compact window (600 dp,
+/// the medium breakpoint; P6 design §3.19), so a line of text never runs across a tablet.
 class ScreenFrame extends StatelessWidget {
   const ScreenFrame({
     super.key,
@@ -68,21 +72,32 @@ class ScreenFrame extends StatelessWidget {
     final header = _buildHeader(context);
     final bodyArea = _buildBodyArea(context);
     final footerArea = footer.isEmpty ? null : _buildFooterArea(context);
+    final columnWidth = context.lookUpTokens.breakpoints.medium;
+    Widget inColumn(Widget child) => Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: columnWidth),
+        // Inside the column the window is the column: what sizes itself from the window fits it.
+        child: RoomSizedMediaQuery(child: child),
+      ),
+    );
     if (isFooterPinned) {
       return Scaffold(
         body: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) => Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ?header,
-                Expanded(child: _ScrollingBody(child: bodyArea)),
-                if (footerArea != null)
-                  ConstrainedBox(
-                    constraints: BoxConstraints(maxHeight: constraints.maxHeight / 2),
-                    child: SingleChildScrollView(child: footerArea),
-                  ),
-              ],
+          child: inColumn(
+            LayoutBuilder(
+              builder: (context, constraints) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ?header,
+                  Expanded(child: _ScrollingBody(child: bodyArea)),
+                  if (footerArea != null)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: constraints.maxHeight / 2),
+                      child: SingleChildScrollView(child: footerArea),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -90,20 +105,22 @@ class ScreenFrame extends StatelessWidget {
     }
     return Scaffold(
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ?header,
-                  Expanded(child: bodyArea),
-                  ?footerArea,
-                ],
+        child: inColumn(
+          CustomScrollView(
+            slivers: [
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ?header,
+                    Expanded(child: bodyArea),
+                    ?footerArea,
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

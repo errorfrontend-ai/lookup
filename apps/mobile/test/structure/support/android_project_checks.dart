@@ -99,6 +99,14 @@ abstract final class AndroidProjectChecks {
     if (RegExp(r'com\.google\.android\.gms|com\.google\.firebase|play-services').hasMatch(text)) {
       problems.add('the app build uses Google Play services (S4-COMPATIBILITY-01)');
     }
+    final nativeLibraries = _block(text, RegExp(r'\bjniLibs\s*\{'));
+    if (nativeLibraries == null ||
+        !RegExp(r'\buseLegacyPackaging\s*=\s*true\b').hasMatch(nativeLibraries)) {
+      problems.add(
+        'native libraries are not stored compressed (packaging.jniLibs.useLegacyPackaging = true; '
+        'P6-PERFORMANCE-02, Q10)',
+      );
+    }
     return problems;
   }
 

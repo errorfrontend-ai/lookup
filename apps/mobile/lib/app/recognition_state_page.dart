@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lookup_listener/app/app_route.dart';
+import 'package:lookup_listener/app/main_tab.dart';
 import 'package:lookup_listener/app/pending_destination.dart';
+import 'package:lookup_listener/app/result_beside_home.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -55,6 +57,12 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
     _backToHome();
   }
 
+  /// A tab of the rail beside a Result: the Result is left, as with Back, and that tab opens.
+  void _leaveResultFor(MainTab tab) {
+    if (tab != MainTab.identify) ref.read(pendingDestinationProvider).keep(tab.route.path);
+    _backToHome();
+  }
+
   /// The screen for [state]: an exhaustive switch with no default branch (S4-STATE-09).
   Widget _screenFor(RecognitionState state) => switch (state) {
     // Never shown here: no flow route belongs to `idle`, whose screen is the Identify tab.
@@ -81,14 +89,18 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
       // T49: History, where the clip shows as Pending, with no frame of Home (P6 design §3.7).
       onSeeInHistory: _backToHistory,
     ),
-    MatchedState(:final result) || FallbackState(:final result) => ResultScreen(
-      result: result,
-      onBackToHome: ref.read(recognitionFlowProvider.notifier).backToHome,
-      isSavedToHistory:
-          ref.watch(historyViewProvider).value?.holdsResult(result.recognitionId) ?? false,
-      isReported:
-          ref.watch(historyViewProvider).value?.resultFor(result.recognitionId)?.isReported ??
-          false,
+    // Beside Home in a side panel on a tablet (P6 design §3.19), full screen on a phone.
+    MatchedState(:final result) || FallbackState(:final result) => ResultBesideHome(
+      onSelectTab: _leaveResultFor,
+      result: ResultScreen(
+        result: result,
+        onBackToHome: ref.read(recognitionFlowProvider.notifier).backToHome,
+        isSavedToHistory:
+            ref.watch(historyViewProvider).value?.holdsResult(result.recognitionId) ?? false,
+        isReported:
+            ref.watch(historyViewProvider).value?.resultFor(result.recognitionId)?.isReported ??
+            false,
+      ),
     ),
     NoMatchState() => const NoMatchScreen(),
     BusyState(:final retryDelaySeconds, :final secondsUntilRetry) => BusyScreen(

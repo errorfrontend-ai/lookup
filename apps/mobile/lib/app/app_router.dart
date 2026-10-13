@@ -5,10 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/app_route.dart';
 import 'package:lookup_listener/app/app_shell.dart';
+import 'package:lookup_listener/app/history_tab_page.dart';
+import 'package:lookup_listener/app/identify_tab_page.dart';
 import 'package:lookup_listener/app/main_tab.dart';
 import 'package:lookup_listener/app/pending_destination.dart';
 import 'package:lookup_listener/app/recognition_state_page.dart';
 import 'package:lookup_listener/app/saved_result_page.dart';
+import 'package:lookup_listener/app/settings_tab_page.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/time/clock.dart';
 import 'package:lookup_listener/features/history/domain/history_entry.dart';
@@ -19,7 +22,6 @@ import 'package:lookup_listener/features/identify/presentation/recognition_flow.
 import 'package:lookup_listener/features/settings/presentation/about_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/my_station_picker_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/privacy_screen.dart';
-import 'package:lookup_listener/features/settings/presentation/settings_screen.dart';
 import 'package:lookup_listener/l10n/app_localizations.dart';
 
 /// The app's routes on go_router 17.5.0 (design §3.6; P6 design §3.7, P6-D14).
@@ -73,9 +75,16 @@ abstract final class AppRouter {
               routes: [
                 _tabRoute(
                   AppRoute.home,
-                  (context, routerState) => HomeScreen(
-                    onOpenSettings: () =>
-                        StatefulNavigationShell.of(context).goBranch(MainTab.settings.index),
+                  (context, routerState) => IdentifyTabPage(
+                    home: HomeScreen(
+                      onOpenSettings: () =>
+                          StatefulNavigationShell.of(context).goBranch(MainTab.settings.index),
+                    ),
+                    history: HistoryScreen(
+                      onOpenResult: (recognitionId) =>
+                          context.push(AppRoute.savedResultLocation(recognitionId)),
+                      onOpenSavedChooser: openSavedChooser,
+                    ),
                   ),
                 ),
               ],
@@ -84,8 +93,8 @@ abstract final class AppRouter {
               routes: [
                 _tabRoute(
                   AppRoute.history,
-                  (context, routerState) => HistoryScreen(
-                    onOpenResult: (recognitionId) =>
+                  (context, routerState) => HistoryTabPage(
+                    onOpenResultPage: (recognitionId) =>
                         context.push(AppRoute.savedResultLocation(recognitionId)),
                     // T51: the chooser from the saved answer; the redirect follows the flow there.
                     onOpenSavedChooser: openSavedChooser,
@@ -97,11 +106,8 @@ abstract final class AppRouter {
               routes: [
                 _tabRoute(
                   AppRoute.settings,
-                  (context, routerState) => SettingsScreen(
-                    onOpenMyStation: () => context.go(AppRoute.myStation.path),
-                    onOpenPrivacy: () => context.go(AppRoute.privacy.path),
-                    onOpenAbout: () => context.go(AppRoute.about.path),
-                  ),
+                  (context, routerState) =>
+                      SettingsTabPage(onOpenPage: (page) => context.go(page.path), clock: clock),
                   pages: [
                     _pageOverTabs(
                       AppRoute.myStation,

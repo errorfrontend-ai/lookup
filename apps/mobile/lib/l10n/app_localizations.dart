@@ -1357,6 +1357,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'This version of Look Up is too old to identify ads.'**
   String get errorPleaseUpdateExplanation;
+
+  /// History at tablet width: the right pane before a result is opened (P6 design §3.19).
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a result to see it here.'**
+  String get historyPaneNote;
+
+  /// Settings at tablet width: the right pane before a page is opened (P6 design §3.19).
+  ///
+  /// In en, this message translates to:
+  /// **'Tap an item to see it here.'**
+  String get settingsPaneNote;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

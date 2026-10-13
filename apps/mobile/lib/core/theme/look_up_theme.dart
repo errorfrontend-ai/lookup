@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 
 import 'look_up_tokens.dart';
@@ -35,8 +36,19 @@ abstract final class LookUpTheme {
     );
     final touchTargetMinimum = tokens.sizes.touchTargetMinimum;
     final primaryButtonSize = Size(touchTargetMinimum, primaryButtonMinimumHeight);
-    final primaryButtonLabel = typeStyles.body.copyWith(fontWeight: FontWeight.w700);
-    final secondaryButtonLabel = typeStyles.body.copyWith(fontWeight: FontWeight.w600);
+    // A button's label does not inherit the text around it, so it names the platform's own family
+    // (Roboto on Android), as the theme's text does; with none, a test would draw it in its box font.
+    final platformFontFamily = Typography.material2021(
+      platform: defaultTargetPlatform,
+    ).black.bodyLarge?.fontFamily;
+    final primaryButtonLabel = typeStyles.body.copyWith(
+      fontWeight: FontWeight.w700,
+      fontFamily: platformFontFamily,
+    );
+    final secondaryButtonLabel = typeStyles.body.copyWith(
+      fontWeight: FontWeight.w600,
+      fontFamily: platformFontFamily,
+    );
 
     final colourScheme = ColorScheme.fromSeed(seedColor: colours.accent, brightness: brightness)
         .copyWith(

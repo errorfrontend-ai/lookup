@@ -775,6 +775,7 @@ class ScriptedPhone:
         self.launches: list[str] = []
         self.stops: list[str] = []
         self.cleared: list[str] = []
+        self.home_presses = 0
         self.evidence: list[str] = []
         self.device_log = ''
         self.is_device_log_readable = True
@@ -811,6 +812,9 @@ class ScriptedPhone:
 
     def stop_app(self, package_name: str) -> None:
         self.stops.append(package_name)
+
+    def press_home(self) -> None:
+        self.home_presses += 1
 
     def clear_app_data(self, package_name: str) -> None:
         self.cleared.append(package_name)

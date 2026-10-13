@@ -31,10 +31,14 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 /// Home has no Back of its own: system Back leaves the app, as on any first screen; the tab bar
 /// below it is the shell's.
 class HomeScreen extends ConsumerWidget {
-  const HomeScreen({super.key, required this.onOpenSettings});
+  const HomeScreen({super.key, required this.onOpenSettings, this.isBesideResult = false});
 
   /// The chip's tap: opens the Settings tab.
   final VoidCallback onOpenSettings;
+
+  /// Home as the identify pane beside a Result on a tablet (P6 design §3.19): its button starts a
+  /// new identify from the Result (T52) instead of from Home.
+  final bool isBesideResult;
 
   /// What one identify costs: the clip's length from the clip settings (S4-LISTENING-03), and the
   /// size of the upload it makes (S4-D31).
@@ -87,7 +91,10 @@ class HomeScreen extends ConsumerWidget {
           // 32 dp to the disc; its halo takes 28 of them, as the wireframe draws it.
           SizedBox(height: spacing.space8),
           IdentifyButton(
-            onPressed: () => unawaited(ref.read(recognitionFlowProvider.notifier).identify()),
+            onPressed: () {
+              final flow = ref.read(recognitionFlowProvider.notifier);
+              unawaited(isBesideResult ? flow.identifyBesideResult() : flow.identify());
+            },
           ),
           SizedBox(height: spacing.space8 + spacing.space3),
           Text(

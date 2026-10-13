@@ -630,6 +630,7 @@ class Device(Protocol):
     def grant_notifications(self, package_name: str) -> None: ...
     def take_network_away(self) -> str: ...
     def bring_network_back(self) -> None: ...
+    def press_home(self) -> None: ...
     def use_mobile_data_only(self) -> str: ...
     def use_wifi_again(self) -> None: ...
 
@@ -1623,10 +1624,20 @@ def data_use_and_the_pictures_switch(context: RunContext) -> str:
     body_bytes = int(check_sends(context, count_before, ['match'])[0].get('body_bytes') or 0)
     context.back_home_from(LABELS['result back'])
     after = read_used_this_month(context)
+    if after == before:
+        # The count is written a moment after the answer; Settings follows it.
+        try:
+            after = driver.wait_until(
+                lambda: (lambda shown: shown if shown != before else None)(
+                    used_this_month(driver.read_screen(), context.app_package)),
+                15, '"Used this month" to change after the identify')
+        except StepFailed:
+            pass
     # Settings rounds to whole kilobytes, so each reading may be up to 500 bytes off.
     if not body_bytes - 1_000 <= after - before < 1.5 * body_bytes:
+        reports = [str(report.get('message', ''))[:120] for report in fake_api.request_log().get('client_error_reports', [])]
         raise StepFailed(f'"Used this month" grew by {after - before:,} bytes for an identify whose request was '
-                         f'{body_bytes:,} bytes')
+                         f'{body_bytes:,} bytes; the crash reports the app sent: {reports or "none"}')
     if pictures_switch(context).checked is not True:
         raise StepFailed('"Load ad pictures on mobile data" is not on at first')
     set_pictures_switch(context, False)
@@ -1763,18 +1774,23 @@ def tap_a_button(context: RunContext, label: str) -> str:
     return shown
 
 
+def identify_a_match(context: RunContext) -> str:
+    """An identify answered "Match": the Result, and its recognition id at the stand-in."""
+    count_before = context.recognize_count()
+    context.fake_api.queue(['match'])
+    context.driver.tap(IDENTIFY_LABELS)
+    context.driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+    return str(check_sends(context, count_before, ['match'])[0].get('recognition_id'))
+
+
 def taps_are_counted_once_and_wait_for_the_signal(context: RunContext) -> str:
     """Step 13 (P6-OUTBOX-06, the emulator's half; piece 5 walkthrough (a)): on a Result, "Call us" tapped twice (the
-    test image has no dialler, so the copy sheet shows each time) gives one tap at the stand-in; a button tapped with
-    "No signal" on reaches it once the signal is back, once."""
+    test image has no dialler, so the copy sheet shows each time) gives one tap at the stand-in; on a second Result,
+    "Call us" tapped with "No signal" on reaches it once the signal is back, once. Call, because the image hands a
+    map or a link to a stand-in app of its own, which then stays in front (run 4)."""
     driver, fake_api, card = context.driver, context.fake_api, context.card
-    count_before = context.recognize_count()
-    fake_api.queue(['match'])
-    driver.tap(IDENTIFY_LABELS)
-    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
-    recognition_id = str(check_sends(context, count_before, ['match'])[0].get('recognition_id'))
-    buttons = match_buttons()
-    call, directions = button(buttons, 'CALL'), button(buttons, 'MAP')
+    call = button(match_buttons(), 'CALL')
+    recognition_id = identify_a_match(context)
     for _ in range(2):
         tap_a_button(context, card.call_label)
     driver.wait_until(lambda: kept_taps_of(context, recognition_id), SECONDS_FOR_AN_OUTBOX_RETRY,
@@ -1783,23 +1799,26 @@ def taps_are_counted_once_and_wait_for_the_signal(context: RunContext) -> str:
     kept = [tap.get('action_id') for tap in kept_taps_of(context, recognition_id)]
     if kept != [call.action_id]:
         raise StepFailed(f'two Call taps left {len(kept)} taps at the stand-in, not one for Call')
+    context.back_home_from(LABELS['result back'])
+    second_recognition_id = identify_a_match(context)
     requests_before = len(fake_api.request_log().get('requests', []))
     fake_api.set_offline(True)
     try:
-        opened = tap_a_button(context, directions.label)
+        tap_a_button(context, card.call_label)
         driver.pause(5)
         if tap_requests_since(context, requests_before):
             raise StepFailed('a tap reached the stand-in while "No signal" was on')
     finally:
         fake_api.set_offline(False)
-    driver.wait_until(lambda: len(kept_taps_of(context, recognition_id)) == 2, SECONDS_FOR_AN_OUTBOX_RETRY,
-                      f'the "{directions.label}" tap to reach the stand-in once the signal was back')
-    kept = [tap.get('action_id') for tap in kept_taps_of(context, recognition_id)]
-    if kept != [call.action_id, directions.action_id]:
-        raise StepFailed(f'the stand-in keeps the taps {kept}, not Call then {directions.label}')
+    driver.wait_until(lambda: kept_taps_of(context, second_recognition_id), SECONDS_FOR_AN_OUTBOX_RETRY,
+                      'the Call tap made with no signal to reach the stand-in once the signal was back')
+    driver.pause(5)
+    kept = [tap.get('action_id') for tap in kept_taps_of(context, second_recognition_id)]
+    if kept != [call.action_id]:
+        raise StepFailed(f'the tap made with no signal left {len(kept)} taps at the stand-in, not one')
     context.back_home_from(LABELS['result back'])
-    return (f'two Call taps (the copy sheet each time) gave one tap; "{directions.label}" with no signal ({opened}) '
-            'arrived once the signal was back')
+    return ('two Call taps (the copy sheet each time) gave one tap; a Call tap with no signal arrived once the signal '
+            'was back')
 
 
 def answers_lost_still_count_once(context: RunContext) -> str:
@@ -1990,7 +2009,9 @@ def slug(text: str) -> str:
 
 
 def recover_to_home(context: RunContext) -> None:
-    """After a failed journey: restart the app, so the next journey starts at Home."""
+    """After a failed journey: the phone's Home first (an app the journey opened may be in front), then the app
+    restarted, so the next journey starts at Home."""
+    context.device.press_home()
     context.device.stop_app(context.app_package)
     context.device.launch_app(context.app_package)
     context.driver.wait_for(LABELS['home heading'], 40)
@@ -2218,6 +2239,10 @@ class AdbDevice:
             if time.monotonic() >= deadline:
                 raise StepFailed('the network did not come back')
             time.sleep(2)
+
+    def press_home(self) -> None:
+        self.adb('shell', 'input', 'keyevent', 'KEYCODE_HOME', check=False)
+        time.sleep(1)
 
     def use_mobile_data_only(self) -> str:
         """Wi-Fi off and mobile data on; returns once Android's default network is a metered mobile one (P6 design
@@ -2857,6 +2882,12 @@ def run(tools: Tools, record: RunRecord, skip_build: bool, *, proves_commands_on
         context = RunContext(Driver(device, DEVELOPMENT_PACKAGE), device, fake_api,
                              CardExpectation.from_fixture(MATCH_FIXTURE))
         record.steps.extend(run_journeys(context, JOURNEYS, first_number=len(record.steps) + 1))
+        # What the stand-in received during the journeys, kept before the production step clears it.
+        try:
+            (temporary_folder / 'fake-api-requests-journeys.json').write_text(
+                json.dumps(fake_api.request_log(), indent=2, ensure_ascii=False), encoding='utf-8')
+        except Exception:
+            pass
         record.step('every recognize request is at most 32,768 bytes and carries a real clip (S4-REQUEST-02)',
                     lambda: check_recognize_request_sizes(fake_api), is_required=False)
         record.step('the device log holds no install id, token, phone number, request body or audio (S4-PRIVACY-04)',

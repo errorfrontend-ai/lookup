@@ -28,6 +28,16 @@ void main() {
     expect(AndroidProjectChecks.problemsWithAppBuildFile(buildFile), isEmpty);
   });
 
+  test('native libraries are stored compressed, so each APK split per ABI stays below 15 MB '
+      '(P6-PERFORMANCE-02, Q10)', () {
+    expect(
+      AndroidProjectChecks.problemsWithAppBuildFile(
+        buildFile,
+      ).where((problem) => problem.contains('native libraries')),
+      isEmpty,
+    );
+  });
+
   test('the main manifest: exactly INTERNET, RECORD_AUDIO and POST_NOTIFICATIONS, backup and '
       'cleartext off, the button queries, no service', () {
     expect(AndroidProjectChecks.problemsWithMainManifest(mainManifest), isEmpty);
@@ -107,6 +117,15 @@ void main() {
           _planted(buildFile, 'minSdk = 24', 'minSdk = 23'),
         ),
         [contains('minSdk is 23')],
+      );
+    });
+
+    test('native libraries stored uncompressed', () {
+      expect(
+        AndroidProjectChecks.problemsWithAppBuildFile(
+          _planted(buildFile, 'useLegacyPackaging = true', 'useLegacyPackaging = false'),
+        ),
+        [contains('native libraries are not stored compressed')],
       );
     });
 
