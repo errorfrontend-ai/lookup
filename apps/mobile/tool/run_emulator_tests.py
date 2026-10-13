@@ -178,9 +178,8 @@ SECONDS_FOR_THE_BACKGROUND_JOB = 180
 DEFERRED_SHED_RETRY_AFTER_SECONDS = 60
 DEFERRED_LIMITED_RETRY_AFTER_SECONDS = 90
 DOCKER_PROCESS_NAMES = ('com.docker.backend', 'docker desktop')
-# A slow identify (piece 4): 8 s of recording, a clip at GSM speed (about 15 s), the stand-in's 9 s wait, and a slow
-# emulator.
-SECONDS_FOR_A_SLOW_IDENTIFY = 75
+# A slow identify (piece 4): 8 s of recording, the stand-in's 9 s wait, and a slow emulator.
+SECONDS_FOR_A_SLOW_IDENTIFY = 60
 # How long Android may take to make mobile data its network once Wi-Fi is off, and Wi-Fi again once it is back on.
 SECONDS_FOR_A_NETWORK_CHANGE = 60
 # The share of the screen's width the 2:1 banner box takes at least: the card spans the screen less its margins.
@@ -631,7 +630,6 @@ class Device(Protocol):
     def grant_notifications(self, package_name: str) -> None: ...
     def take_network_away(self) -> str: ...
     def bring_network_back(self) -> None: ...
-    def set_network_speed(self, speed: str) -> bool: ...
     def use_mobile_data_only(self) -> str: ...
     def use_wifi_again(self) -> None: ...
 
@@ -1480,26 +1478,22 @@ def slow_send_problems(seen: SlowSendSeen) -> list[str]:
 
 
 def a_slow_answer_says_still_working(context: RunContext) -> str:
-    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with the emulator's network slowed to GSM speed
-    where its console allows, and the stand-in holding its answer 9 seconds, Identifying says "Still working — the
-    connection is slow." after 5 seconds, then how much of the clip has gone or "Clip sent — waiting for the answer",
-    then the Result."""
-    driver, fake_api, device = context.driver, context.fake_api, context.device
+    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with the stand-in holding its answer 9 seconds,
+    Identifying says "Still working — the connection is slow." after 5 seconds, then how much of the clip has gone or
+    "Clip sent — waiting for the answer", then the Result. The clip fits in the phone's send buffer, so the app counts
+    it all sent at once whatever the network's speed (the widget test proves a growing share); the emulator's console
+    can slow its network, but changing the speed back drops the app's open connection (run 3), so it is left alone."""
+    driver, fake_api = context.driver, context.fake_api
     count_before = context.recognize_count()
     fake_api.queue(['match-after-a-wait'])
-    is_slowed = device.set_network_speed('gsm')
-    try:
-        driver.tap(IDENTIFY_LABELS)
-        seen = watch_a_slow_send(driver, SECONDS_FOR_A_SLOW_IDENTIFY)
-    finally:
-        if is_slowed:
-            device.set_network_speed('full')
+    driver.tap(IDENTIFY_LABELS)
+    seen = watch_a_slow_send(driver, SECONDS_FOR_A_SLOW_IDENTIFY)
     problems = slow_send_problems(seen)
     if problems:
         raise StepFailed('; '.join(problems) + f' ({seen.describe()})')
     check_sends(context, count_before, ['match-after-a-wait'])
     context.back_home_from(LABELS['result back'])
-    return f"network {'at GSM speed' if is_slowed else 'at full speed (the console refused GSM)'}; {seen.describe()}"
+    return seen.describe()
 
 
 def match_station_id() -> str:
@@ -1700,6 +1694,158 @@ def pictures_follow_the_switch_on_mobile_data(context: RunContext) -> str:
             f'(no box); switch on, on mobile data: {allowed} px (box shown)')
 
 
+# ---- Piece 5: taps counted once, and answers lost (P6 design §4.8 steps 13, 14) ---------------------------
+
+ENGAGEMENTS_PATH = '/api/v1/engagements'
+
+
+@dataclass(frozen=True)
+class FixtureButton:
+    """A button of a card the stand-in answers with: its type, id and label."""
+    action_type: str
+    action_id: str
+    label: str
+
+
+def buttons_of(card: dict[str, Any]) -> list[FixtureButton]:
+    return [FixtureButton(action['type'], action['id'].lower(), action['label']) for action in card['actions']]
+
+
+def match_buttons() -> list[FixtureButton]:
+    """The buttons of the stand-in's "Match" card, in the card's order."""
+    return buttons_of(json.loads(MATCH_FIXTURE.read_text(encoding='utf-8'))['response']['result']['card'])
+
+
+def chooser_buttons_of(station_id: str) -> list[FixtureButton]:
+    """The buttons of [station_id]'s card in the stand-in's "Which station?" answer."""
+    response = json.loads(CHOOSER_FIXTURE.read_text(encoding='utf-8'))['response']
+    card = next(candidate['card'] for candidate in response['candidates'] if candidate['station']['id'] == station_id)
+    return buttons_of(card)
+
+
+def button(buttons: Sequence[FixtureButton], action_type: str) -> FixtureButton:
+    return next(each for each in buttons if each.action_type == action_type)
+
+
+def tap_requests_since(context: RunContext, requests_before: int) -> list[dict[str, Any]]:
+    """The taps the stand-in answered (204, or a lost answer) since [requests_before] requests."""
+    return [request for request in context.fake_api.request_log().get('requests', [])[requests_before:]
+            if request.get('path') == ENGAGEMENTS_PATH and 'engagement' in request]
+
+
+def kept_taps_of(context: RunContext, recognition_id: str) -> list[dict[str, Any]]:
+    """The taps the stand-in keeps for [recognition_id]: one per button, as the real API keeps them."""
+    return [tap for tap in context.fake_api.state().get('engagements', []) if tap.get('recognition_id') == recognition_id]
+
+
+def tap_a_button(context: RunContext, label: str) -> str:
+    """Taps the Result's button [label] and comes back to the Result: the copy sheet is closed when the phone could
+    not open the address; an app that opened is left by starting Look Up again. Returns which happened."""
+    driver = context.driver
+    driver.tap_scrolling(label)
+    def what_shows() -> str | None:
+        screen = driver.read_screen()
+        if find_nodes(screen.nodes, LABELS['copy sheet heading'], package_name=context.app_package):
+            return 'the copy sheet'
+        if screen.nodes and not any(node.package_name == context.app_package for node in screen.nodes):
+            return 'another app'
+        return None
+    shown = driver.wait_until(what_shows, 15, f'the copy sheet or another app after "{label}"')
+    if shown == 'the copy sheet':
+        driver.tap(LABELS['copy sheet close'])
+    else:
+        context.device.launch_app(context.app_package)
+    driver.wait_for(LABELS['result header'], 20)
+    return shown
+
+
+def taps_are_counted_once_and_wait_for_the_signal(context: RunContext) -> str:
+    """Step 13 (P6-OUTBOX-06, the emulator's half; piece 5 walkthrough (a)): on a Result, "Call us" tapped twice (the
+    test image has no dialler, so the copy sheet shows each time) gives one tap at the stand-in; a button tapped with
+    "No signal" on reaches it once the signal is back, once."""
+    driver, fake_api, card = context.driver, context.fake_api, context.card
+    count_before = context.recognize_count()
+    fake_api.queue(['match'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+    recognition_id = str(check_sends(context, count_before, ['match'])[0].get('recognition_id'))
+    buttons = match_buttons()
+    call, directions = button(buttons, 'CALL'), button(buttons, 'MAP')
+    for _ in range(2):
+        tap_a_button(context, card.call_label)
+    driver.wait_until(lambda: kept_taps_of(context, recognition_id), SECONDS_FOR_AN_OUTBOX_RETRY,
+                      'the Call tap to reach the stand-in')
+    driver.pause(5)   # time for a second tap of Call to arrive, which must not count
+    kept = [tap.get('action_id') for tap in kept_taps_of(context, recognition_id)]
+    if kept != [call.action_id]:
+        raise StepFailed(f'two Call taps left {len(kept)} taps at the stand-in, not one for Call')
+    requests_before = len(fake_api.request_log().get('requests', []))
+    fake_api.set_offline(True)
+    try:
+        opened = tap_a_button(context, directions.label)
+        driver.pause(5)
+        if tap_requests_since(context, requests_before):
+            raise StepFailed('a tap reached the stand-in while "No signal" was on')
+    finally:
+        fake_api.set_offline(False)
+    driver.wait_until(lambda: len(kept_taps_of(context, recognition_id)) == 2, SECONDS_FOR_AN_OUTBOX_RETRY,
+                      f'the "{directions.label}" tap to reach the stand-in once the signal was back')
+    kept = [tap.get('action_id') for tap in kept_taps_of(context, recognition_id)]
+    if kept != [call.action_id, directions.action_id]:
+        raise StepFailed(f'the stand-in keeps the taps {kept}, not Call then {directions.label}')
+    context.back_home_from(LABELS['result back'])
+    return (f'two Call taps (the copy sheet each time) gave one tap; "{directions.label}" with no signal ({opened}) '
+            'arrived once the signal was back')
+
+
+def answers_lost_still_count_once(context: RunContext) -> str:
+    """Step 14 (P6-OUTBOX-05): a clip whose answer is lost on the way is saved and sent again, and gets its answer as
+    a replay; a choice and a tap whose answers are lost are sent again too. The stand-in holds one recognition for
+    the clip's key, one choice and one tap, however often each was sent."""
+    driver, fake_api = context.driver, context.fake_api
+    station_b = CHOOSER_STATIONS[1]
+    # The clip.
+    count_before = context.recognize_count()
+    fake_api.queue(['match-answer-lost'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['saved no connection'], SECONDS_FOR_AN_IDENTIFY)
+    driver.tap(LABELS['saved ok'])
+    driver.wait_for(LABELS['home heading'], 15)
+    driver.wait_until(lambda: [send for send in context.recognize_requests_since(count_before) if send.get('scenario') == 'replay'],
+                      SECONDS_FOR_AN_OUTBOX_RETRY, 'the saved clip to be sent again')
+    sends = context.recognize_requests_since(count_before)
+    if [send.get('scenario') for send in sends] != ['match-answer-lost', 'replay'] or \
+            len({send.get('idempotency_key') for send in sends}) != 1 or len({send.get('recognition_id') for send in sends}) != 1:
+        raise StepFailed(f'the lost answer gave {[(send.get("scenario"), send.get("recognition_id")) for send in sends]}, '
+                         'not one recognition sent twice with one key')
+    # The choice and the tap.
+    count_before = context.recognize_count()
+    requests_before = len(fake_api.request_log().get('requests', []))
+    fake_api.queue(['choose-station', 'choice-answer-lost', 'engagement-answer-lost'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['chooser title'], SECONDS_FOR_AN_IDENTIFY)
+    recognition_id = str(check_sends(context, count_before, ['choose-station'])[0].get('recognition_id'))
+    driver.tap(station_b.spoken_label)
+    driver.wait_for(LABELS['result header'], 15)
+    call = button(chooser_buttons_of(station_b.station_id), 'CALL')
+    tap_a_button(context, call.label)
+    log_of = lambda: fake_api.request_log().get('requests', [])[requests_before:]   # noqa: E731
+    driver.wait_until(lambda: len([request for request in log_of() if 'choice' in request]) >= 2
+                      and len([request for request in log_of() if 'engagement' in request]) >= 2,
+                      3 * SECONDS_FOR_AN_OUTBOX_RETRY, 'the choice and the tap to be sent again after their lost answers')
+    choices = [choice for choice in fake_api.state().get('choices', []) if choice.get('recognition_id') == recognition_id]
+    taps = kept_taps_of(context, recognition_id)
+    if [choice.get('station_id') for choice in choices] != [station_b.station_id]:
+        raise StepFailed(f'the stand-in keeps {len(choices)} choices for the recognition, not one for Station B')
+    if [tap.get('action_id') for tap in taps] != [call.action_id]:
+        raise StepFailed(f'the stand-in keeps {len(taps)} taps for the recognition, not one for Call')
+    context.back_home_from(LABELS['result back'])
+    sent = log_of()
+    return (f'the clip went twice with one key and one recognition id; the choice was sent '
+            f'{len([request for request in sent if "choice" in request])} times and the tap '
+            f'{len([request for request in sent if "engagement" in request])} times, and the stand-in keeps one of each')
+
+
 def a_saved_clip_is_sent_with_the_app_closed(context: RunContext) -> str:
     """Step 7 (P6-OFFLINE-08): with the network away, a clip is saved and the app closed; when the network comes
     back, WorkManager's job sends it with no activity open, and History holds the result at the next start."""
@@ -1811,6 +1957,11 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
      data_use_and_the_pictures_switch),
     ('on mobile data the pictures switch decides the banner box; on Wi-Fi it always shows',
      pictures_follow_the_switch_on_mobile_data),
+    # Piece 5 (P6 design §4.8 steps 13, 14).
+    ('two Call taps count once, and a tap with no signal goes once the signal is back',
+     taps_are_counted_once_and_wait_for_the_signal),
+    ('answers lost on the way: one recognition, one choice and one tap however often sent',
+     answers_lost_still_count_once),
     # Last: clearing the app's data forgets the install and the microphone grant the journeys above rely on.
     ('"How Look Up works" shows on the first start only', first_open_shows_how_look_up_works_once),
 ]
@@ -2063,10 +2214,6 @@ class AdbDevice:
             if time.monotonic() >= deadline:
                 raise StepFailed('the network did not come back')
             time.sleep(2)
-
-    def set_network_speed(self, speed: str) -> bool:
-        """The emulator console's `network speed` (gsm, edge, full …); whether the emulator accepted it."""
-        return 'OK' in self.adb('emu', 'network', 'speed', speed, check=False, timeout_seconds=30)
 
     def use_mobile_data_only(self) -> str:
         """Wi-Fi off and mobile data on; returns once Android's default network is a metered mobile one (P6 design

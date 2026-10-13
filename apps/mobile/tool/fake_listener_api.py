@@ -40,6 +40,9 @@ Listener routes (contract §1 and §4), each with its own queue of answers:
                                                     same answer again for a key it already answered ("replay")
     POST /api/v1/recognitions/{id}/choice           the station chosen in a "Which station?" answer it gave this
                                                     install: 204, the first choice wins (P4 design §5.5)
+    POST /api/v1/engagements                        a button tap on a card an answer it gave this install showed: 204;
+                                                    one per recognition and button; on an unanswered "Which station?"
+                                                    the tap is the choice (amendment A4)
     POST /api/v1/recognitions/{id}/report           "Report this" for an answer it gave this install, naming a station
                                                     that answer showed and one of the contract's four reasons: 204, the
                                                     first report wins and a repeat gets 204 too (P6 design §2.14)
@@ -116,6 +119,9 @@ RECOGNIZE_ROUTE = 'recognize'
 CHOICE_ROUTE = 'choice'
 STATIONS_ROUTE = 'stations'
 REPORT_ROUTE = 'report'
+ENGAGEMENT_ROUTE = 'engagement'
+ENGAGEMENTS_PATH = '/api/v1/engagements'
+ENGAGEMENT_FIELDS = {'recognition_id', 'station_id', 'action_id', 'occurred_at', 'sent_at'}
 
 RECOGNIZE_PATH = '/api/v1/recognize'
 STATIONS_PATH = '/api/v1/stations'
@@ -201,6 +207,10 @@ SCENARIOS: dict[str, dict[str, Any]] = {
                       'envelope': 'errors/envelopes/invalid-audio.json'},
     'unreadable': {'route': RECOGNIZE_ROUTE, 'label': 'An answer the app cannot read', 'unreadable': True},
     'drop': {'route': RECOGNIZE_ROUTE, 'label': 'Connection dropped after the clip', 'drop': True},
+    # The answer is kept, then lost on the way (P6-OUTBOX-05): the app saves the clip, sends it again, and gets the
+    # same answer as a replay; one recognition however often it is sent.
+    'match-answer-lost': {'route': RECOGNIZE_ROUTE, 'label': 'Match, answer lost',
+                          'response': f'{RESPONSES}/match-campaign.json', 'drop_after_keeping': True},
     # A slow identify (P6 design §2.5): the answer comes after SLOW_ANSWER_SECONDS, so the app says "Still working".
     'match-after-a-wait': {'route': RECOGNIZE_ROUTE, 'label': f'Match, after {SLOW_ANSWER_SECONDS} seconds',
                            'response': f'{RESPONSES}/match-campaign.json', 'wait_seconds': SLOW_ANSWER_SECONDS},
@@ -215,6 +225,12 @@ SCENARIOS: dict[str, dict[str, Any]] = {
                     'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
     'choice-not-a-candidate': {'route': CHOICE_ROUTE, 'label': 'Choice: not one of the stations shown',
                                'envelope': 'errors/envelopes/station-not-a-candidate.json'},
+    # A button tap (contract §1.5). Every tap is checked first: an answer this install was given, a station it showed
+    # and a button on that station's card; anything else is refused, so the run fails.
+    'engagement-recorded': {'route': ENGAGEMENT_ROUTE, 'label': 'Tap accepted'},
+    'engagement-answer-lost': {'route': ENGAGEMENT_ROUTE, 'label': 'Tap kept, answer lost', 'drop': True},
+    'engagement-busy': {'route': ENGAGEMENT_ROUTE, 'label': 'Tap: busy', 'envelope': 'errors/envelopes/service-unavailable.json',
+                        'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
     # "Report this" (P6 design §2.14). Every report is checked first: an answer this install was given, a station it
     # showed and one of the four reasons; anything else is refused, so the run fails.
     'report-recorded': {'route': REPORT_ROUTE, 'label': 'Report accepted'},
@@ -230,13 +246,15 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 
 # What each route answers when its queue is empty, and the heading of its buttons on the control page.
 DEFAULT_SCENARIOS: dict[str, str] = {RECOGNIZE_ROUTE: 'match', CHOICE_ROUTE: 'choice-recorded',
-                                     STATIONS_ROUTE: 'stations-list', REPORT_ROUTE: 'report-recorded'}
+                                     STATIONS_ROUTE: 'stations-list', REPORT_ROUTE: 'report-recorded',
+                                     ENGAGEMENT_ROUTE: 'engagement-recorded'}
 ROUTES = tuple(DEFAULT_SCENARIOS)
 ROUTE_HEADINGS: dict[str, str] = {
     RECOGNIZE_ROUTE: 'Next answer to "Tap to identify"',
     CHOICE_ROUTE: 'Next answer to a station choice',
     STATIONS_ROUTE: 'Next answer to the "My station" list',
     REPORT_ROUTE: 'Next answer to "Report this"',
+    ENGAGEMENT_ROUTE: 'Next answer to a button tap',
 }
 ROUTE_DEFAULT_WORDS: dict[str, str] = {
     RECOGNIZE_ROUTE: 'with none queued, the app gets "Match".',
@@ -244,6 +262,8 @@ ROUTE_DEFAULT_WORDS: dict[str, str] = {
     STATIONS_ROUTE: 'with none queued, the app gets Station A and Station B, or "not changed" when it already has them.',
     REPORT_ROUTE: 'with none queued, a report is accepted; the first report of a recording wins, and a repeat is '
                   'accepted too.',
+    ENGAGEMENT_ROUTE: 'with none queued, a tap is accepted; one per recording and button, and a repeat is accepted '
+                      'too.',
 }
 
 # The headers a tunnel or proxy adds: a control request that carries one came from outside this machine (P6-D30).
@@ -321,6 +341,8 @@ class FakeState:
             self.choices: list[dict[str, str]] = []
             # The first report of each recognition, in the order they came: ids and the reason.
             self.reports: list[dict[str, str]] = []
+            # The first tap of each recognition and button, in the order they came: ids only.
+            self.engagements: list[dict[str, str]] = []
             # The update gate: None (off) or a minimum version; and each install's registered version.
             self.minimum_app_version: str | None = None
             self.install_app_versions: dict[str, str] = {}
@@ -338,7 +360,10 @@ class FakeState:
             self.answers_by_key[(install_id, idempotency_key)] = json.loads(json.dumps(response))
             self.answered_recognitions[response['recognition_id']] = {
                 'install_id': install_id, 'status': response['status'],
-                'station_ids': [result['station']['id'] for result in shown]}
+                'station_ids': [result['station']['id'] for result in shown],
+                # The buttons each shown station's card had, for the taps that follow.
+                'action_ids_by_station': {result['station']['id']: [action['id'].lower() for action in result['card']['actions']]
+                                          for result in shown}}
 
     def answered_recognition(self, recognition_id: str) -> dict[str, Any] | None:
         with self.lock:
@@ -358,6 +383,19 @@ class FakeState:
         with self.lock:
             return next((choice['station_id'] for choice in self.choices if choice['recognition_id'] == recognition_id),
                         None)
+
+    def record_engagement(self, recognition_id: str, station_id: str, action_id: str, request_id: str) -> str:
+        """One tap per recognition and button, as on the real API: 'tapped', or 'already tapped' for a repeat. On a
+        "Which station?" answer with no choice yet, the tap is the choice (A4)."""
+        with self.lock:
+            if self.answered_recognitions[recognition_id]['status'] == 'CHOOSE_STATION' and not any(
+                    choice['recognition_id'] == recognition_id for choice in self.choices):
+                self.choices.append({'recognition_id': recognition_id, 'station_id': station_id, 'request_id': request_id})
+            if any(tap['recognition_id'] == recognition_id and tap['action_id'] == action_id for tap in self.engagements):
+                return 'already tapped'
+            self.engagements.append({'recognition_id': recognition_id, 'station_id': station_id, 'action_id': action_id,
+                                     'request_id': request_id})
+            return 'tapped'
 
     def record_report(self, recognition_id: str, station_id: str, reason: str, request_id: str) -> str:
         """The first report of a recognition wins, as on the real API: 'reported', or 'already reported' for a repeat,
@@ -458,6 +496,7 @@ class FakeState:
                 # One per recognition, the first: what the real API would hold however often the app sent it.
                 'choices': [dict(choice) for choice in self.choices],
                 'reports': [dict(report) for report in self.reports],
+                'engagements': [dict(tap) for tap in self.engagements],
                 # Every drawn picture the app loaded, by its size: none while pictures are held back.
                 'pictures_served': [request['picture'] for request in requests if 'picture' in request],
                 # Every station-list request the fake answered (200, 304 or an error), for the 24-hour cache check.
@@ -491,7 +530,7 @@ def outcome_of(request: dict[str, Any]) -> str:
         return 'below the minimum app version: answered 426'
     if 'picture' in request:
         return f"picture {request['picture']}"
-    for key in ('choice', 'report', 'station_list'):
+    for key in ('choice', 'engagement', 'report', 'station_list'):
         if key in request:
             return f"{request.get('scenario')}: {request[key]}"
     for key in ('scenario', 'registration', 'client_error_kind'):
@@ -739,7 +778,20 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length') or 0)
         if length > limit:
             raise RequestRefused(f'body of {length} bytes is over {limit}')
+        self.is_body_read = True
         return self.rfile.read(length)
+
+    def drain_unread_body(self) -> None:
+        """Reads a small body no one has read, before a refusal: Windows answers bytes left unread when the
+        connection closes with a reset, which the caller would see instead of the refusal."""
+        if getattr(self, 'is_body_read', False):
+            return
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+            if 0 < length <= MAXIMUM_CONTROL_BODY_BYTES:
+                self.rfile.read(length)
+        except (ValueError, OSError):
+            pass
 
     def close_unanswered(self) -> None:
         self.close_connection = True
@@ -775,6 +827,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
 
     def answer_control_refusal(self, refusal: ControlRefused) -> None:
         # The refusal says only which rule, never what the request carried; nothing is acted on or recorded.
+        self.drain_unread_body()
         if refusal.status == 404:
             self.answer_json(404, {'error': {'code': 'NOT_FOUND', 'message': 'Not found.', 'request_id': '00000000-0000-4000-8000-000000000000'}})
         else:
@@ -940,6 +993,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                 self.handle_install(request_id)
             elif self.path == RECOGNIZE_PATH:
                 self.handle_recognize(request_id)
+            elif self.path == ENGAGEMENTS_PATH:
+                self.handle_engagement(request_id)
             elif choice_path is not None:
                 self.handle_choice(request_id, choice_path.group(1))
             elif report_path is not None:
@@ -1030,6 +1085,9 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         response['recognition_id'] = new_recognition_id()
         self.state.remember_answer(install_id, fields['idempotency_key'], response)
         self.record({**sent, 'scenario': scenario, 'recognition_id': response['recognition_id']})
+        if SCENARIOS[scenario].get('drop_after_keeping'):
+            self.close_unanswered()   # kept: the same key again gets this answer as a replay
+            return
         wait_seconds = SCENARIOS[scenario].get('wait_seconds')
         if wait_seconds:
             self.state.sleep(wait_seconds)
@@ -1103,6 +1161,64 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if outcome == 'another station was chosen first':
             self.answer_envelope({'envelope': 'errors/envelopes/station-already-chosen.json'}, request_id)
         elif plan.get('drop'):
+            self.close_unanswered()   # kept, but the app never hears so: its outbox sends it again
+        else:
+            self.answer_no_content(request_id)
+
+    def handle_engagement(self, request_id: str) -> None:
+        """A button tap (contract §1.5, P4 design §5.8). Refused, so the run fails, unless it is exactly the five fields,
+        names an answer this install was given by its lower-case version 7 id, a station that answer showed, and a
+        button on that station's card, with both times carrying a time zone. One tap per recognition and button: a
+        repeat answers 204 too. On a "Which station?" answer a tap naming another station than the one chosen gets 422
+        STATION_ALREADY_CHOSEN; with no choice yet, the tap is the choice (A4)."""
+        token = self.bearer_token()
+        with self.state.lock:
+            install_id = self.state.issued_tokens.get(token)
+        body = self.read_body(MAXIMUM_JSON_BODY_BYTES)
+        if install_id is None:
+            self.answer_token_not_issued(request_id)
+            return
+        if self.answers_update_required(install_id, request_id):
+            return
+        if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+            raise RequestRefused('a tap must be sent as application/json')
+        tap = json.loads(body)
+        if not isinstance(tap, dict) or set(tap) != ENGAGEMENT_FIELDS:
+            raise RequestRefused(f'a tap body must be exactly {sorted(ENGAGEMENT_FIELDS)}')
+        recognition_id = tap['recognition_id']
+        if not isinstance(recognition_id, str) or not RECOGNITION_ID.match(recognition_id):
+            raise RequestRefused('recognition_id is not a lower-case UUID version 7')
+        check_uuid(tap['station_id'], 'station_id')
+        check_uuid(tap['action_id'], 'action_id')
+        for name in ('occurred_at', 'sent_at'):
+            if not isinstance(tap[name], str) or not TIMESTAMP_WITH_OFFSET.match(tap[name]):
+                raise RequestRefused(f'{name} is not a time with a time zone')
+        station_id, action_id = tap['station_id'].lower(), tap['action_id'].lower()
+        answered = self.state.answered_recognition(recognition_id)
+        if answered is None:
+            raise RequestRefused('the recognition is not an answer the stand-in gave')
+        if answered['install_id'] != install_id:
+            raise RequestRefused('the recognition was answered to another install')
+        if station_id not in answered['station_ids']:
+            raise RequestRefused('the station is not one of the stations that answer showed')
+        if action_id not in answered['action_ids_by_station'].get(station_id, []):
+            raise RequestRefused("the button is not on that station's card")
+        scenario = self.state.next_scenario(ENGAGEMENT_ROUTE)
+        plan = SCENARIOS[scenario]
+        details = {'request_id': request_id, 'recognition_id': recognition_id, 'station_id': station_id,
+                   'action_id': action_id}
+        if 'envelope' in plan:
+            self.record({**details, 'scenario': scenario})
+            self.answer_envelope(plan, request_id)
+            return
+        chosen = self.state.chosen_station_of(recognition_id)
+        if chosen is not None and chosen != station_id:
+            self.record({**details, 'scenario': scenario, 'engagement': 'another station was chosen'})
+            self.answer_envelope({'envelope': 'errors/envelopes/station-already-chosen.json'}, request_id)
+            return
+        outcome = self.state.record_engagement(recognition_id, station_id, action_id, request_id)
+        self.record({**details, 'scenario': scenario, 'engagement': outcome})
+        if plan.get('drop'):
             self.close_unanswered()   # kept, but the app never hears so: its outbox sends it again
         else:
             self.answer_no_content(request_id)
@@ -1436,6 +1552,7 @@ def render_panel(nonce: str, port: int) -> str:
     <p id="choices"></p>
     <p id="station-list-requests"></p>
     <p id="reports"></p>
+    <p id="engagements"></p>
     <p id="pictures"></p>
     <div class="table-scroll">
       <table>
@@ -1531,6 +1648,8 @@ def render_panel(nonce: str, port: int) -> str:
       document.getElementById('reports').textContent = 'Reports: ' + state.reports.length
         + (state.reports.length ? ' — ' + state.reports.map((report) => report.reason).join(', ') : '');
       document.getElementById('pictures').textContent = 'Pictures loaded: ' + state.pictures_served.length;
+      document.getElementById('engagements').textContent = 'Taps: ' + state.engagements.length
+        + (state.engagements.length ? ' — ' + state.engagements.map((tap) => stationName(tap.station_id)).join(', ') : '');
       const body = document.getElementById('recent');
       body.replaceChildren();
       for (const request of state.recent_requests.slice().reverse()) {{

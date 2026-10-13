@@ -168,6 +168,24 @@ class FakeListenerApiTest(unittest.TestCase):
         encoded = body if isinstance(body, bytes) else json.dumps(body).encode()
         return self.send(f'/api/v1/recognitions/{recognition_id}/report', encoded, headers)
 
+    def tap(self, token: str | None, body: Any, content_type: str = 'application/json',
+            request_id: str | None = None) -> tuple[int, dict[str, str], Any]:
+        """A button tap as the app's outbox sends it: JSON, its own request id, the install token."""
+        headers = {'Content-Type': content_type, 'X-Request-Id': request_id or str(uuid.uuid4())}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+        encoded = body if isinstance(body, bytes) else json.dumps(body).encode()
+        return self.send('/api/v1/engagements', encoded, headers)
+
+    @staticmethod
+    def tap_on(answer: dict[str, Any], station_position: int = 0, action_position: int = 0) -> dict[str, str]:
+        """The body of a tap on a button of a station [answer] showed."""
+        shown = answer.get('candidates') or [answer['result']]
+        result = shown[station_position]
+        return {'recognition_id': answer['recognition_id'], 'station_id': result['station']['id'],
+                'action_id': result['card']['actions'][action_position]['id'],
+                'occurred_at': '2026-10-14T07:30:05.000Z', 'sent_at': '2026-10-14T07:31:00.000Z'}
+
     def use_public_origin(self, public_origin: str | None) -> None:
         """As if started with --public-origin."""
         self.server.RequestHandlerClass.state.public_origin = public_origin
@@ -376,17 +394,18 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertEqual(SCENARIOS['match']['label'], 'Match')
 
     def test_a_queued_answer_joins_its_own_route_queue_and_the_state_shows_it(self) -> None:
-        self.queue('busy', 'choice-busy', 'no-match', 'stations-unavailable', 'report-busy')
+        self.queue('busy', 'choice-busy', 'no-match', 'stations-unavailable', 'report-busy', 'engagement-busy')
+        others = {'report': ['report-busy'], 'engagement': ['engagement-busy']}
         self.assertEqual(self.state()['queued'], {'recognize': ['busy', 'no-match'], 'choice': ['choice-busy'],
-                                                  'stations': ['stations-unavailable'], 'report': ['report-busy']})
+                                                  'stations': ['stations-unavailable'], **others})
         token = self.registered_token()   # a registration takes nothing from any queue
         self.assertEqual(self.state()['queued']['recognize'], ['busy', 'no-match'])
         self.assertEqual(self.recognize(token)[0], 503)
         self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'],
-                                                  'stations': ['stations-unavailable'], 'report': ['report-busy']})
+                                                  'stations': ['stations-unavailable'], **others})
         self.assertEqual(self.list_stations(token)[0], 503)   # the list takes only from its own queue
         self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'], 'stations': [],
-                                                  'report': ['report-busy']})
+                                                  **others})
 
     # ---- the control page and its checks (P6-D30, P6-D50) -----------------------------------------
 
@@ -1259,6 +1278,120 @@ class FakeListenerApiTest(unittest.TestCase):
             self.assertIn(label, page)
         self.assertIn("'Reports: ' + state.reports.length", page)
         self.assertIn("'Pictures loaded: ' + state.pictures_served.length", page)
+
+    # ---- button taps and answers lost (P6 design piece 5) ------------------------------------------------------
+
+    def test_a_tap_on_a_shown_button_is_accepted_once_per_recognition_and_button(self) -> None:
+        token = self.registered_token()
+        match = self.recognize(token)[2]
+        first_request_id = str(uuid.uuid4())
+        status, headers, body = self.tap(token, self.tap_on(match), request_id=first_request_id)
+        self.assertEqual((status, headers['X-Request-Id'], headers['Cache-Control'], body), (204, first_request_id, 'no-store', b''))
+        self.assertEqual(self.tap(token, self.tap_on(match))[0], 204)
+        self.assertEqual(self.tap(token, self.tap_on(match, action_position=1))[0], 204)
+        call, chat = (match['result']['card']['actions'][position]['id'] for position in (0, 1))
+        self.assertEqual([(tap['action_id'], tap['request_id'] == first_request_id) for tap in self.state()['engagements']],
+                         [(call, True), (chat, False)])
+        outcomes = [request['outcome'] for request in self.state()['recent_requests'] if request['path'] == '/api/v1/engagements']
+        self.assertEqual(outcomes, ['engagement-recorded: tapped', 'engagement-recorded: already tapped', 'engagement-recorded: tapped'])
+        self.assertEqual(self.state()['refused'], 0)
+
+    def test_the_shared_tap_fixtures_valid_accepted_and_invalid_refused(self) -> None:
+        token = self.registered_token()
+        folder = FIXTURES / 'recognition' / 'engagement-input'
+        match = self.recognize(token)[2]
+        invalid = sorted((folder / 'invalid').glob('*.json'))
+        self.assertGreaterEqual(len(invalid), 5)
+        for path in invalid:
+            with self.subTest(path.name):
+                self.assertEqual(self.tap(token, json.loads(path.read_text(encoding='utf-8'))['body'])[0], 400)
+        self.assertEqual(self.state()['engagements'], [])
+        for path in sorted((folder / 'valid').glob('*.json')):
+            with self.subTest(path.name):
+                fixture = json.loads(path.read_text(encoding='utf-8'))['body']
+                answer = self.recognize(token)[2]
+                body = {**fixture, **{name: self.tap_on(answer)[name] for name in ('recognition_id', 'station_id', 'action_id')}}
+                self.assertEqual(self.tap(token, body)[0], 204)
+
+    def test_a_tap_the_real_api_would_refuse_or_the_app_never_sends_is_refused(self) -> None:
+        token = self.registered_token()
+        other_token = self.registered_token()
+        match = self.recognize(token)[2]
+        others_match = self.recognize(other_token)[2]
+        self.queue('no-match')
+        no_match = self.recognize(token)[2]
+        good = self.tap_on(match)
+        not_shown = read_fixture('recognition/recognize-response/valid/match-campaign-station-b.json')['response']['result']['station']['id']
+        mistakes = {
+            'no token': lambda: self.tap(None, good),
+            'an id in upper case': lambda: self.tap(token, {**good, 'recognition_id': good['recognition_id'].upper()}),
+            'an id that is not version 7': lambda: self.tap(token, {**good, 'recognition_id': str(uuid.uuid4())}),
+            'an id the stand-in never answered': lambda: self.tap(token, {**good, 'recognition_id': '01a11b46-ffba-7c3d-8f10-2b3c4d5e6f99'}),
+            "another install's result": lambda: self.tap(token, self.tap_on(others_match)),
+            'a "No match", which shows no station': lambda: self.tap(token, {**good, 'recognition_id': no_match['recognition_id']}),
+            'a station the answer did not show': lambda: self.tap(token, {**good, 'station_id': not_shown}),
+            'a button not on the card': lambda: self.tap(token, {**good, 'action_id': str(uuid.uuid4())}),
+            'a time with no time zone': lambda: self.tap(token, {**good, 'occurred_at': '2026-10-14T07:30:05'}),
+            'no send time': lambda: self.tap(token, {name: value for name, value in good.items() if name != 'sent_at'}),
+            'the button\'s type': lambda: self.tap(token, {**good, 'action_type': 'CALL'}),
+            'a phone number': lambda: self.tap(token, {**good, 'phone_number_e164': '+447700900001'}),
+            'a body sent as a form': lambda: self.tap(token, good, content_type='application/x-www-form-urlencoded'),
+            'no request id': lambda: self.tap(token, good, request_id='not-a-uuid'),
+        }
+        for description, send in mistakes.items():
+            with self.subTest(description):
+                self.assertEqual(send()[0], 400)
+        self.assertEqual(self.state()['refused'], len(mistakes))
+        self.assertEqual(self.state()['engagements'], [])
+        status, _, body = self.tap('made.up.token', good)
+        self.assertEqual((status, body['error']['code']), (401, 'INSTALL_TOKEN_INVALID'))
+
+    def test_a_tap_on_an_unanswered_chooser_is_the_choice_and_another_station_afterwards_gets_422(self) -> None:
+        token = self.registered_token()
+        chooser = self.chooser(token)
+        station_a, station_b = (candidate['station']['id'] for candidate in chooser['candidates'])
+        self.assertEqual(self.tap(token, self.tap_on(chooser, station_position=1))[0], 204)
+        self.assertEqual([choice['station_id'] for choice in self.state()['choices']], [station_b])
+        status, _, refused = self.tap(token, self.tap_on(chooser, station_position=0))
+        self.assertEqual((status, refused['error']['code']), (422, 'STATION_ALREADY_CHOSEN'))
+        self.assertEqual([tap['station_id'] for tap in self.state()['engagements']], [station_b])
+        self.assertNotIn(station_a, [tap['station_id'] for tap in self.state()['engagements']])
+
+    def test_tap_scenarios_say_busy_or_lose_the_answer_and_no_signal_cuts_a_tap_off(self) -> None:
+        token = self.registered_token()
+        match = self.recognize(token)[2]
+        self.queue('engagement-busy', 'engagement-answer-lost')
+        status, headers, answer = self.tap(token, self.tap_on(match))
+        self.assertEqual((status, answer['error']['code'], headers['Retry-After']), (503, 'SERVICE_UNAVAILABLE', '6'))
+        with self.assertRaises(NO_ANSWER):
+            self.tap(token, self.tap_on(match))
+        self.assertEqual(len(self.state()['engagements']), 1)
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': True})[0], 200)
+        with self.assertRaises(NO_ANSWER):
+            self.tap(token, self.tap_on(match))
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': False})[0], 200)
+        self.assertEqual(self.tap(token, self.tap_on(match))[0], 204)
+        self.assertEqual(len(self.state()['engagements']), 1)
+
+    def test_match_answer_lost_keeps_the_answer_so_the_same_key_again_is_its_replay(self) -> None:
+        token = self.registered_token()
+        fields = live_fields()
+        self.queue('match-answer-lost')
+        with self.assertRaises(NO_ANSWER):
+            self.recognize(token, fields)
+        status, _, replay = self.recognize(token, {**fields, 'is_deferred': 'true'})
+        self.assertEqual((status, replay['status']), (200, 'MATCH'))
+        sends = [recognition for recognition in self.state()['recognitions'] if recognition['idempotency_key'] == fields['idempotency_key']]
+        self.assertEqual([send['scenario'] for send in sends], ['match-answer-lost', 'replay'])
+        self.assertEqual({send['recognition_id'] for send in sends}, {replay['recognition_id']})
+
+    def test_the_control_page_offers_the_tap_answers_and_counts_taps(self) -> None:
+        page = self.get('/__fake/panel')[2].decode('utf-8')
+        self.assertIn('Next answer to a button tap', page)
+        for label in ('Next answer: Tap accepted<', 'Next answer: Tap: busy<', 'Next answer: Tap kept, answer lost<',
+                      'Next answer: Match, answer lost<'):
+            self.assertIn(label, page)
+        self.assertIn("'Taps: ' + state.engagements.length", page)
 
 
 

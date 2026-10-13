@@ -1432,7 +1432,7 @@ class FullListenerAppJourneyTest(unittest.TestCase):
 
     def test_the_new_journeys_run_after_step_4s_and_the_first_open_one_last(self) -> None:
         names = [journey for _, journey in runner.JOURNEYS]
-        self.assertEqual(names[-18:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
+        self.assertEqual(names[-20:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
                                        runner.cancel_on_the_sheet_chooses_nothing,
                                        runner.history_keeps_a_result_that_works_with_no_data,
                                        runner.station_list_is_asked_for_once,
@@ -1450,6 +1450,9 @@ class FullListenerAppJourneyTest(unittest.TestCase):
                                        runner.a_slow_answer_says_still_working,
                                        runner.data_use_and_the_pictures_switch,
                                        runner.pictures_follow_the_switch_on_mobile_data,
+                                       # Piece 5.
+                                       runner.taps_are_counted_once_and_wait_for_the_signal,
+                                       runner.answers_lost_still_count_once,
                                        runner.first_open_shows_how_look_up_works_once])
         self.assertLess(names.index(runner.send_test_error), names.index(runner.a_crash_report_waits_for_the_signal))
 
@@ -1629,10 +1632,32 @@ class PieceFourTest(unittest.TestCase):
     def test_piece_four_journeys_queue_only_answers_the_stand_in_knows(self) -> None:
         import fake_listener_api
 
-        for name in ('match', 'match-after-a-wait', 'match-with-images'):
+        for name in ('match', 'match-after-a-wait', 'match-with-images', 'match-answer-lost', 'choose-station',
+                     'choice-answer-lost', 'engagement-answer-lost'):
             self.assertIn(name, fake_listener_api.SCENARIOS)
         self.assertEqual(runner.pictures_card_title(), CARD.title)
         self.assertEqual(runner.match_station_id(), runner.CHOOSER_STATIONS[0].station_id)
+
+    def test_the_tap_journeys_read_their_buttons_from_the_fixtures_the_stand_in_answers_with(self) -> None:
+        buttons = runner.match_buttons()
+        self.assertEqual(runner.button(buttons, 'CALL').label, CARD.call_label)
+        self.assertEqual(runner.button(buttons, 'MAP').label, 'Find our shop')
+        station_b = runner.CHOOSER_STATIONS[1]
+        call_of_b = runner.button(runner.chooser_buttons_of(station_b.station_id), 'CALL')
+        self.assertRegex(call_of_b.action_id, r'^[0-9a-f-]{36}$')
+        with self.assertRaises(StopIteration):
+            runner.chooser_buttons_of('0192a6c4-1111-4000-8000-00000000ffff')
+
+    def test_only_answered_taps_since_the_mark_are_read(self) -> None:
+        fake_api = ScriptedFakeApi()
+        fake_api.requests = [
+            {'path': runner.ENGAGEMENTS_PATH, 'engagement': 'tapped', 'action_id': 'old'},
+            {'path': runner.ENGAGEMENTS_PATH, 'dropped': 'offline'},
+            {'path': runner.ENGAGEMENTS_PATH, 'refused': 'a tap body must be exactly'},
+            {'path': runner.ENGAGEMENTS_PATH, 'engagement': 'already tapped', 'action_id': 'new'},
+        ]
+        context, _ = context_for(ScriptedPhone(screens={'home': HOME}, taps={}), fake_api)
+        self.assertEqual([tap['action_id'] for tap in runner.tap_requests_since(context, 1)], ['new'])
 
 
 class StandInControlTest(unittest.TestCase):
@@ -1665,7 +1690,7 @@ class StandInControlTest(unittest.TestCase):
 
     def test_the_scenarios_the_journeys_queue_are_known_to_the_stand_in(self) -> None:
         names = ['choose-station', 'match-by-hint', 'match', 'drop', 'no-match', 'busy-deferred-shed',
-                 'rate-limited-deferred', 'match-station-b', 'match-after-a-wait', 'match-with-images']
+                 'rate-limited-deferred', 'match-station-b', 'match-after-a-wait', 'match-with-images', 'match-answer-lost']
         self.fake_api.queue(names)
         self.assertEqual(self.fake_api.state()['queued']['recognize'], names)
 
