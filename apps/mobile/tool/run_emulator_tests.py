@@ -80,6 +80,21 @@ LABELS: dict[str, str] = {
     'no connection heading': 'No connection',                          # §2.10
     'send again': 'Send again',                                        # §2.10
     'set-up problem': "This copy of Look Up isn't set up correctly.",  # §2.11
+    # The full listener app (P6 design).
+    'chooser title': 'Which station are you listening to?',            # P6 §2.6
+    'chooser lead': 'This ad is on more than one station right now.',  # P6 §2.6
+    'chooser remember': 'Remember my station — skip this next time',   # P6 §2.6
+    'chooser cancel': 'Cancel',                                        # P6 §2.6
+    'saved to history': 'Saved to History',                            # P6 §2.7
+    'tab identify': 'Identify',                                        # P6 §2.2
+    'tab history': 'History',                                          # P6 §2.2
+    'tab settings': 'Settings',                                        # P6 §2.2
+    'history earlier': 'Earlier',                                      # P6 §2.9
+    'saved result heading': 'Saved result',                            # P6 §2.10
+    'back': 'Back',                                                    # P6 §2.10, §2.12, the pages' Back arrow
+    'settings my station': 'My station',                               # P6 §2.11
+    'picker no station': 'No station',                                 # P6 §2.12
+    'how it works': 'How Look Up works',                               # P6 §2.3
 }
 
 # Android 13's permission dialog. "While using the app" keeps the grant for the later journeys.
@@ -93,6 +108,10 @@ APP_FOLDER = Path(__file__).resolve().parents[1]
 REPOSITORY_FOLDER = APP_FOLDER.parents[1]
 MATCH_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition' / 'recognize-response'
                  / 'valid' / 'match-campaign.json')
+CHOOSER_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition' / 'recognize-response'
+                   / 'valid' / 'choose-station.json')
+STATION_LIST_FIXTURE = (REPOSITORY_FOLDER / 'packages' / 'contracts' / 'fixtures' / 'recognition'
+                        / 'listener-station-list' / 'valid' / 'two-stations.json')
 FAKE_API_SCRIPT = APP_FOLDER / 'tool' / 'fake_listener_api.py'
 CLIP_CHECKER = APP_FOLDER / 'tool' / 'check_received_clip.py'
 FINGERPRINTER_PYTHON = (REPOSITORY_FOLDER / 'services' / 'fingerprinter' / '.venv'
@@ -112,6 +131,9 @@ PRODUCTION_PACKAGE = 'zm.lookup.listener'
 MAIN_ACTIVITY = 'zm.lookup.listener.MainActivity'
 INSTALLS_PATH = '/api/v1/installs'
 RECOGNIZE_PATH = '/api/v1/recognize'
+# P6 design §4.8: with "No signal" the emulator's network stays up, so only the outbox's own wake-up sends again;
+# the development build retries after at most 5, 10, 20 and 40 seconds.
+SECONDS_FOR_AN_OUTBOX_RETRY = 45
 DOCKER_PROCESS_NAMES = ('com.docker.backend', 'docker desktop')
 # S4-REQUEST-02: the request for an 8-second clip never goes over 32 KB (design §3.10). Its audio is at least
 # 16,000 bytes: a real 8-second clip at 24,000 bit/s is about 25-27 KB, so less means the recorder sent too little.
@@ -286,6 +308,37 @@ class CardExpectation:
     @property
     def labels(self) -> list[str]:
         return [self.client_name, self.via_line, self.title, self.call_label]
+
+    @property
+    def history_title(self) -> str:
+        """The first line of its row in History (P6 §2.9)."""
+        return f'{self.client_name} — {self.title}'
+
+
+@dataclass(frozen=True)
+class ListedStation:
+    """A station as the "Which station?" sheet and the "My station" picker show it."""
+    station_id: str
+    name: str
+    spoken_label: str   # the row's screen-reader label, e.g. `Station B, 104.3 FM, Kitwe`
+    via_line: str       # the Result's line, e.g. `via Station B · 104.3 FM`
+
+    @classmethod
+    def from_station(cls, station: dict[str, Any]) -> ListedStation:
+        spoken = ', '.join(part for part in (station['name'], station['frequency_label'], station.get('city')) if part)
+        return cls(station['id'], station['name'], spoken, f"via {station['name']} · {station['frequency_label']}")
+
+
+def chooser_stations(fixture_path: Path) -> list[ListedStation]:
+    """The stations of the stand-in's "Which station?" answer, in the order the sheet shows them."""
+    response = json.loads(fixture_path.read_text(encoding='utf-8'))['response']
+    return [ListedStation.from_station(candidate['station']) for candidate in response['candidates']]
+
+
+def listed_stations(fixture_path: Path) -> list[ListedStation]:
+    """The stations of the stand-in's `GET /stations` answer."""
+    return [ListedStation.from_station(station)
+            for station in json.loads(fixture_path.read_text(encoding='utf-8'))['response']['stations']]
 
 
 def requests_to(log: dict[str, Any], path: str) -> list[dict[str, Any]]:
@@ -481,6 +534,7 @@ class Device(Protocol):
     def screen_size(self) -> tuple[int, int]: ...
     def launch_app(self, package_name: str) -> None: ...
     def stop_app(self, package_name: str) -> None: ...
+    def clear_app_data(self, package_name: str) -> None: ...
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]: ...
     def read_device_log(self) -> str: ...
 
@@ -489,6 +543,8 @@ class FakeApiControl(Protocol):
     def queue(self, scenario_names: Sequence[str]) -> None: ...
     def request_log(self) -> dict[str, Any]: ...
     def reset(self) -> None: ...
+    def set_offline(self, is_offline: bool) -> None: ...
+    def state(self) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -788,6 +844,180 @@ def restart_makes_no_new_registration(context: RunContext) -> str:
     return f'still {count_after} /installs call after the restart'
 
 
+# ---- The full listener app, pieces 1 and 2 (P6 design §4.8 steps 1-5 and 17) ------------------------------
+
+CHOOSER_STATIONS = chooser_stations(CHOOSER_FIXTURE)
+LISTED_STATIONS = listed_stations(STATION_LIST_FIXTURE)
+
+
+def choice_requests(log: dict[str, Any]) -> list[dict[str, Any]]:
+    """The station choices the fake answered: neither refused nor cut off by "No signal"."""
+    return [request for request in log.get('requests', [])
+            if str(request.get('path', '')).endswith('/choice') and 'refused' not in request
+            and 'dropped' not in request]
+
+
+def new_choices(fake_api: FakeApiControl, count_before: int) -> list[dict[str, Any]]:
+    """The choices the fake holds beyond the first [count_before]: one per recognition, the first sent."""
+    return list(fake_api.state().get('choices', []))[count_before:]
+
+
+def choose_a_station_with_no_signal(context: RunContext) -> str:
+    """Step 1 (P6-TESTS-07 part 1, P6-CHOOSER-10): the sheet with both rows and "Remember" ticked; with "No signal"
+    on, a tap on Station B shows its Result at once; once the signal is back, the outbox sends the choice by
+    itself, exactly once."""
+    driver, fake_api = context.driver, context.fake_api
+    station_a, station_b = CHOOSER_STATIONS[0], CHOOSER_STATIONS[1]
+    count_before = context.recognize_count()
+    choices_before = len(fake_api.state().get('choices', []))
+    answered_before = len(choice_requests(fake_api.request_log()))
+    fake_api.queue(['choose-station'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['chooser title'], SECONDS_FOR_AN_IDENTIFY)
+    driver.expect_all([LABELS['chooser lead'], station_a.spoken_label, station_b.spoken_label,
+                       LABELS['chooser remember'], LABELS['chooser cancel']], swipes=0)
+    check_sends(context, count_before, ['choose-station'])
+    fake_api.set_offline(True)
+    try:
+        driver.tap(station_b.spoken_label)
+        driver.wait_for(LABELS['result header'], 10)
+        driver.expect_all([station_b.via_line])
+        if new_choices(fake_api, choices_before):
+            raise StepFailed('a choice reached the fake while "No signal" was on')
+    finally:
+        fake_api.set_offline(False)
+    driver.wait_until(lambda: new_choices(fake_api, choices_before), SECONDS_FOR_AN_OUTBOX_RETRY,
+                      'the choice to reach the fake after "No signal" was switched off')
+    driver.pause(10)   # a second send of the same choice would arrive by now
+    choices = new_choices(fake_api, choices_before)
+    answered = choice_requests(fake_api.request_log())[answered_before:]
+    if [choice.get('station_id') for choice in choices] != [station_b.station_id] or len(answered) != 1:
+        raise StepFailed(f'the fake holds {choices} as new choices after {len(answered)} answered choice requests, '
+                         f'not one choice of {station_b.name} sent once')
+    context.back_home_from(LABELS['result back'])
+    return (f'{station_b.name} shown at once with no signal; its choice arrived once the signal was back '
+            f"(request id {answered[0].get('request_id')})")
+
+
+def remembered_station_skips_the_sheet(context: RunContext) -> str:
+    """Step 2 (P6-CHOOSER-15, the stand-in's half): "Remember" was ticked in step 1, so the next identify carries
+    Station B as its hint, and the stand-in's "Match by my station" answers with Station B's card: no sheet."""
+    driver, fake_api = context.driver, context.fake_api
+    station_b = CHOOSER_STATIONS[1]
+    count_before = context.recognize_count()
+    fake_api.queue(['match-by-hint'])
+    driver.tap(IDENTIFY_LABELS)
+    seen, _ = driver.wait_for_any([LABELS['result header'], LABELS['chooser title']], SECONDS_FOR_AN_IDENTIFY)
+    if seen != LABELS['result header']:
+        raise StepFailed('the sheet "Which station?" showed, though My station was set in the step before')
+    driver.expect_all([station_b.via_line])
+    check_sends(context, count_before, ['match-by-hint'])
+    hint = (fake_api.state().get('recognitions') or [{}])[-1].get('station_hint')
+    if hint != station_b.station_id:
+        raise StepFailed(f'the identify carried the hint {hint!r}, not {station_b.name} ({station_b.station_id})')
+    context.back_home_from(LABELS['result back'])
+    return f'no sheet; the identify carried {station_b.name} as its hint, and the Result shows it'
+
+
+def cancel_on_the_sheet_chooses_nothing(context: RunContext) -> str:
+    """Step 3 (P6-CHOOSER-14): Cancel on the sheet goes Home, and no choice is sent."""
+    driver, fake_api = context.driver, context.fake_api
+    count_before = context.recognize_count()
+    answered_before = len(choice_requests(fake_api.request_log()))
+    fake_api.queue(['choose-station'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['chooser title'], SECONDS_FOR_AN_IDENTIFY)
+    check_sends(context, count_before, ['choose-station'])
+    driver.tap(LABELS['chooser cancel'])
+    driver.wait_for(LABELS['home heading'], 15)
+    driver.pause(15)   # the outbox would have sent a queued choice by now (development builds wait at most 5 s)
+    sent = choice_requests(fake_api.request_log())[answered_before:]
+    if sent:
+        raise StepFailed(f'{len(sent)} choice request(s) reached the fake after Cancel')
+    return 'Home, and no choice sent'
+
+
+def history_keeps_a_result_that_works_with_no_data(context: RunContext) -> str:
+    """Step 4 (P6-HISTORY-02, the emulator's half): the Result says "Saved to History"; History lists it under
+    "Earlier"; with "No signal" on, the row opens the saved result, and its Call button offers the copy sheet (the
+    test image has no dialler)."""
+    driver, card, fake_api = context.driver, context.card, context.fake_api
+    count_before = context.recognize_count()
+    fake_api.queue(['match'])
+    driver.tap(IDENTIFY_LABELS)
+    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+    check_sends(context, count_before, ['match'])
+    driver.expect_all([LABELS['saved to history']])
+    context.back_home_from(LABELS['result back'])
+    driver.tap(LABELS['tab history'])
+    driver.wait_for(LABELS['history earlier'], 15)
+    requests_before = len(fake_api.request_log().get('requests', []))
+    fake_api.set_offline(True)
+    try:
+        driver.tap_scrolling(card.history_title)
+        driver.wait_for(LABELS['saved result heading'], 15)
+        driver.expect_all(card.labels)
+        driver.tap_scrolling(card.call_label)
+        driver.wait_for(LABELS['copy sheet heading'], 15)
+        driver.expect_all([card.call_number_display, LABELS['copy number']], swipes=0)
+        driver.tap(LABELS['copy sheet close'])
+        driver.tap_scrolling(LABELS['back'])
+        driver.wait_for(LABELS['history earlier'], 15)
+    finally:
+        fake_api.set_offline(False)
+    asked = fake_api.request_log().get('requests', [])[requests_before:]
+    if asked:
+        raise StepFailed(f'opening the saved result sent {len(asked)} request(s): it must need no data')
+    driver.tap(LABELS['tab identify'])
+    driver.wait_for(LABELS['home heading'], 15)
+    return (f'History listed "{card.history_title}"; with no signal it opened with no request, and Call offered '
+            f'{card.call_number_display}')
+
+
+def station_list_is_asked_for_once(context: RunContext) -> str:
+    """Step 5 (P6-MYSTATION-02, -04): Settings, then My station: the picker lists exactly the stations the stand-in
+    returned, after one GET /stations; opened again, it asks for nothing (the list is kept for 24 hours)."""
+    driver, fake_api = context.driver, context.fake_api
+    requests_before = int(fake_api.state().get('station_list_requests', 0))
+    driver.tap(LABELS['tab settings'])
+    driver.tap(LABELS['settings my station'], 15)
+    driver.expect_all([LABELS['picker no station'], *[station.spoken_label for station in LISTED_STATIONS]])
+    asked = int(fake_api.state().get('station_list_requests', 0)) - requests_before
+    if asked != 1:
+        raise StepFailed(f'opening the picker made {asked} station-list requests, not one')
+    driver.tap_scrolling(LABELS['back'])
+    driver.tap(LABELS['settings my station'], 15)
+    driver.expect_all([station.spoken_label for station in LISTED_STATIONS])
+    driver.pause(3)   # a second request would arrive by now
+    asked = int(fake_api.state().get('station_list_requests', 0)) - requests_before
+    if asked != 1:
+        raise StepFailed(f'opening the picker again asked for the list again ({asked} requests in all); '
+                         'it is kept for 24 hours')
+    driver.tap_scrolling(LABELS['back'])
+    driver.tap(LABELS['tab identify'])
+    driver.wait_for(LABELS['home heading'], 15)
+    return (f"the picker listed {', '.join(station.name for station in LISTED_STATIONS)} after one GET /stations, "
+            'and asked for nothing when opened again')
+
+
+def first_open_shows_how_look_up_works_once(context: RunContext) -> str:
+    """Step 17 (ALL-USABILITY-04): with the app's data cleared, the first start shows "How Look Up works" on Home,
+    and a restart does not. It runs last: clearing the data also forgets the install and the microphone grant."""
+    driver, device = context.driver, context.device
+    device.stop_app(context.app_package)
+    device.clear_app_data(context.app_package)
+    device.launch_app(context.app_package)
+    driver.wait_for(LABELS['how it works'], 40)
+    driver.pause(2)   # the note is recorded as shown once it has been drawn
+    device.stop_app(context.app_package)
+    device.launch_app(context.app_package)
+    driver.wait_for(LABELS['home heading'], 40)
+    driver.pause(2)
+    if find_nodes(driver.read_screen().nodes, LABELS['how it works'], package_name=context.app_package):
+        raise StepFailed('"How Look Up works" showed again after a restart: it belongs to the first start only')
+    return 'the note showed on the first start, and not after a restart'
+
+
 JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('first launch registers once', first_launch_registers_once),
     ('Home, Permission, system dialog, Listening, Result; the call button offers the copy sheet',
@@ -798,6 +1028,15 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('a dropped connection shows No connection; "Send again" reaches Result', identify_with_dropped_connection),
     ('"Send a test error" sends one report to /client-errors', send_test_error),
     ('a restart of the installed app makes no new /installs call', restart_makes_no_new_registration),
+    ('"Which station?" with no signal: Station B shows at once, and its choice is sent once the signal is back',
+     choose_a_station_with_no_signal),
+    ('"Remember my station": the next identify carries the hint, and no sheet shows', remembered_station_skips_the_sheet),
+    ('Cancel on "Which station?" goes Home and sends no choice', cancel_on_the_sheet_chooses_nothing),
+    ('History keeps the result: with no signal it opens, and Call offers the copy sheet',
+     history_keeps_a_result_that_works_with_no_data),
+    ('the "My station" list is asked for once, then kept', station_list_is_asked_for_once),
+    # Last: clearing the app's data forgets the install and the microphone grant the journeys above rely on.
+    ('"How Look Up works" shows on the first start only', first_open_shows_how_look_up_works_once),
 ]
 
 
@@ -974,6 +1213,12 @@ class AdbDevice:
     def stop_app(self, package_name: str) -> None:
         self.adb('shell', 'am', 'force-stop', package_name)
 
+    def clear_app_data(self, package_name: str) -> None:
+        """As a fresh install: the app's files, settings and grants are deleted (`pm clear`)."""
+        output = self.adb('shell', 'pm', 'clear', package_name, check=False)
+        if 'Success' not in output:
+            raise StepFailed(f'pm clear {package_name} failed: {output.strip()[:300]}')
+
     def install(self, apk_path: Path) -> None:
         output = ''
         for _ in range(3):   # the package manager can refuse for a moment right after boot
@@ -1026,6 +1271,14 @@ class HttpFakeApi:
 
     def reset(self) -> None:
         self.send('POST', '/__fake/reset', {})
+
+    def set_offline(self, is_offline: bool) -> None:
+        """"No signal": with it on, the fake closes every /api/v1 connection unanswered."""
+        self.send('POST', '/__fake/offline', {'is_offline': is_offline})
+
+    def state(self) -> dict[str, Any]:
+        """What the fake holds: switches, counts, the recognitions' hints and the choices (never an answer)."""
+        return self.send('GET', '/__fake/state')
 
 
 @dataclass

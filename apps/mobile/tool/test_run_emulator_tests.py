@@ -698,6 +698,7 @@ class ScriptedPhone:
         self.swipes = 0
         self.launches: list[str] = []
         self.stops: list[str] = []
+        self.cleared: list[str] = []
         self.evidence: list[str] = []
         self.device_log = ''
         self.is_device_log_readable = True
@@ -735,6 +736,9 @@ class ScriptedPhone:
     def stop_app(self, package_name: str) -> None:
         self.stops.append(package_name)
 
+    def clear_app_data(self, package_name: str) -> None:
+        self.cleared.append(package_name)
+
     def save_evidence(self, name: str, screen: Screen | None) -> list[str]:
         self.evidence.append(name)
         return [f'{name}.xml']
@@ -750,20 +754,50 @@ class ScriptedFakeApi:
         self.queued: list[str] = []
         self.requests: list[dict[str, Any]] = []
         self.reports: list[dict[str, Any]] = []
+        self.is_offline = False
+        # Choices the scripted app has queued in its outbox; they reach the fake once "No signal" is off.
+        self.outbox: list[dict[str, str]] = []
+        self.choices: list[dict[str, str]] = []
+        self.station_list_requests = 0
 
     def queue(self, scenario_names: list[str]) -> None:
         self.queued.extend(scenario_names)
 
     def request_log(self) -> dict[str, Any]:
+        self.deliver_outbox()
         return {'requests': [dict(request) for request in self.requests], 'client_error_reports': list(self.reports)}
 
     def reset(self) -> None:
         self.__init__()
 
+    def set_offline(self, is_offline: bool) -> None:
+        self.is_offline = is_offline
+
+    def state(self) -> dict[str, Any]:
+        self.deliver_outbox()
+        return {'is_offline': self.is_offline, 'choices': [dict(choice) for choice in self.choices],
+                'station_list_requests': self.station_list_requests,
+                'recognitions': [{'scenario': request.get('scenario'), 'station_hint': request.get('station_hint')}
+                                 for request in self.requests if request.get('path') == RECOGNIZE_PATH]}
+
+    def deliver_outbox(self, *, even_offline: bool = False) -> None:
+        """Sends what the scripted app's outbox holds, as the app does once the fake answers again: one request per
+        item, and the first choice per recognition kept, as the real fake keeps it."""
+        if self.is_offline and not even_offline:
+            return
+        for choice in self.outbox:
+            self.requests.append({'method': 'POST', 'path': f"/api/v1/recognitions/{choice['recognition_id']}/choice",
+                                  'request_id': f'choice-{len(self.requests)}', 'station_id': choice['station_id']})
+            if all(kept['recognition_id'] != choice['recognition_id'] for kept in self.choices):
+                self.choices.append(dict(choice))
+        self.outbox = []
+
     def receive_recognize(self, idempotency_key: str = 'key-1',
-                          request_id: str = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f') -> None:
+                          request_id: str = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f', *,
+                          station_hint: str | None = None) -> None:
         scenario = self.queued.pop(0) if self.queued else 'match'
-        self.requests.append(recognize_request(scenario, idempotency_key, f'{request_id}'))
+        self.requests.append({**recognize_request(scenario, idempotency_key, f'{request_id}'),
+                              'station_hint': station_hint})
 
 
 class FakeClock:
@@ -1020,6 +1054,339 @@ class RunJourneysTest(unittest.TestCase):
 
         self.assertEqual([outcome.is_passed for outcome in outcomes], [False, False])
         self.assertTrue(outcomes[1].detail.startswith('not run: the app could not be brought back to Home'))
+
+
+# ---- The full listener app, pieces 1 and 2 (P6 design §4.8 steps 1-5 and 17) -------------------------------
+
+STATION_A, STATION_B = runner.CHOOSER_STATIONS
+CHOOSER_RECOGNITION_ID = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70'
+TABS = [app(LABELS['tab identify']), app(LABELS['tab history']), app(LABELS['tab settings'])]
+HOME_WITH_TABS = [*HOME, *TABS]
+LISTENING = [app('Cancel listening'), app(LABELS['listening heading'])]
+CHOOSER = [app(LABELS['chooser title']), app(LABELS['chooser lead']), app(STATION_A.spoken_label),
+           app(STATION_B.spoken_label), app(LABELS['chooser remember']), app(LABELS['chooser cancel'])]
+RESULT_OF_STATION_B = [app(LABELS['result back']), app(LABELS['result header']),
+                       app(f'{CARD.client_name}\n{STATION_B.via_line}'), app(CARD.title), app(CARD.call_label),
+                       app(LABELS['saved to history'])]
+HISTORY_ROW = f'{CARD.history_title}\nvia Station A \u00b7 Today, 13:05'
+MY_STATION_ROW = 'My station\nNot set \u2014 used when an ad is on more than one station'
+
+
+def chooser_phone(fake_api: ScriptedFakeApi, *, choice_sends: int = 1, is_sent_with_no_signal: bool = False,
+                  shows_result: str = 'result of station b') -> ScriptedPhone:
+    """Identify gives "Which station?"; a tap on Station B shows its Result and queues the choice in the outbox."""
+    def choose_station_b() -> None:
+        fake_api.outbox.extend({'recognition_id': CHOOSER_RECOGNITION_ID, 'station_id': STATION_B.station_id}
+                               for _ in range(choice_sends))
+        if is_sent_with_no_signal:
+            fake_api.deliver_outbox(even_offline=True)
+
+    return ScriptedPhone(
+        screens={'home': HOME_WITH_TABS, 'listening': LISTENING, 'chooser': CHOOSER,
+                 'result of station b': RESULT_OF_STATION_B, 'result of station a': RESULT},
+        taps={('home', LABELS['identify control']): 'listening',
+              ('chooser', STATION_B.spoken_label): shows_result,
+              ('chooser', LABELS['chooser cancel']): 'home',
+              ('result of station b', LABELS['result back']): 'home',
+              ('result of station a', LABELS['result back']): 'home'},
+        moves_after_reads={'listening': (1, 'chooser')},
+        on_enter={'chooser': fake_api.receive_recognize, 'result of station b': choose_station_b,
+                  'result of station a': choose_station_b},
+    )
+
+
+class FullListenerAppJourneyTest(unittest.TestCase):
+    def test_the_stations_come_from_the_fixtures_the_stand_in_answers_with(self) -> None:
+        self.assertEqual([station.spoken_label for station in runner.CHOOSER_STATIONS],
+                         ['Station A, 98.1 FM, Lusaka', 'Station B, 104.3 FM, Kitwe'])
+        self.assertEqual(STATION_B.via_line, 'via Station B \u00b7 104.3 FM')
+        self.assertEqual([station.station_id for station in runner.LISTED_STATIONS],
+                         [station.station_id for station in runner.CHOOSER_STATIONS])
+        self.assertEqual(CARD.history_title, 'Brand A \u2014 Summer service offer')
+
+    def test_the_chooser_journey_taps_station_b_with_no_signal_and_sees_one_choice_after_it(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = chooser_phone(fake_api)
+        context, _ = context_for(phone, fake_api)
+
+        detail = runner.choose_a_station_with_no_signal(context)
+
+        self.assertEqual(phone.tapped, [LABELS['identify control'], STATION_B.spoken_label, LABELS['result back']])
+        self.assertEqual(fake_api.choices, [{'recognition_id': CHOOSER_RECOGNITION_ID,
+                                             'station_id': STATION_B.station_id}])
+        self.assertFalse(fake_api.is_offline, '"No signal" is switched off again')
+        self.assertIn('Station B shown at once with no signal', detail)
+
+    def test_the_chooser_journey_fails_when_a_choice_arrives_with_no_signal(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(chooser_phone(fake_api, is_sent_with_no_signal=True), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.choose_a_station_with_no_signal(context)
+
+        self.assertIn('while "No signal" was on', str(failure.exception))
+        self.assertFalse(fake_api.is_offline, '"No signal" is switched off even when the journey fails')
+
+    def test_the_chooser_journey_fails_when_the_choice_is_sent_twice(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(chooser_phone(fake_api, choice_sends=2), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.choose_a_station_with_no_signal(context)
+
+        self.assertIn('after 2 answered choice requests', str(failure.exception))
+
+    def test_the_chooser_journey_fails_when_the_result_is_another_stations(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(chooser_phone(fake_api, shows_result='result of station a'), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.choose_a_station_with_no_signal(context)
+
+        self.assertIn(STATION_B.via_line, str(failure.exception))
+
+    def test_the_chooser_journey_fails_when_no_choice_ever_arrives(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, clock = context_for(chooser_phone(fake_api, choice_sends=0), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.choose_a_station_with_no_signal(context)
+
+        self.assertIn('the choice to reach the fake', str(failure.exception))
+        self.assertGreaterEqual(clock.now, runner.SECONDS_FOR_AN_OUTBOX_RETRY)
+
+    def remembered_phone(self, fake_api: ScriptedFakeApi, *, hint: str | None, shows_chooser: bool = False
+                         ) -> ScriptedPhone:
+        after_listening = 'chooser' if shows_chooser else 'result of station b'
+        return ScriptedPhone(
+            screens={'home': HOME_WITH_TABS, 'listening': LISTENING, 'chooser': CHOOSER,
+                     'result of station b': RESULT_OF_STATION_B},
+            taps={('home', LABELS['identify control']): 'listening',
+                  ('result of station b', LABELS['result back']): 'home'},
+            moves_after_reads={'listening': (1, after_listening)},
+            on_enter={after_listening: lambda: fake_api.receive_recognize(station_hint=hint)},
+        )
+
+    def test_the_remember_journey_sees_the_hint_and_no_sheet(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = self.remembered_phone(fake_api, hint=STATION_B.station_id)
+        context, _ = context_for(phone, fake_api)
+
+        detail = runner.remembered_station_skips_the_sheet(context)
+
+        self.assertEqual(phone.current, 'home')
+        self.assertIn('carried Station B as its hint', detail)
+
+    def test_the_remember_journey_fails_without_the_hint(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(self.remembered_phone(fake_api, hint=None), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.remembered_station_skips_the_sheet(context)
+
+        self.assertIn('carried the hint None', str(failure.exception))
+
+    def test_the_remember_journey_fails_when_the_sheet_shows(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(self.remembered_phone(fake_api, hint=STATION_B.station_id, shows_chooser=True),
+                                 fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.remembered_station_skips_the_sheet(context)
+
+        self.assertIn('the sheet "Which station?" showed', str(failure.exception))
+
+    def test_the_cancel_journey_goes_home_and_sees_no_choice(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = chooser_phone(fake_api)
+        context, _ = context_for(phone, fake_api)
+
+        self.assertEqual(runner.cancel_on_the_sheet_chooses_nothing(context), 'Home, and no choice sent')
+        self.assertEqual(phone.tapped, [LABELS['identify control'], LABELS['chooser cancel']])
+
+    def test_the_cancel_journey_fails_when_a_choice_is_sent_after_cancel(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = chooser_phone(fake_api)
+        phone.on_enter['home'] = lambda: fake_api.outbox.append(
+            {'recognition_id': CHOOSER_RECOGNITION_ID, 'station_id': STATION_A.station_id})
+        context, _ = context_for(phone, fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.cancel_on_the_sheet_chooses_nothing(context)
+
+        self.assertIn('1 choice request(s) reached the fake after Cancel', str(failure.exception))
+
+    def history_phone(self, fake_api: ScriptedFakeApi, *, saved_result_asks: bool = False,
+                      result_says_saved: bool = True) -> ScriptedPhone:
+        result = [*RESULT, app(LABELS['saved to history'])] if result_says_saved else RESULT
+        on_enter: dict[str, Callable[[], None]] = {'result': lambda: fake_api.receive_recognize()}
+        if saved_result_asks:
+            on_enter['saved result'] = lambda: fake_api.requests.append({'method': 'GET', 'path': '/api/v1/stations'})
+        return ScriptedPhone(
+            screens={'home': HOME_WITH_TABS, 'listening': LISTENING, 'result': result,
+                     'history': [app(LABELS['history earlier']), app(HISTORY_ROW), *TABS],
+                     'saved result': [app(LABELS['back']), app(LABELS['saved result heading']),
+                                      app(f'{CARD.client_name}\n{CARD.via_line}'), app(CARD.title),
+                                      app(CARD.call_label)],
+                     'copy sheet': [app(LABELS['copy sheet heading']), app(CARD.call_number_display),
+                                    app(LABELS['copy number']), app(LABELS['copy sheet close'])]},
+            taps={('home', LABELS['identify control']): 'listening',
+                  ('result', LABELS['result back']): 'home',
+                  ('home', LABELS['tab history']): 'history',
+                  ('history', HISTORY_ROW): 'saved result',
+                  ('saved result', CARD.call_label): 'copy sheet',
+                  ('copy sheet', LABELS['copy sheet close']): 'saved result',
+                  ('saved result', LABELS['back']): 'history',
+                  ('history', LABELS['tab identify']): 'home'},
+            moves_after_reads={'listening': (1, 'result')},
+            on_enter=on_enter,
+        )
+
+    def test_the_history_journey_opens_the_saved_result_with_no_signal_and_reaches_the_copy_sheet(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = self.history_phone(fake_api)
+        context, _ = context_for(phone, fake_api)
+
+        detail = runner.history_keeps_a_result_that_works_with_no_data(context)
+
+        self.assertEqual(phone.tapped, [LABELS['identify control'], LABELS['result back'], LABELS['tab history'],
+                                        HISTORY_ROW, CARD.call_label, LABELS['copy sheet close'],
+                                        LABELS['back'], LABELS['tab identify']])
+        self.assertEqual(phone.current, 'home')
+        self.assertFalse(fake_api.is_offline)
+        self.assertIn(CARD.call_number_display, detail)
+
+    def test_the_history_journey_fails_when_the_result_does_not_say_saved(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(self.history_phone(fake_api, result_says_saved=False), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.history_keeps_a_result_that_works_with_no_data(context)
+
+        self.assertIn(LABELS['saved to history'], str(failure.exception))
+
+    def test_the_history_journey_fails_when_the_saved_result_needs_a_request(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(self.history_phone(fake_api, saved_result_asks=True), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.history_keeps_a_result_that_works_with_no_data(context)
+
+        self.assertRegex(str(failure.exception), r'opening the saved result sent \d+ request\(s\): it must need no data')
+        self.assertFalse(fake_api.is_offline)
+
+    def picker_phone(self, fake_api: ScriptedFakeApi, *, keeps_the_list: bool = True) -> ScriptedPhone:
+        def open_picker() -> None:
+            if not keeps_the_list or fake_api.station_list_requests == 0:
+                fake_api.station_list_requests += 1
+
+        return ScriptedPhone(
+            screens={'home': HOME_WITH_TABS,
+                     'settings': [app(LABELS['tab settings']), app(MY_STATION_ROW), *TABS],
+                     'picker': [app(LABELS['back']), app(LABELS['settings my station']),
+                                app('No station\nLook Up will ask each time'),
+                                *[app(station.spoken_label) for station in runner.LISTED_STATIONS]]},
+            taps={('home', LABELS['tab settings']): 'settings',
+                  ('settings', MY_STATION_ROW): 'picker',
+                  ('picker', LABELS['back']): 'settings',
+                  ('settings', LABELS['tab identify']): 'home'},
+            on_enter={'picker': open_picker},
+        )
+
+    def test_the_picker_journey_sees_one_station_list_request_for_two_opens(self) -> None:
+        fake_api = ScriptedFakeApi()
+        phone = self.picker_phone(fake_api)
+        context, _ = context_for(phone, fake_api)
+
+        detail = runner.station_list_is_asked_for_once(context)
+
+        self.assertEqual(fake_api.station_list_requests, 1)
+        self.assertEqual(phone.current, 'home')
+        self.assertIn('Station A, Station B after one GET /stations', detail)
+
+    def test_the_picker_journey_fails_when_the_list_is_asked_for_again(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(self.picker_phone(fake_api, keeps_the_list=False), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.station_list_is_asked_for_once(context)
+
+        self.assertIn('2 requests in all', str(failure.exception))
+
+    def note_phone(self, *, is_shown_every_start: bool = False) -> ScriptedPhone:
+        class NotePhone(ScriptedPhone):
+            is_first_start = False
+
+            def clear_app_data(self, package_name: str) -> None:
+                super().clear_app_data(package_name)
+                self.is_first_start = True
+
+            def launch_app(self, package_name: str) -> None:
+                self.launches.append(package_name)
+                self.move('home with note' if self.is_first_start else 'home')
+                self.is_first_start = is_shown_every_start
+
+        return NotePhone({'home': HOME_WITH_TABS,
+                          'home with note': [*HOME_WITH_TABS, app(LABELS['how it works']), app('Got it')]}, {})
+
+    def test_the_first_open_journey_sees_the_note_once(self) -> None:
+        phone = self.note_phone()
+        context, _ = context_for(phone, ScriptedFakeApi())
+
+        detail = runner.first_open_shows_how_look_up_works_once(context)
+
+        self.assertEqual(phone.cleared, [APP])
+        self.assertEqual(phone.launches, [APP, APP])
+        self.assertIn('not after a restart', detail)
+
+    def test_the_first_open_journey_fails_when_the_note_shows_after_a_restart(self) -> None:
+        context, _ = context_for(self.note_phone(is_shown_every_start=True), ScriptedFakeApi())
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.first_open_shows_how_look_up_works_once(context)
+
+        self.assertIn('showed again after a restart', str(failure.exception))
+
+    def test_the_new_journeys_run_after_step_4s_and_the_first_open_one_last(self) -> None:
+        names = [journey for _, journey in runner.JOURNEYS]
+        self.assertEqual(names[-6:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
+                                      runner.cancel_on_the_sheet_chooses_nothing,
+                                      runner.history_keeps_a_result_that_works_with_no_data,
+                                      runner.station_list_is_asked_for_once,
+                                      runner.first_open_shows_how_look_up_works_once])
+
+
+class StandInControlTest(unittest.TestCase):
+    """The control routes the journeys use, against the real stand-in (tool/fake_listener_api.py)."""
+
+    def setUp(self) -> None:
+        import threading
+
+        import fake_listener_api
+
+        self.server = fake_listener_api.make_server('127.0.0.1', 0, None)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.fake_api = runner.HttpFakeApi(f'http://127.0.0.1:{self.server.server_address[1]}')
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+    def test_no_signal_is_switched_on_and_off_and_the_state_holds_what_the_journeys_read(self) -> None:
+        self.fake_api.set_offline(True)
+        self.assertTrue(self.fake_api.state()['is_offline'])
+        self.fake_api.set_offline(False)
+        state = self.fake_api.state()
+        self.assertFalse(state['is_offline'])
+        self.assertEqual(state['choices'], [])
+        self.assertEqual(state['station_list_requests'], 0)
+        self.assertEqual(state['recognitions'], [])
+
+    def test_the_scenarios_the_journeys_queue_are_known_to_the_stand_in(self) -> None:
+        self.fake_api.queue(['choose-station', 'match-by-hint', 'match'])
+        self.assertEqual(self.fake_api.state()['queued']['recognize'], ['choose-station', 'match-by-hint', 'match'])
 
 
 if __name__ == '__main__':
