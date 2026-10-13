@@ -185,7 +185,7 @@ void main() {
           AppConfiguration.check({
             AppConfiguration.flavourDefine: 'production',
             AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
-            AppConfiguration.supportWhatsAppNumberDefine: '+260966000001',
+            AppConfiguration.supportWhatsAppNumberDefine: '+447700900100',
           }, gradleFlavour: 'production'),
         );
         expect(started, isTrue);
@@ -233,7 +233,7 @@ void main() {
         AppConfiguration.check({
           AppConfiguration.flavourDefine: 'production',
           AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
-          AppConfiguration.supportWhatsAppNumberDefine: '+260966000001',
+          AppConfiguration.supportWhatsAppNumberDefine: '+447700900100',
         }, gradleFlavour: 'production'),
         createIsolateErrorListener: ({required reporter, readCurrentLocation}) =>
             isolateErrorListener = _RecordingIsolateErrorListener(
@@ -292,7 +292,7 @@ void main() {
         AppConfiguration.check({
           AppConfiguration.flavourDefine: 'production',
           AppConfiguration.apiBaseUrlDefine: 'https://api.lookup.invalid/api/v1',
-          AppConfiguration.supportWhatsAppNumberDefine: '+260966000001',
+          AppConfiguration.supportWhatsAppNumberDefine: '+447700900100',
         }, gradleFlavour: 'production'),
       );
       await tester.pumpWidget(startedApp!);
