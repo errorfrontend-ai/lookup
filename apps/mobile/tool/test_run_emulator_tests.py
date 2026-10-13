@@ -1300,11 +1300,15 @@ class FullListenerAppJourneyTest(unittest.TestCase):
         self.assertIn('1 choice request(s) reached the fake after Cancel', str(failure.exception))
 
     def history_phone(self, fake_api: ScriptedFakeApi, *, saved_result_asks: bool = False,
-                      result_says_saved: bool = True) -> ScriptedPhone:
+                      result_says_saved: bool = True, sends_the_tap: bool = False) -> ScriptedPhone:
         result = [*RESULT, app(LABELS['saved to history'])] if result_says_saved else RESULT
         on_enter: dict[str, Callable[[], None]] = {'result': lambda: fake_api.receive_recognize()}
         if saved_result_asks:
             on_enter['saved result'] = lambda: fake_api.requests.append({'method': 'GET', 'path': '/api/v1/stations'})
+        elif sends_the_tap:
+            # The Call tap queued for counting (piece 5): the outbox tries it, with "No signal" on.
+            on_enter['saved result'] = lambda: fake_api.requests.append({'method': 'POST', 'path': runner.ENGAGEMENTS_PATH,
+                                                                        'dropped': 'offline'})
         return ScriptedPhone(
             screens={'home': HOME_WITH_TABS, 'listening': LISTENING, 'result': result,
                      'history': [app(LABELS['history earlier']), app(HISTORY_ROW), *TABS],
@@ -1347,6 +1351,14 @@ class FullListenerAppJourneyTest(unittest.TestCase):
             runner.history_keeps_a_result_that_works_with_no_data(context)
 
         self.assertIn(LABELS['saved to history'], str(failure.exception))
+
+    def test_the_history_journey_lets_the_outbox_try_the_call_tap(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(self.history_phone(fake_api, sends_the_tap=True), fake_api)
+
+        runner.history_keeps_a_result_that_works_with_no_data(context)
+
+        self.assertFalse(fake_api.is_offline)
 
     def test_the_history_journey_fails_when_the_saved_result_needs_a_request(self) -> None:
         fake_api = ScriptedFakeApi()

@@ -1072,7 +1072,10 @@ def history_keeps_a_result_that_works_with_no_data(context: RunContext) -> str:
         driver.wait_for(LABELS['history earlier'], 15)
     finally:
         fake_api.set_offline(False)
-    asked = fake_api.request_log().get('requests', [])[requests_before:]
+    # The Call tap is queued to be counted (piece 5), and the outbox may try to send it; that is no data the
+    # saved result needs. Anything else is.
+    asked = [request for request in fake_api.request_log().get('requests', [])[requests_before:]
+             if request.get('path') != ENGAGEMENTS_PATH]
     if asked:
         raise StepFailed(f'opening the saved result sent {len(asked)} request(s): it must need no data')
     driver.tap(LABELS['tab identify'])
