@@ -1,14 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_providers.dart';
 import 'package:lookup_listener/app/notification_launch_handler.dart';
+import 'package:lookup_listener/core/widgets/screen_exit_button.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/result/presentation/result_screen.dart';
 
 import '../features/identify/presentation/identify_screen_harness.dart' show disableAnimations;
+import '../support/contract_fixtures.dart';
 import '../support/expect_no_technical_text.dart';
 import '../support/received_multipart_form.dart';
 import 'listener_app_harness.dart';
@@ -178,7 +181,93 @@ void main() {
       expect(harness.reporter.reports, isEmpty);
     },
   );
+
+  testWidgets(
+    'two clips saved from Home, both answered while Home shows: each notification opens its own '
+    'result, the second after Back from the first (P6-OFFLINE-21; emulator step 18)',
+    (tester) async {
+      final harness = ListenerAppHarness();
+      harness.deviceServices.setNetwork(isUp: false);
+      await harness.pumpApp(
+        tester,
+        extraOverrides: [
+          clockProvider.overrideWithValue(TestTimeClock(tester)),
+          outboxRandomProvider.overrideWithValue(Random(3)),
+        ],
+      );
+      final container = harness.container(tester);
+      container.read(networkWatcherProvider).start();
+      container.read(outboxRunSchedulerProvider).start();
+      unawaited(container.read(notificationLaunchHandlerProvider).start());
+      await tester.pump();
+
+      // History has been opened once, so its view is already being kept.
+      await tester.tap(find.text(englishWords.tabHistory));
+      await harness.pumpTransition(tester);
+      await tester.tap(find.text(englishWords.tabIdentify));
+      await harness.pumpTransition(tester);
+
+      for (var clip = 0; clip < 2; clip++) {
+        harness.adapter.failWithDioType(DioExceptionType.connectionError);
+        await tester.tap(find.text(englishWords.identifyButtonLabel));
+        await harness.pumpTransition(tester);
+        await harness.recordWholeClip(tester);
+        expect(harness.location(tester), '/saved-offline');
+        await tester.tap(find.text(englishWords.okButton));
+        await harness.pumpTransition(tester);
+        expect(harness.location(tester), '/');
+        await tester.pump(const Duration(minutes: 1));
+      }
+
+      _answerWithMatch(harness, recognitionId: _stationARecognitionId, stationName: 'Station A');
+      _answerWithMatch(harness, recognitionId: _stationBRecognitionId, stationName: 'Station B');
+      harness.deviceServices.setNetwork(isUp: true);
+      await tester.pump(const Duration(seconds: 121));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(harness.deviceServices.posted.map((posted) => posted.recognitionId).toSet(), {
+        _stationARecognitionId,
+        _stationBRecognitionId,
+      });
+      expect(harness.location(tester), '/');
+
+      harness.deviceServices.tapNotification(_stationARecognitionId);
+      await harness.pumpTransition(tester);
+      expect(harness.location(tester), '/r/$_stationARecognitionId');
+      expect(find.textContaining('Station A'), findsWidgets);
+
+      await tester.tap(find.byType(ScreenExitButton));
+      await harness.pumpTransition(tester);
+      expect(harness.location(tester), '/history');
+
+      harness.deviceServices.tapNotification(_stationBRecognitionId);
+      await harness.pumpTransition(tester);
+      expect(harness.location(tester), '/r/$_stationBRecognitionId');
+      expect(find.textContaining('Station B'), findsWidgets);
+      expect(harness.reporter.reports, isEmpty);
+    },
+  );
 }
 
 /// The recognition id of `valid/match-campaign.json`.
 const String _matchRecognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+
+const String _stationARecognitionId = '01a13703-0000-7000-8000-00000000000a';
+const String _stationBRecognitionId = '01a13703-0000-7000-8000-00000000000b';
+
+/// The next answer: `valid/match-campaign.json` as a new recognition, heard on [stationName].
+void _answerWithMatch(
+  ListenerAppHarness harness, {
+  required String recognitionId,
+  required String stationName,
+}) {
+  final content =
+      ContractFixtures.readFile('recognition/recognize-response/valid/match-campaign.json')!
+          as Map<String, Object?>;
+  final response = jsonDecode(jsonEncode(content['response'])) as Map<String, Object?>;
+  response['recognition_id'] = recognitionId;
+  response['is_deferred'] = true;
+  final station = (response['result']! as Map<String, Object?>)['station']! as Map<String, Object?>;
+  station['name'] = stationName;
+  harness.adapter.answerJson(200, response);
+}

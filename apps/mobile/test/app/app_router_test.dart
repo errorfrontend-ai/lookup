@@ -646,6 +646,24 @@ void main() {
         },
       );
     }
+
+    testWidgets(
+      'an id History does not hold, opened while History is already read, goes back to History '
+      'only once the page has arrived: one tab shell at a time',
+      (tester) async {
+        final harness = withOneSavedResult();
+        await harness.pumpApp(tester);
+        await tester.tap(find.text('History'));
+        await harness.pumpTransition(tester);
+        expect(find.byType(HistoryEntryRow), findsOneWidget);
+        harness.router(tester).go('/r/0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f99');
+        await harness.pumpTransition(tester);
+        await harness.pumpTransition(tester);
+        expect(harness.location(tester), '/history');
+        expect(find.text('That result is no longer saved on this phone.'), findsOneWidget);
+        expect(find.byType(AppShell), findsOneWidget);
+      },
+    );
   });
 
   group('page transitions', () {
