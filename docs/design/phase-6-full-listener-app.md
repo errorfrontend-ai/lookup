@@ -2995,3 +2995,73 @@ ALL-USABILITY-04, the portal).
   the check and the History check (Call in airplane mode). Both move into piece 3's walkthrough (b), steps 6 and 7,
   where the network-back event sends the choice without reopening the app; P6-TESTS-07 and P6-HISTORY-02 stay open
   until then.
+
+## Step 3 record (13 October 2026): P4 piece 4 and P6 piece 3, before the emulator run
+
+**Built:**
+- Clips sent later on the server, the update gate and reports (`7d02597`, the P4 design's piece 4): deferred sends
+  with their own allowance, queue depth, breaker and random `Retry-After`; the 426 gate in `InstallTokenGuard`;
+  re-registration by an install's own token; recognition reports; the idempotency-key clean-up.
+- The app's half of piece 3 (`7fe68cb`): Saved offline (no answer, the fourth busy answer, a 429, or the app hidden
+  during Busy, T21′ to T31′), the outbox's saved clips and queued crash reports, History's waiting rows and saved
+  outcomes, the generic notification and its launch id, network-back runs, "Please update the app", the Permission
+  screen's offline promise, and the in-repo `device_services` plugin.
+- Sending with the app closed (`492933c`): `workmanager` 0.10.10, the approved download (Q2); the six Flutter
+  packages were fetched (208 KB); Gradle fetches the Android libraries (about 3 MB) at the first build.
+- The stand-in's answers, update gate and timings for §4.8 steps 6 to 11, 16 and 18, and those journeys in the driver
+  (`9d23032`).
+- A focused test for each acknowledgement rule the checklist names (`187f610`).
+
+**Suites at this point:**
+
+| Suite | Result |
+|---|---|
+| API | 936 (the P4 piece 4 record) |
+| Flutter | 2,487 (analyze and format clean) |
+| Tool tests | 160 (the stand-in 66, the emulator driver 94) |
+| Contracts, portal, Python fingerprinter | unchanged by the app's half, not run again |
+
+The evidence checker is green. **Checklist:** 31 items ticked on unit, widget and API tests (P6-STATE-01, -04;
+P6-OUTBOX-07; P6-OFFLINE-03 to -07, -09 to -11, -13 to -19, -22, -23, -25 to -29; P6-HISTORY-04 to -06;
+P6-PERMISSION-01; P6-COMPATIBILITY-01, -02). Twelve wait, each with its reason written in the checklist: the
+emulator run (P6-OFFLINE-01, -02, -08, -20, -21; P6-STRUCTURE-02's notification half; P6-ERRORREPORTING-05;
+P6-COMPATIBILITY-03; P6-TESTS-08, -09), the golden images of piece 6 (P6-OFFLINE-24), and the slow upload of piece 4
+(P6-LISTENING-02). Five older ticks were re-pointed at the tests this piece renamed (S4-STATE-01 to -03, S4-LINKS-13,
+S4-ERRORHANDLING-01).
+
+**Reviews and fixes.** No helper agents, at the user's request (13 October 2026); the lead's own review of the
+riskiest parts found and fixed:
+- a busy answer that arrived while the app was already hidden started no countdown and saved nothing; it now saves
+  the clip at once (T31′), and Busy's countdown never starts while that save is under way;
+- a clip saved after a busy or limited live answer showed "Will identify when you're back online" until the outbox
+  first tried it; it now shows "Look Up is busy — will try again soon" (the last answer it got, §2.9);
+- the iOS stub answered no "listen" on the network and launch channels, which Flutter reports as an app error, so
+  every start would have sent a crash report; the stub now registers both with a handler that sends nothing;
+- a port left behind by a closed foreground engine would have swallowed the background job's request; the job now
+  waits 5 seconds for an answer, then removes that port and sends itself;
+- Permission's "Allow microphone" and Saved's "OK" sat below the fold of a 360 × 800 phone; both screens now pin
+  their footer (`ScreenFrame.isFooterPinned`) while the body scrolls with its scrollbar shown, and Permission scrolls
+  its refusal note into view;
+- the stand-in's version check, run against the shared `comparisons.json`, found Python's `\d` matching digits that
+  are not ASCII; it uses `[0-9]` as the contract does.
+
+**Deviations and readings, recorded for the gate:**
+- **Names:** the background entry point's file is `outbox_background_task.dart` (after its main type,
+  S4-NAMING-04), where §3.10 says `background_entry_point.dart`.
+- **The outbox:** the random wait is skipped when Android reports no network (nothing would be sent); an item queued
+  while the app is hidden starts a run at once, as the process is alive (only the wake-up timer stops when hidden); a
+  saved clip whose answer History cannot keep is deleted and reported, as a phone fault (contract R9's
+  `DELETE_AND_REPORT`); the background run asks for a 426 probe only when one is due.
+- **History in the foreground** refreshes on its own writes and on the outbox's; a result the background job writes
+  appears the next time History is read (a tab change or a start).
+- **Saved on a 360 × 800 phone:** "OK" and "See it in History" stay in reach; the bell panel's "Allow notifications"
+  is under them, one scroll down. The walkthrough decides whether the panel should move above the body text, which
+  would change the approved wireframe's order.
+- **`workmanager` 0.10.10** writes a small marker file in the system's temporary folder each time a job runs (the
+  package's own behaviour; it holds a time, nothing personal).
+- **The stand-in** sheds a deferred send with a fixed `Retry-After` of 60 seconds (the API draws 60 to 300) and asks
+  90 for a deferred 429, so the emulator run stays short.
+
+**Still to do in piece 3:** the emulator run with Docker closed (its first build also compiles the plugin's Kotlin and
+fetches WorkManager's Android libraries), walkthrough (a) on the emulator and walkthrough (b) on the phone, which also
+carries piece 2's two skipped checks (a choice made in airplane mode, and History's Call with no data).
