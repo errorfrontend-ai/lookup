@@ -101,6 +101,26 @@ describe('production configuration fails closed', () => {
     );
     expect(() => loadAppConfig({ ...developmentConfig, ALLOWED_BROWSER_ORIGINS: '*' })).toThrow(/ALLOWED_BROWSER_ORIGINS/);
   });
+
+  it('P4 design §5.11: the follow-up allowance defaults to 60 a minute and the station-list allowance to 20 an hour, each refused out of its range', () => {
+    const defaults = loadAppConfig(soundProductionConfig);
+    expect(defaults.RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE).toBe(60);
+    expect(defaults.STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR).toBe(20);
+    const widest = loadAppConfig({ ...soundProductionConfig, RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE: '10000', STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR: '1000' });
+    expect([widest.RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE, widest.STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR]).toEqual([10_000, 1_000]);
+    const narrowest = loadAppConfig({ ...soundProductionConfig, RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE: '1', STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR: '1' });
+    expect([narrowest.RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE, narrowest.STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR]).toEqual([1, 1]);
+    for (const [name, badValue] of [
+      ['RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE', '0'],
+      ['RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE', '10001'],
+      ['RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE', 'sixty'],
+      ['STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR', '0'],
+      ['STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR', '1001'],
+      ['STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR', '2.5'],
+    ] as const) {
+      expect(() => loadAppConfig({ ...soundProductionConfig, [name]: badValue }), `${name}=${badValue}`).toThrow(new RegExp(`${name}: `));
+    }
+  });
 });
 
 describe('configuration errors never print secret values', () => {

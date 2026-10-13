@@ -1,10 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import { AppError } from '../../common/errors/app-error.js';
 import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
 import type { ReplayRow } from './recognition-answers.js';
 import type { StationCandidateRow, StationResolutionName, WeighedCandidate } from './resolve-station.js';
 
 export type ClaimOutcome = 'CLAIMED' | 'RECLAIMED' | 'IN_PROGRESS' | 'FINISHED';
 export type RecognitionOutcome = 'MATCH' | 'MATCH_DEFAULT' | 'CHOOSE_STATION' | 'NO_MATCH' | 'AMBIGUOUS' | 'INVALID_AUDIO' | 'TIMEOUT' | 'BUSY' | 'ERROR';
+
+/** What recognition.record_station_choice answers, one code per outcome (P4 design §4.4, §5.5). */
+export const STATION_CHOICE_ANSWERS = ['CHOSEN', 'ALREADY_CHOSEN', 'NOT_FOUND', 'NOT_A_CANDIDATE', 'ANOTHER_STATION_CHOSEN'] as const;
+export type StationChoiceAnswer = (typeof STATION_CHOICE_ANSWERS)[number];
 
 export interface Claim {
   recognitionId: string;
@@ -138,5 +143,21 @@ export class RecognitionRecords {
     return this.stationScopedTransaction.run((database) =>
       database.query('SELECT * FROM recognition.describe_recognition_for_replay($1, $2, $3)', [claim.recognitionId, claim.receivedAt, listenerInstallId]),
     ) as Promise<ReplayRow[]>;
+  }
+
+  /**
+   * The listener's answer to a chooser, recorded under a lock on the recognition: the first choice wins, the same
+   * station again changes nothing, and an unknown id, another install's recognition or one that is not a chooser
+   * are all NOT_FOUND. No counter moves.
+   */
+  async recordStationChoice(recognitionId: string, listenerInstallId: string, stationId: string): Promise<StationChoiceAnswer> {
+    const rows = (await this.stationScopedTransaction.run((database) =>
+      database.query('SELECT recognition.record_station_choice($1, $2, $3) AS answer', [recognitionId, listenerInstallId, stationId]),
+    )) as Array<{ answer: string }>;
+    const answer = rows[0]?.answer;
+    if (!(STATION_CHOICE_ANSWERS as readonly string[]).includes(answer ?? '')) {
+      throw new AppError('INTERNAL', { internalDetail: `record_station_choice gave an answer this API does not know: ${String(answer).slice(0, 40)}` });
+    }
+    return answer as StationChoiceAnswer;
   }
 }

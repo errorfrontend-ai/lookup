@@ -4,6 +4,7 @@ import { DiscoveryService, MetadataScanner } from '@nestjs/core';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { uuidVersion7 } from '../src/common/identifiers/uuid-version-7.js';
 import { InstallTokens } from '../src/common/listener-authentication/install-tokens.js';
 import { PUBLIC_ROUTE_METADATA } from '../src/features/authentication/public-route.decorator.js';
 import { databaseSetupClient } from './support/database-clients.js';
@@ -133,9 +134,15 @@ describe('listener app installs', () => {
 
   it('the listener routes have their own per-address ceiling, above the portal’s: many listeners share one mobile-network address', async () => {
     const sharedAddress = newClientAddress();
-    // The portal's baseline here is 10 a minute; the listener ceiling is 60.
+    // The portal's baseline here is 10 a minute; the listener ceiling is 60, shared by every listener route.
+    const listenerRequests = [
+      () => client().post('/api/v1/recognize'),
+      () => client().post(`/api/v1/recognitions/${uuidVersion7()}/choice`).send({ station_id: randomUUID() }),
+      () => client().get('/api/v1/stations'),
+    ];
     for (let request = 0; request < 15; request += 1) {
-      const response = await client().post('/api/v1/recognize').set('X-Forwarded-For', sharedAddress).set('Authorization', 'Bearer not-a-token');
+      const send = listenerRequests[request % listenerRequests.length] as (typeof listenerRequests)[number];
+      const response = await send().set('X-Forwarded-For', sharedAddress).set('Authorization', 'Bearer not-a-token');
       expect(response.status).toBe(401);
     }
     for (let request = 0; request < 10; request += 1) await client().get('/api/v1/auth/me').set('X-Forwarded-For', sharedAddress);
@@ -147,7 +154,7 @@ describe('listener app installs', () => {
     expect(lastStatus).toBe(429);
   });
 
-  it('only health, sign-in, refresh, sign-out, client errors, installs and recognize are open without signing in, and none lists ads', async () => {
+  it('only health, sign-in, refresh, sign-out, client errors and the listener app’s routes (installs, recognize, a station choice, the station list) are open without signing in, and none lists ads', async () => {
     const discovery = testApplication.application.get(DiscoveryService);
     const scanner = new MetadataScanner();
     const openRoutes: string[] = [];
@@ -165,6 +172,16 @@ describe('listener app installs', () => {
         openRoutes.push(`/${[controllerPath, methodPath].filter((part) => part && part !== '/').join('/')}`.replace(/\/+/g, '/'));
       }
     }
-    expect(openRoutes.sort()).toEqual(['/auth/refresh', '/auth/sign-in', '/auth/sign-out', '/client-errors', '/health', '/installs', '/recognize']);
+    expect(openRoutes.sort()).toEqual([
+      '/auth/refresh',
+      '/auth/sign-in',
+      '/auth/sign-out',
+      '/client-errors',
+      '/health',
+      '/installs',
+      '/recognitions/:recognitionId/choice',
+      '/recognize',
+      '/stations',
+    ]);
   });
 });

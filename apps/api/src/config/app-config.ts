@@ -86,6 +86,13 @@ const AppConfigSchema = z
     RECOGNIZE_BODY_READ_MILLISECONDS: z.coerce.number().int().min(500).max(55_000).default(20_000),
     /** The only per-address limit on the listener routes: a high ceiling, many installs' worth. */
     LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE: z.coerce.number().int().min(10).max(1_000_000).default(600),
+    /**
+     * What one install sends after an answer — station choices, button taps and reports — shares one allowance per
+     * minute (P4 design §5.11, P4-D29). The outbox sends these in bursts after a phone comes back online.
+     */
+    RECOGNITION_FOLLOW_UPS_PER_INSTALL_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(60),
+    /** "My station" list requests per install per hour: the app keeps the list for 24 hours, so a few are plenty. */
+    STATION_LIST_REQUESTS_PER_INSTALL_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(20),
     /** Signs install tokens. 32+ random bytes, base64url. Changing it makes every app register again. */
     LISTENER_INSTALL_TOKEN_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
     /** Keys the hash of an app's install id, so the raw id is never stored. 32+ random bytes, base64url. */

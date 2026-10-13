@@ -133,9 +133,36 @@ describe('the recognition circuit breaker', () => {
 
 describe('the listener routes’ per-address ceiling', () => {
   it('covers exactly the listener app’s routes', () => {
-    expect(isListenerRoute('/api/v1/recognize')).toBe(true);
-    expect(isListenerRoute('/api/v1/installs/')).toBe(true);
-    expect(isListenerRoute('/api/v1/auth/sign-in')).toBe(false);
-    expect(isListenerRoute('/api/v1/recognize-something-else')).toBe(false);
+    const recognitionId = uuidVersion7();
+    // The six listener routes of contract §1.0, with or without a trailing slash.
+    for (const path of [
+      '/api/v1/installs',
+      '/api/v1/recognize',
+      `/api/v1/recognitions/${recognitionId}/choice`,
+      `/api/v1/recognitions/${recognitionId}/report`,
+      '/api/v1/stations',
+      '/api/v1/engagements',
+    ]) {
+      expect(isListenerRoute(path), path).toBe(true);
+      expect(isListenerRoute(`${path}/`), `${path}/`).toBe(true);
+    }
+    // Crash reports are public but not a listener route; the portal's station pages keep the portal's baseline.
+    for (const path of [
+      '/api/v1/client-errors',
+      '/api/v1/auth/sign-in',
+      '/api/v1/recognize-something-else',
+      `/api/v1/stations/${recognitionId}`,
+      `/api/v1/stations/${recognitionId}/ads`,
+      '/api/v1/stations-and-more',
+      '/api/v1/engagements/extra',
+      `/api/v1/recognitions/${recognitionId}`,
+      `/api/v1/recognitions/${recognitionId}/choices`,
+      `/api/v1/recognitions/${recognitionId}/choice/extra`,
+      '/api/v1/recognitions/not-a-recognition-id-of-36-characters/choice',
+      `/api/v2/recognitions/${recognitionId}/choice`,
+      `/prefix/api/v1/recognitions/${recognitionId}/choice`,
+    ]) {
+      expect(isListenerRoute(path), path).toBe(false);
+    }
   });
 });

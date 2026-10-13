@@ -2,11 +2,17 @@ import type { NextFunction, Request, Response } from 'express';
 import type { RateLimitRule } from './rate-limit-rule.js';
 import type { RateLimiter } from './rate-limiter.js';
 
-/** The listener app's routes: many listeners share one mobile-network address, so these get a high ceiling instead. */
-const LISTENER_ROUTES = new Set(['/api/v1/recognize', '/api/v1/installs']);
+/**
+ * The listener app's routes (contract §1.0): many listeners share one mobile-network address, so these get a high
+ * ceiling instead. `GET /stations` exactly: the portal's `/stations/<id>/…` routes keep the portal's baseline. A
+ * choice or report names its recognition in the path, so those two are matched by a pattern.
+ */
+const LISTENER_ROUTES = new Set(['/api/v1/installs', '/api/v1/recognize', '/api/v1/stations', '/api/v1/engagements']);
+const LISTENER_ROUTE_PATTERNS = [/^\/api\/v1\/recognitions\/[0-9a-f-]{36}\/(choice|report)$/];
 
 export function isListenerRoute(path: string): boolean {
-  return LISTENER_ROUTES.has(path.replace(/\/+$/, ''));
+  const routePath = path.replace(/\/+$/, '');
+  return LISTENER_ROUTES.has(routePath) || LISTENER_ROUTE_PATTERNS.some((pattern) => pattern.test(routePath));
 }
 
 /**

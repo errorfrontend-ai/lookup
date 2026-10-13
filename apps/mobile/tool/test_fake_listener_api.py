@@ -20,8 +20,8 @@ import uuid
 from http.client import RemoteDisconnected
 from typing import Any
 
-from fake_listener_api import (DEFAULT_SCENARIOS, PHONE_CHECK_ANSWERS, PHONE_CHECK_LIFETIME_SECONDS,
-                               RECENT_REGISTRATIONS_KEPT, ROUTES, SCENARIOS, make_server, read_fixture)
+from fake_listener_api import (DEFAULT_SCENARIOS, FIXTURES, PHONE_CHECK_ANSWERS, PHONE_CHECK_LIFETIME_SECONDS,
+                               RECENT_REGISTRATIONS_KEPT, ROUTES, SCENARIOS, make_server, new_recognition_id, read_fixture)
 
 CLIP = b'\x00\x00\x00\x20ftypM4A ' + bytes(4_000)
 JSON = {'Content-Type': 'application/json'}
@@ -145,6 +145,30 @@ class FakeListenerApiTest(unittest.TestCase):
         elif token:
             headers['Authorization'] = f'Bearer {token}'
         return self.send('/api/v1/recognize', body, headers)
+
+    def choose(self, token: str | None, recognition_id: str, body: Any, content_type: str = 'application/json',
+               request_id: str | None = None) -> tuple[int, dict[str, str], Any]:
+        """A station choice as the app's outbox sends it: JSON, its own request id, the install token."""
+        headers = {'Content-Type': content_type, 'X-Request-Id': request_id or str(uuid.uuid4())}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+        encoded = body if isinstance(body, bytes) else json.dumps(body).encode()
+        return self.send(f'/api/v1/recognitions/{recognition_id}/choice', encoded, headers)
+
+    def list_stations(self, token: str | None, headers: dict[str, str] | None = None,
+                      request_id: str | None = None) -> tuple[int, dict[str, str], Any]:
+        """The "My station" list as the app asks for it: a GET with the install token and its own request id."""
+        sent = {'X-Request-Id': request_id or str(uuid.uuid4()), **(headers or {})}
+        if token:
+            sent['Authorization'] = f'Bearer {token}'
+        return self.get('/api/v1/stations', sent)
+
+    def chooser(self, token: str, scenario: str = 'choose-station') -> dict[str, Any]:
+        """A "Which station?" answer to a new identify."""
+        self.queue(scenario)
+        status, _, body = self.recognize(token)
+        self.assertEqual((status, body['status']), (200, 'CHOOSE_STATION'))
+        return body
 
     def start_phone_check(self, phone_number: Any, install_id: Any) -> tuple[int, dict[str, str], Any]:
         """What the control page sends for "Use this number" with an install chosen."""
@@ -335,12 +359,16 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertEqual(SCENARIOS['match']['label'], 'Match')
 
     def test_a_queued_answer_joins_its_own_route_queue_and_the_state_shows_it(self) -> None:
-        self.queue('busy', 'no-match')
-        self.assertEqual(self.state()['queued'], {'recognize': ['busy', 'no-match']})
-        token = self.registered_token()   # a registration takes nothing from the recognize queue
+        self.queue('busy', 'choice-busy', 'no-match', 'stations-unavailable')
+        self.assertEqual(self.state()['queued'], {'recognize': ['busy', 'no-match'], 'choice': ['choice-busy'],
+                                                  'stations': ['stations-unavailable']})
+        token = self.registered_token()   # a registration takes nothing from any queue
         self.assertEqual(self.state()['queued']['recognize'], ['busy', 'no-match'])
         self.assertEqual(self.recognize(token)[0], 503)
-        self.assertEqual(self.state()['queued']['recognize'], ['no-match'])
+        self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'],
+                                                  'stations': ['stations-unavailable']})
+        self.assertEqual(self.list_stations(token)[0], 503)   # the list takes only from its own queue
+        self.assertEqual(self.state()['queued'], {'recognize': ['no-match'], 'choice': ['choice-busy'], 'stations': []})
 
     # ---- the control page and its checks (P6-D30, P6-D50) -----------------------------------------
 
@@ -659,6 +687,280 @@ class FakeListenerApiTest(unittest.TestCase):
         for answer_word in ('Brand A', 'Station A', 'Summer service offer', 'phone_number_e164', 'actions'):
             self.assertNotIn(answer_word, state_text)
         self.assertEqual(self.state()['recognitions'][0]['scenario'], 'choose-station')
+
+    # ---- identifies: a new recognition id per key, and the same answer again for a key it holds (contract §4) -----
+
+    def test_each_new_key_gets_its_own_version_7_recognition_id_and_the_same_key_again_gets_the_same_answer(self) -> None:
+        install_id = str(uuid.uuid4())
+        token = self.registered_token(install_id)
+        first_fields, second_fields = live_fields(), live_fields()
+        first = self.recognize(token, first_fields)[2]
+        second = self.recognize(token, second_fields)[2]
+        version_7 = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+        for answer in (first, second):
+            self.assertRegex(answer['recognition_id'], version_7)
+        self.assertNotEqual(first['recognition_id'], second['recognition_id'])
+        fixture_id = read_fixture('recognition/recognize-response/valid/match-campaign.json')['response']['recognition_id']
+        self.assertNotIn(fixture_id, (first['recognition_id'], second['recognition_id']))
+
+        # The first key again, with another answer waiting: the same answer, this request's id, and the queue untouched.
+        self.queue('busy')
+        request_id = str(uuid.uuid4())
+        status, headers, replayed = self.recognize(token, first_fields, request_id=request_id)
+        self.assertEqual((status, headers['X-Request-Id']), (200, request_id))
+        self.assertEqual(replayed, {**first, 'request_id': request_id})
+        self.assertEqual(self.state()['queued']['recognize'], ['busy'])
+        self.assertEqual(self.request_log()['requests'][-1]['scenario'], 'replay')
+        # After registering again the install is the same, and so is its key.
+        status, registration = self.register(install_id, token=token)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.recognize(registration['install_token'], first_fields)[2]['recognition_id'], first['recognition_id'])
+        # Keys belong to their install: another install's same key is a new identify (and takes the waiting answer).
+        self.assertEqual(self.recognize(self.registered_token(), first_fields)[0], 503)
+
+    def test_a_recognition_id_is_a_lower_case_uuid_version_7_that_carries_the_time_it_was_made(self) -> None:
+        made = new_recognition_id(1_791_400_000_123)
+        self.assertRegex(made, r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+        self.assertEqual(int(made.replace('-', '')[:12], 16), 1_791_400_000_123)
+        self.assertEqual(uuid.UUID(made).version, 7)
+        self.assertEqual(len({new_recognition_id(1_791_400_000_123) for _ in range(200)}), 200)
+
+    def test_a_key_that_got_no_200_takes_the_next_answer_when_sent_again(self) -> None:
+        token = self.registered_token()
+        fields = live_fields()
+        self.queue('busy', 'drop', 'no-match')
+        self.assertEqual(self.recognize(token, fields)[0], 503)
+        with self.assertRaises(NO_ANSWER):
+            self.recognize(token, fields)
+        self.assertEqual(self.recognize(token, fields)[2]['status'], 'NO_MATCH')
+        self.assertEqual([recognition['scenario'] for recognition in self.state()['recognitions']], ['busy', 'drop', 'no-match'])
+        self.assertEqual(self.recognize(token, fields)[2]['status'], 'NO_MATCH')
+        self.assertEqual(self.state()['recognitions'][-1]['scenario'], 'replay')
+
+    def test_the_request_log_holds_what_an_identify_sent_but_nothing_personal(self) -> None:
+        token = self.registered_token()
+        hint = str(uuid.uuid4())
+        fields = live_fields(is_deferred='true', station_hint=hint)
+        answer = self.recognize(token, fields)[2]
+        logged = self.request_log()['requests'][-1]
+        self.assertEqual({name: logged[name] for name in ('idempotency_key', 'is_deferred', 'captured_at', 'sent_at', 'station_hint', 'recognition_id')},
+                         {'idempotency_key': fields['idempotency_key'], 'is_deferred': 'true', 'captured_at': fields['captured_at'],
+                          'sent_at': fields['sent_at'], 'station_hint': hint, 'recognition_id': answer['recognition_id']})
+        recognition = self.state()['recognitions'][-1]
+        self.assertEqual((recognition['station_hint'], recognition['is_deferred'], recognition['recognition_id']),
+                         (hint, 'true', answer['recognition_id']))
+        self.assertNotIn(token, json.dumps(self.request_log()))
+
+    # ---- "Match by my station" and the other choosers (contract §4) ------------------------------------------------
+
+    def test_match_by_my_station_answers_the_hinted_stations_match(self) -> None:
+        token = self.registered_token()
+        responses = 'recognition/recognize-response/valid'
+        station_a = read_fixture(f'{responses}/match-campaign.json')['response']['result']
+        station_b = read_fixture(f'{responses}/match-campaign-station-b.json')['response']['result']
+        station_c = read_fixture(f'{responses}/choose-station-three-candidates.json')['response']['candidates'][2]
+        for expected in (station_b, station_a, station_c):
+            with self.subTest(expected['station']['name']):
+                self.queue('match-by-hint')
+                status, _, body = self.recognize(token, live_fields(station_hint=expected['station']['id']))
+                self.assertEqual((status, body['status']), (200, 'MATCH'))
+                self.assertEqual(body['result'], expected)
+                self.assertEqual(self.request_log()['requests'][-1]['station_hint'], expected['station']['id'])
+        self.assertEqual(station_b['station']['name'], 'Station B')
+
+    def test_match_by_my_station_refuses_a_send_without_a_hint_or_with_a_station_it_does_not_know(self) -> None:
+        token = self.registered_token()
+        for fields in (live_fields(), live_fields(station_hint=str(uuid.uuid4()))):
+            with self.subTest(fields.get('station_hint')):
+                self.queue('match-by-hint')
+                self.assertEqual(self.recognize(token, fields)[0], 400)
+        self.assertEqual(self.state()['refused'], 2)
+
+    def test_the_choosers_offer_three_or_four_stations_or_only_usual_cards(self) -> None:
+        token = self.registered_token()
+        self.assertEqual(len(self.chooser(token, 'choose-station-three')['candidates']), 3)
+        self.assertEqual(len(self.chooser(token, 'choose-station-four')['candidates']), 4)
+        off_air = self.chooser(token, 'choose-station-out-of-window')
+        self.assertEqual({candidate['kind'] for candidate in off_air['candidates']}, {'CLIENT_DEFAULT'})
+        self.assertEqual(SCENARIOS['choose-station-out-of-window']['label'], 'Which station, off air')
+        self.assertEqual(SCENARIOS['match-by-hint']['label'], 'Match by my station')
+
+    # ---- a station choice (contract §1.3, §4) ---------------------------------------------------------------------
+
+    def test_a_choice_of_a_shown_station_is_accepted_and_the_first_choice_wins(self) -> None:
+        token = self.registered_token()
+        chooser = self.chooser(token)
+        station_a, station_b = (candidate['station']['id'] for candidate in chooser['candidates'])
+        first_request_id = str(uuid.uuid4())
+        status, headers, body = self.choose(token, chooser['recognition_id'], {'station_id': station_b}, request_id=first_request_id)
+        self.assertEqual((status, headers['X-Request-Id'], body), (204, first_request_id, b''))
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        # The outbox may send it again: still 204, still one choice.
+        for _ in range(2):
+            self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_b})[0], 204)
+        self.assertEqual(self.state()['choices'], [{'recognition_id': chooser['recognition_id'], 'station_id': station_b,
+                                                    'request_id': first_request_id}])
+        # Another station later: 422 STATION_ALREADY_CHOSEN, from the shared envelope, and the first stays.
+        request_id = str(uuid.uuid4())
+        status, _, refused = self.choose(token, chooser['recognition_id'], {'station_id': station_a}, request_id=request_id)
+        envelope = read_fixture('errors/envelopes/station-already-chosen.json')
+        self.assertEqual((status, refused), (envelope['http_status'], {'error': {**envelope['body']['error'], 'request_id': request_id}}))
+        self.assertEqual([choice['station_id'] for choice in self.state()['choices']], [station_b])
+        outcomes = [request['outcome'] for request in self.state()['recent_requests'] if request['path'].endswith('/choice')]
+        self.assertEqual(outcomes, ['choice-recorded: chosen', 'choice-recorded: already chosen', 'choice-recorded: already chosen',
+                                    'choice-recorded: another station was chosen first'])
+        self.assertEqual(self.state()['refused'], 0)
+
+    def test_the_shared_choice_fixtures_valid_accepted_and_invalid_refused(self) -> None:
+        token = self.registered_token()
+        folder = FIXTURES / 'recognition' / 'station-choice-input'
+        invalid = sorted((folder / 'invalid').glob('*.json'))
+        self.assertGreaterEqual(len(invalid), 4)
+        chooser = self.chooser(token)
+        for path in invalid:
+            with self.subTest(path.name):
+                self.assertEqual(self.choose(token, chooser['recognition_id'], json.loads(path.read_text(encoding='utf-8'))['body'])[0], 400)
+        self.assertEqual(self.state()['choices'], [])
+        for path in sorted((folder / 'valid').glob('*.json')):
+            with self.subTest(path.name):
+                self.assertEqual(self.choose(token, self.chooser(token)['recognition_id'], json.loads(path.read_text(encoding='utf-8'))['body'])[0], 204)
+
+    def test_a_choice_the_real_api_would_refuse_or_the_app_never_sends_is_refused(self) -> None:
+        token = self.registered_token()
+        other_token = self.registered_token()
+        chooser = self.chooser(token)
+        others_chooser = self.chooser(other_token)
+        station_b = chooser['candidates'][1]['station']['id']
+        match = self.recognize(token)[2]
+        not_shown = read_fixture('recognition/recognize-response/valid/choose-station-three-candidates.json')['response']['candidates'][2]['station']['id']
+        never_answered = '01a11b46-ffba-7c3d-8f10-2b3c4d5e6f99'
+        mistakes = {
+            'no token': lambda: self.choose(None, chooser['recognition_id'], {'station_id': station_b}),
+            'an id in upper case': lambda: self.choose(token, chooser['recognition_id'].upper(), {'station_id': station_b}),
+            'an id that is not version 7': lambda: self.choose(token, str(uuid.uuid4()), {'station_id': station_b}),
+            'an id the stand-in never answered': lambda: self.choose(token, never_answered, {'station_id': station_b}),
+            'a match, not a chooser': lambda: self.choose(token, match['recognition_id'], {'station_id': match['result']['station']['id']}),
+            "another install's chooser": lambda: self.choose(token, others_chooser['recognition_id'], {'station_id': station_b}),
+            'a station the chooser did not show': lambda: self.choose(token, chooser['recognition_id'], {'station_id': not_shown}),
+            'the station by name': lambda: self.choose(token, chooser['recognition_id'], {'station_id': 'Station B'}),
+            'an extra field': lambda: self.choose(token, chooser['recognition_id'], {'station_id': station_b, 'remember': 'true'}),
+            'a body that is not JSON': lambda: self.choose(token, chooser['recognition_id'], b'station_id=x'),
+            'a body sent as a form': lambda: self.choose(token, chooser['recognition_id'], {'station_id': station_b},
+                                                         content_type='application/x-www-form-urlencoded'),
+            'no request id': lambda: self.choose(token, chooser['recognition_id'], {'station_id': station_b}, request_id='not-a-uuid'),
+        }
+        for description, send in mistakes.items():
+            with self.subTest(description):
+                self.assertEqual(send()[0], 400)
+        self.assertEqual(self.state()['refused'], len(mistakes))
+        self.assertEqual(self.state()['choices'], [])
+        # A well-formed token the stand-in did not issue is the real guard's 401, so the app registers again.
+        status, _, body = self.choose('made.up.token', chooser['recognition_id'], {'station_id': station_b})
+        self.assertEqual((status, body['error']['code']), (401, 'INSTALL_TOKEN_INVALID'))
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_b})[0], 204)
+
+    def test_choice_scenarios_lose_the_answer_say_busy_or_say_not_a_candidate(self) -> None:
+        token = self.registered_token()
+        chooser = self.chooser(token)
+        station_b = chooser['candidates'][1]['station']['id']
+        self.queue('choice-busy', 'choice-not-a-candidate', 'choice-answer-lost')
+        status, headers, body = self.choose(token, chooser['recognition_id'], {'station_id': station_b})
+        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'SERVICE_UNAVAILABLE', '6'))
+        status, _, body = self.choose(token, chooser['recognition_id'], {'station_id': station_b})
+        self.assertEqual((status, body['error']['code']), (422, 'STATION_NOT_A_CANDIDATE'))
+        self.assertEqual(self.state()['choices'], [])
+        # Kept, but the answer never comes: the outbox sends it again and gets 204, still one choice.
+        with self.assertRaises(NO_ANSWER):
+            self.choose(token, chooser['recognition_id'], {'station_id': station_b})
+        self.assertEqual(len(self.state()['choices']), 1)
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_b})[0], 204)
+        self.assertEqual([choice['station_id'] for choice in self.state()['choices']], [station_b])
+
+    def test_no_signal_drops_a_choice_before_it_is_kept_or_its_queued_answer_taken(self) -> None:
+        token = self.registered_token()
+        chooser = self.chooser(token)
+        station_b = chooser['candidates'][1]['station']['id']
+        self.queue('choice-busy')
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': True})[0], 200)
+        with self.assertRaises(NO_ANSWER):
+            self.choose(token, chooser['recognition_id'], {'station_id': station_b})
+        self.assertEqual((self.state()['choices'], self.state()['queued']['choice']), ([], ['choice-busy']))
+        self.assertEqual(self.control('/__fake/offline', {'is_offline': False})[0], 200)
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_b})[0], 503)
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': station_b})[0], 204)
+        self.assertEqual(len(self.state()['choices']), 1)
+
+    # ---- the "My station" list (contract §1.4, §4) ----------------------------------------------------------------
+
+    def test_the_station_list_is_the_shared_fixture_kept_a_day_and_304_when_the_app_has_it(self) -> None:
+        token = self.registered_token()
+        request_id = str(uuid.uuid4())
+        status, headers, body = self.list_stations(token, request_id=request_id)
+        self.assertEqual((status, headers['X-Request-Id']), (200, request_id))
+        self.assertEqual(body, read_fixture('recognition/listener-station-list/valid/two-stations.json')['response'])
+        self.assertEqual((headers['ETag'], headers['Cache-Control']), ('"fake-stations-1"', 'private, max-age=86400'))
+        for if_none_match in ('"fake-stations-1"', '"older", "fake-stations-1"'):
+            with self.subTest(if_none_match):
+                status, headers, body = self.list_stations(token, {'If-None-Match': if_none_match})
+                self.assertEqual((status, body), (304, b''))
+                self.assertEqual((headers['ETag'], headers['Cache-Control']), ('"fake-stations-1"', 'private, max-age=86400'))
+        status, _, body = self.list_stations(token, {'If-None-Match': '"fake-stations-0"'})
+        self.assertEqual((status, len(body['stations'])), (200, 2))
+        state = self.state()
+        self.assertEqual(state['station_list_requests'], 4)
+        self.assertEqual([request['outcome'] for request in state['recent_requests'] if request['path'] == '/api/v1/stations'],
+                         ['stations-list: listed (200)', 'stations-list: not changed (304)', 'stations-list: not changed (304)',
+                          'stations-list: listed (200)'])
+        self.assertNotIn('Station A', json.dumps(state))
+
+    def test_the_station_list_needs_a_token_and_a_request_id_and_answers_401_to_a_token_it_did_not_issue(self) -> None:
+        self.assertEqual(self.list_stations(None)[0], 400)
+        self.assertEqual(self.list_stations(self.registered_token(), request_id='not-a-uuid')[0], 400)
+        self.assertEqual(self.state()['refused'], 2)
+        status, _, body = self.list_stations('made.up.token')
+        self.assertEqual((status, body['error']['code']), (401, 'INSTALL_TOKEN_INVALID'))
+        self.assertEqual(self.state()['station_list_requests'], 0)
+
+    def test_stations_unavailable_answers_503_and_the_next_request_gets_the_list(self) -> None:
+        token = self.registered_token()
+        self.queue('stations-unavailable')
+        status, headers, body = self.list_stations(token)
+        self.assertEqual((status, body['error']['code'], headers['Retry-After']), (503, 'SERVICE_UNAVAILABLE', '6'))
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertNotIn('ETag', headers)
+        self.assertEqual(self.list_stations(token)[0], 200)
+        self.assertEqual(self.state()['station_list_requests'], 2)
+
+    def test_reset_forgets_recognitions_choices_and_the_station_list_count(self) -> None:
+        token = self.registered_token()
+        fields = live_fields()
+        self.queue('choose-station')
+        chooser = self.recognize(token, fields)[2]
+        self.assertEqual(self.choose(token, chooser['recognition_id'], {'station_id': chooser['candidates'][0]['station']['id']})[0], 204)
+        self.list_stations(token)
+        self.assertEqual(self.control('/__fake/reset', {})[0], 200)
+        state = self.state()
+        self.assertEqual((state['choices'], state['station_list_requests'], state['recognitions']), ([], 0, []))
+        # The same key from a new registration is a new identify: nothing is held any more.
+        status, _, body = self.recognize(self.registered_token(), fields)
+        self.assertEqual((status, body['status']), (200, 'MATCH'))
+        self.assertNotEqual(body['recognition_id'], chooser['recognition_id'])
+
+    def test_the_control_page_has_a_section_per_route_and_names_hints_and_choices_by_station(self) -> None:
+        page = self.get('/__fake/panel')[2].decode('utf-8')
+        for heading in ('Next answer to &quot;Tap to identify&quot;', 'Next answer to a station choice',
+                        'Next answer to the &quot;My station&quot; list'):
+            self.assertIn(heading, page)
+        for route in ROUTES:
+            self.assertIn(f'id="queued-{route}"', page)
+        for label in ('Next answer: Which station, off air<', 'Next answer: Match by my station<', 'Next answer: Choice accepted<',
+                      'Next answer: Choice: busy<', 'Next answer: Station list: unavailable<'):
+            self.assertIn(label, page)
+        self.assertIn("'Choices: ' + state.choices.length", page)
+        self.assertIn("'Station list requests: ' + state.station_list_requests", page)
+        station_names = json.loads(re.search(r'const stationNames = (\{.*?\});', page).group(1))
+        station_b = read_fixture('recognition/listener-station-list/valid/two-stations.json')['response']['stations'][1]
+        self.assertEqual(station_names[station_b['id']], 'Station B')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

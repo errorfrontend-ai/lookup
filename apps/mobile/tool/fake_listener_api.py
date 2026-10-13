@@ -29,6 +29,16 @@ whether one is set, for which install and for how long.
 A bearer token the fake did not issue (one from before a reset or a restart, or from the real API) gets 401
 INSTALL_TOKEN_INVALID, as from the real guard, so the app registers again; a missing or malformed
 Authorization header is refused with 400, because the app never sends one.
+
+Listener routes (contract §1 and §4), each with its own queue of answers:
+    POST /api/v1/installs                           a registration, or a re-registration with the install's token
+    POST /api/v1/recognize                          an identify: a new UUID version 7 per new idempotency key, and the
+                                                    same answer again for a key it already answered ("replay")
+    POST /api/v1/recognitions/{id}/choice           the station chosen in a "Which station?" answer it gave this
+                                                    install: 204, the first choice wins (P4 design §5.5)
+    GET  /api/v1/stations                           the "My station" list with ETag "fake-stations-1", kept a day;
+                                                    304 when the app sends that ETag back (P4 design §5.6)
+    POST /api/v1/client-errors                      a crash report, with no token
 """
 
 from __future__ import annotations
@@ -42,6 +52,7 @@ import math
 import secrets
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -54,11 +65,14 @@ from typing import Any
 FIXTURES = Path(__file__).resolve().parents[3] / 'packages' / 'contracts' / 'fixtures'
 MAXIMUM_CLIP_BYTES = 262_144
 MAXIMUM_BODY_BYTES = 278_528
+MAXIMUM_JSON_BODY_BYTES = 102_400   # the API's JSON body limit (100 KB, configure-http-application.ts)
 MAXIMUM_CONTROL_BODY_BYTES = 8_192
 MAXIMUM_ACTIONS_PER_CARD = 6   # the contract's MAXIMUM_ACTIONS_PER_CARD (packages/contracts/src/action-card)
 
 # The contract's rules (packages/contracts/src/recognition/*.ts), written out for the standard library.
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', re.IGNORECASE)
+# A recognition id as the API makes it: a lower-case UUID version 7 (the contract's RecognitionId).
+RECOGNITION_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
 APP_VERSION = re.compile(r'^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$')
 TIMESTAMP_WITH_OFFSET = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$')
 BEARER_TOKEN = re.compile(r'^[A-Za-z0-9\-._~+/]+=*$')
@@ -73,18 +87,47 @@ CLIENT_ERROR_FIELDS = {'source', 'kind', 'message', 'stack', 'location', 'relate
 BUSY_RETRY_AFTER_SECONDS = 6
 
 RECOGNIZE_ROUTE = 'recognize'
+CHOICE_ROUTE = 'choice'
+STATIONS_ROUTE = 'stations'
+
+RECOGNIZE_PATH = '/api/v1/recognize'
+STATIONS_PATH = '/api/v1/stations'
+CHOICE_PATH = re.compile(r'^/api/v1/recognitions/([^/?#]*)/choice$')
+
+# The "My station" list: one fixed ETag, and the one listener answer that may be kept (contract §1.4).
+STATION_LIST_FIXTURE = 'recognition/listener-station-list/valid/two-stations.json'
+STATION_LIST_ENTITY_TAG = '"fake-stations-1"'
+STATION_LIST_CACHE_CONTROL = 'private, max-age=86400'
+
+# "Match by my station" answers the MATCH of the station the app sent as its hint: the shared fixture of that station's
+# own campaign when there is one, otherwise that station's result in a "Which station?" fixture (Station C).
+RESPONSES = 'recognition/recognize-response/valid'
+HINTED_MATCHES = (f'{RESPONSES}/match-campaign.json', f'{RESPONSES}/match-campaign-station-b.json',
+                  f'{RESPONSES}/match-station-without-city.json')
+CHOOSERS_WITH_EVERY_STATION = (f'{RESPONSES}/choose-station.json', f'{RESPONSES}/choose-station-three-candidates.json',
+                               f'{RESPONSES}/choose-station-four-candidates.json')
 
 # Each scenario's answer, from the shared fixtures, the route whose queue it joins, and the words the control page
 # shows on its button ("Next answer: Which station?").
 SCENARIOS: dict[str, dict[str, Any]] = {
     'match': {'route': RECOGNIZE_ROUTE, 'label': 'Match',
-              'response': 'recognition/recognize-response/valid/match-campaign.json'},
+              'response': f'{RESPONSES}/match-campaign.json'},
     'fallback': {'route': RECOGNIZE_ROUTE, 'label': "The advertiser's usual card",
-                 'response': 'recognition/recognize-response/valid/match-client-default.json'},
+                 'response': f'{RESPONSES}/match-client-default.json'},
     'no-match': {'route': RECOGNIZE_ROUTE, 'label': 'No match',
-                 'response': 'recognition/recognize-response/valid/no-match.json'},
+                 'response': f'{RESPONSES}/no-match.json'},
     'choose-station': {'route': RECOGNIZE_ROUTE, 'label': 'Which station?',
-                       'response': 'recognition/recognize-response/valid/choose-station.json'},
+                       'response': f'{RESPONSES}/choose-station.json'},
+    'choose-station-three': {'route': RECOGNIZE_ROUTE, 'label': 'Which station? (three stations)',
+                             'response': f'{RESPONSES}/choose-station-three-candidates.json'},
+    'choose-station-four': {'route': RECOGNIZE_ROUTE, 'label': 'Which station? (four stations)',
+                            'response': f'{RESPONSES}/choose-station-four-candidates.json'},
+    # None of the stations has the ad on air: every row carries its client's usual card (P4-FALLBACK-02).
+    'choose-station-out-of-window': {'route': RECOGNIZE_ROUTE, 'label': 'Which station, off air',
+                                     'response': f'{RESPONSES}/choose-station-out-of-window.json'},
+    # The app sends "My station" as station_hint; the server then answers that station's MATCH (P6-CHOOSER-07, -15).
+    # A send without a hint is refused, so the run fails.
+    'match-by-hint': {'route': RECOGNIZE_ROUTE, 'label': 'Match by my station', 'by_hint': True},
     # match-campaign.json's card with the buttons of six-actions.json it does not already hold (by id), up to the six
     # a card may have: four buttons, then "More options" for the rest (design §2.6, S4-D18).
     'match-more-options': {'route': RECOGNIZE_ROUTE, 'label': 'Match with six buttons',
@@ -110,11 +153,35 @@ SCENARIOS: dict[str, dict[str, Any]] = {
                       'envelope': 'errors/envelopes/invalid-audio.json'},
     'unreadable': {'route': RECOGNIZE_ROUTE, 'label': 'An answer the app cannot read', 'unreadable': True},
     'drop': {'route': RECOGNIZE_ROUTE, 'label': 'Connection dropped after the clip', 'drop': True},
+    # A station choice (contract §1.3). Every choice is checked first: a "Which station?" answer this install was
+    # given, and one of its stations; anything else is refused, so the run fails.
+    'choice-recorded': {'route': CHOICE_ROUTE, 'label': 'Choice accepted'},
+    'choice-answer-lost': {'route': CHOICE_ROUTE, 'label': 'Choice kept, answer lost', 'drop': True},
+    'choice-busy': {'route': CHOICE_ROUTE, 'label': 'Choice: busy', 'envelope': 'errors/envelopes/service-unavailable.json',
+                    'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
+    'choice-not-a-candidate': {'route': CHOICE_ROUTE, 'label': 'Choice: not one of the stations shown',
+                               'envelope': 'errors/envelopes/station-not-a-candidate.json'},
+    # The "My station" list (contract §1.4).
+    'stations-list': {'route': STATIONS_ROUTE, 'label': 'The station list'},
+    'stations-unavailable': {'route': STATIONS_ROUTE, 'label': 'Station list: unavailable',
+                             'envelope': 'errors/envelopes/service-unavailable.json',
+                             'retry_after_seconds': BUSY_RETRY_AFTER_SECONDS},
 }
 
-# What each route answers when its queue is empty.
-DEFAULT_SCENARIOS: dict[str, str] = {RECOGNIZE_ROUTE: 'match'}
+# What each route answers when its queue is empty, and the heading of its buttons on the control page.
+DEFAULT_SCENARIOS: dict[str, str] = {RECOGNIZE_ROUTE: 'match', CHOICE_ROUTE: 'choice-recorded',
+                                     STATIONS_ROUTE: 'stations-list'}
 ROUTES = tuple(DEFAULT_SCENARIOS)
+ROUTE_HEADINGS: dict[str, str] = {
+    RECOGNIZE_ROUTE: 'Next answer to "Tap to identify"',
+    CHOICE_ROUTE: 'Next answer to a station choice',
+    STATIONS_ROUTE: 'Next answer to the "My station" list',
+}
+ROUTE_DEFAULT_WORDS: dict[str, str] = {
+    RECOGNIZE_ROUTE: 'with none queued, the app gets "Match".',
+    CHOICE_ROUTE: 'with none queued, a choice is accepted; the first choice of a recording wins.',
+    STATIONS_ROUTE: 'with none queued, the app gets Station A and Station B, or "not changed" when it already has them.',
+}
 
 # The headers a tunnel or proxy adds: a control request that carries one came from outside this machine (P6-D30).
 FORWARDING_HEADERS = ('X-Forwarded-For', 'X-Forwarded-Host', 'Forwarded')
@@ -178,6 +245,41 @@ class FakeState:
             # The installs that registered lately, oldest first, for choosing the phone's install on the control page.
             self.recent_registrations: list[dict[str, Any]] = []
             self.phone_check: PhoneCheck | None = None
+            # Each 200 answer to an identify, by (install, idempotency key), for a send of the same key again.
+            self.answers_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+            # Each recognition the fake answered: the install, the status and the stations it showed.
+            self.answered_recognitions: dict[str, dict[str, Any]] = {}
+            # The first choice of each recognition, in the order they came: ids only.
+            self.choices: list[dict[str, str]] = []
+
+    def answer_held_for(self, install_id: str, idempotency_key: str) -> dict[str, Any] | None:
+        """The 200 answer already given to this install for this key, as first built, or None for a new key."""
+        with self.lock:
+            held = self.answers_by_key.get((install_id, idempotency_key))
+            return json.loads(json.dumps(held)) if held is not None else None
+
+    def remember_answer(self, install_id: str, idempotency_key: str, response: dict[str, Any]) -> None:
+        """Keeps a 200 answer for a send of the same key again, and what it showed, for the choices that follow it."""
+        shown = response.get('candidates') or ([response['result']] if 'result' in response else [])
+        with self.lock:
+            self.answers_by_key[(install_id, idempotency_key)] = json.loads(json.dumps(response))
+            self.answered_recognitions[response['recognition_id']] = {
+                'install_id': install_id, 'status': response['status'],
+                'station_ids': [result['station']['id'] for result in shown]}
+
+    def answered_recognition(self, recognition_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            return self.answered_recognitions.get(recognition_id)
+
+    def record_choice(self, recognition_id: str, station_id: str, request_id: str) -> str:
+        """The first choice of a recognition wins, as on the real API: 'chosen', 'already chosen' (the same station
+        again) or 'another station was chosen first'."""
+        with self.lock:
+            first = next((choice for choice in self.choices if choice['recognition_id'] == recognition_id), None)
+            if first is None:
+                self.choices.append({'recognition_id': recognition_id, 'station_id': station_id, 'request_id': request_id})
+                return 'chosen'
+            return 'already chosen' if first['station_id'] == station_id else 'another station was chosen first'
 
     def queue(self, names: list[str]) -> None:
         with self.lock:
@@ -257,13 +359,20 @@ class FakeState:
                 'refused': sum(1 for request in requests if 'refused' in request),
                 'recognitions': [
                     {'request_id': request.get('request_id'), 'idempotency_key': request.get('idempotency_key'),
-                     'scenario': request.get('scenario')}
-                    for request in requests if 'scenario' in request
+                     'scenario': request.get('scenario'), 'recognition_id': request.get('recognition_id'),
+                     'is_deferred': request.get('is_deferred'), 'station_hint': request.get('station_hint')}
+                    for request in requests if request.get('path') == RECOGNIZE_PATH and 'scenario' in request
                 ],
+                # One per recognition, the first: what the real API would hold however often the app sent it.
+                'choices': [dict(choice) for choice in self.choices],
+                # Every station-list request the fake answered (200, 304 or an error), for the 24-hour cache check.
+                'station_list_requests': sum(1 for request in requests
+                                             if request.get('path') == STATIONS_PATH and 'scenario' in request),
                 'client_error_report_ids': [report.get('request_id') for report in self.client_error_reports],
                 'recent_requests': [
                     {'method': request.get('method'), 'path': request.get('path'),
-                     'request_id': request.get('request_id'), 'outcome': outcome_of(request)}
+                     'request_id': request.get('request_id'), 'outcome': outcome_of(request),
+                     'station_hint': request.get('station_hint'), 'station_id': request.get('station_id')}
                     for request in requests[-20:]
                 ],
             }
@@ -277,10 +386,50 @@ def outcome_of(request: dict[str, Any]) -> str:
         return f"dropped: {request['dropped']}"
     if 'token_not_issued' in request:
         return 'token not issued here: answered 401'
+    for key in ('choice', 'station_list'):
+        if key in request:
+            return f"{request.get('scenario')}: {request[key]}"
     for key in ('scenario', 'registration', 'client_error_kind'):
         if key in request:
             return str(request[key])
     return 'answered'
+
+
+def new_recognition_id(now_milliseconds: int | None = None) -> str:
+    """A recognition id as the API makes one (RFC 9562 UUID version 7): 48 bits of Unix milliseconds, the version, 12
+    random bits, the variant and 62 random bits, written in lower case."""
+    milliseconds = time.time_ns() // 1_000_000 if now_milliseconds is None else now_milliseconds
+    random_bits = secrets.randbits(74)
+    value = ((milliseconds & 0xFFFF_FFFF_FFFF) << 80) | (0x7 << 76) | ((random_bits >> 62) << 64) | (0b10 << 62) \
+        | (random_bits & ((1 << 62) - 1))
+    return str(uuid.UUID(int=value))
+
+
+def match_for_hinted_station(station_id: str) -> dict[str, Any] | None:
+    """The MATCH the real API gives a clip whose hint names [station_id] when that station airs the ad, from the shared
+    fixtures; None for a station the fixtures do not hold."""
+    for path in HINTED_MATCHES:
+        response = read_fixture(path)['response']
+        if response['result']['station']['id'] == station_id:
+            return response
+    for path in CHOOSERS_WITH_EVERY_STATION:
+        for candidate in read_fixture(path)['response']['candidates']:
+            if candidate['station']['id'] == station_id:
+                return {**read_fixture(HINTED_MATCHES[0])['response'], 'result': candidate}
+    return None
+
+
+def station_names_from_fixtures() -> dict[str, str]:
+    """Every station the fixtures the fake serves hold, by id, so the control page can name a hint or a choice while
+    the state holds only ids."""
+    names: dict[str, str] = {}
+    for path in sorted((FIXTURES / RESPONSES).glob('*.json')):
+        response = json.loads(path.read_text(encoding='utf-8'))['response']
+        for result in ([response['result']] if 'result' in response else []) + response.get('candidates', []):
+            names.setdefault(result['station']['id'], result['station']['name'])
+    for station in read_fixture(STATION_LIST_FIXTURE)['response']['stations']:
+        names.setdefault(station['id'], station['name'])
+    return names
 
 
 def read_fixture(relative_path: str) -> dict[str, Any]:
@@ -570,6 +719,14 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             return
         if self.path.startswith('/api/v1/') and self.drops_while_offline():
             return
+        if self.path == STATIONS_PATH:
+            request_id = self.headers.get('X-Request-Id')
+            try:
+                check_uuid(request_id, 'X-Request-Id')
+                self.handle_stations(request_id)
+            except RequestRefused as refused:
+                self.refuse(str(refused), request_id if request_id and UUID.match(request_id) else None)
+            return
         self.answer_json(404, {'error': {'code': 'NOT_FOUND', 'message': 'Not found.', 'request_id': '00000000-0000-4000-8000-000000000000'}})
 
     def do_POST(self) -> None:
@@ -581,10 +738,13 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         request_id = self.headers.get('X-Request-Id')
         try:
             check_uuid(request_id, 'X-Request-Id')
+            choice_path = CHOICE_PATH.match(self.path)
             if self.path == '/api/v1/installs':
                 self.handle_install(request_id)
-            elif self.path == '/api/v1/recognize':
+            elif self.path == RECOGNIZE_PATH:
                 self.handle_recognize(request_id)
+            elif choice_path is not None:
+                self.handle_choice(request_id, choice_path.group(1))
             elif self.path == '/api/v1/client-errors':
                 self.handle_client_error(request_id)
             else:
@@ -631,9 +791,9 @@ class FakeListenerApi(BaseHTTPRequestHandler):
     def handle_recognize(self, request_id: str) -> None:
         token = self.bearer_token()
         with self.state.lock:
-            is_issued_token = token in self.state.issued_tokens
+            install_id = self.state.issued_tokens.get(token)
         body = self.read_body()
-        if not is_issued_token:
+        if install_id is None:
             self.answer_token_not_issued(request_id)
             return
         fields, audio = read_multipart(self.headers.get('Content-Type') or '', body)
@@ -647,10 +807,142 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             raise RequestRefused('the audio part must be clip.m4a of type audio/mp4')
         if self.state.save_audio_to:
             self.state.save_audio_to.write_bytes(clip)
+        # What the request carried, for the log (contract §4): field values that hold no personal data.
+        sent = {'request_id': request_id, 'idempotency_key': fields['idempotency_key'], 'field_names': sorted(fields),
+                'audio_bytes': len(clip), 'body_bytes': len(body), 'is_deferred': fields['is_deferred'],
+                'captured_at': fields['captured_at'], 'sent_at': fields['sent_at'],
+                'station_hint': fields.get('station_hint')}
+        held = self.state.answer_held_for(install_id, fields['idempotency_key'])
+        if held is not None:
+            # The same key again after a 200 (a lost answer, a resend from the outbox): the same answer and recognition
+            # id, as the real API replays it, and no queued answer is spent.
+            self.record({**sent, 'scenario': 'replay', 'recognition_id': held['recognition_id']})
+            self.answer_recognition(held, request_id, install_id)
+            return
         scenario = self.state.next_scenario(RECOGNIZE_ROUTE)
-        self.record({'request_id': request_id, 'idempotency_key': fields['idempotency_key'], 'field_names': sorted(fields),
-                     'audio_bytes': len(clip), 'body_bytes': len(body), 'scenario': scenario})
-        self.answer_with_scenario(scenario, request_id, token)
+        response = self.fixture_answer(SCENARIOS[scenario], fields)
+        if response is None:
+            self.record({**sent, 'scenario': scenario})
+            self.answer_with_scenario(scenario, request_id, token)
+            return
+        # A new id for each new key, so each answer (and each chooser's choice) is told apart, as on the real API.
+        response['recognition_id'] = new_recognition_id()
+        self.state.remember_answer(install_id, fields['idempotency_key'], response)
+        self.record({**sent, 'scenario': scenario, 'recognition_id': response['recognition_id']})
+        self.answer_recognition(response, request_id, install_id)
+
+    def fixture_answer(self, plan: dict[str, Any], fields: dict[str, str]) -> dict[str, Any] | None:
+        """The 200 answer a scenario gives, from the shared fixtures, or None for one that answers otherwise."""
+        if plan.get('by_hint'):
+            hint = fields.get('station_hint')
+            if hint is None:
+                raise RequestRefused('"Match by my station" needs the station_hint field, and the app sent none')
+            response = match_for_hinted_station(hint.lower())
+            if response is None:
+                raise RequestRefused('the station_hint names none of the stand-in\'s stations')
+            return response
+        if 'response' not in plan:
+            return None
+        response = read_fixture(plan['response'])['response']
+        if 'extra_actions_from' in plan:
+            add_actions(response['result']['card'], read_fixture(plan['extra_actions_from'])['card']['actions'])
+        return response
+
+    def answer_recognition(self, response: dict[str, Any], request_id: str, install_id: str) -> None:
+        """A 200 answer to an identify, with this request's id; numbers become the phone check's for its install."""
+        answer = {**response, 'request_id': request_id}
+        if holds_phone_numbers(answer):
+            replacement = self.state.take_phone_number_for(install_id)
+            if replacement is not None:
+                answer = replace_phone_numbers(answer, replacement)
+        self.answer_json(200, answer, request_id)
+
+    def handle_choice(self, request_id: str, recognition_id: str) -> None:
+        """A station choice (contract §1.3). Refused, so the run fails, unless it names a "Which station?" answer this
+        install was given, by its lower-case version 7 id, and exactly {"station_id": one of its stations}."""
+        token = self.bearer_token()
+        with self.state.lock:
+            install_id = self.state.issued_tokens.get(token)
+        body = self.read_body(MAXIMUM_JSON_BODY_BYTES)
+        if install_id is None:
+            self.answer_token_not_issued(request_id)
+            return
+        if not RECOGNITION_ID.match(recognition_id):
+            raise RequestRefused('the recognition id in the path is not a lower-case UUID version 7')
+        if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+            raise RequestRefused('a choice must be sent as application/json')
+        choice = json.loads(body)
+        if not isinstance(choice, dict) or set(choice) != {'station_id'}:
+            raise RequestRefused('a choice body must be exactly {"station_id": "<uuid>"}')
+        check_uuid(choice['station_id'], 'station_id')
+        station_id = choice['station_id'].lower()
+        answered = self.state.answered_recognition(recognition_id)
+        if answered is None or answered['status'] != 'CHOOSE_STATION':
+            raise RequestRefused('the recognition is not a "Which station?" answer the stand-in gave')
+        if answered['install_id'] != install_id:
+            raise RequestRefused("the recognition was answered to another install")
+        if station_id not in answered['station_ids']:
+            raise RequestRefused('the station is not one of the stations that answer showed')
+        scenario = self.state.next_scenario(CHOICE_ROUTE)
+        plan = SCENARIOS[scenario]
+        details = {'request_id': request_id, 'recognition_id': recognition_id, 'station_id': station_id}
+        if 'envelope' in plan:
+            self.record({**details, 'scenario': scenario})
+            self.answer_envelope(plan, request_id)
+            return
+        outcome = self.state.record_choice(recognition_id, station_id, request_id)
+        self.record({**details, 'scenario': scenario, 'choice': outcome})
+        if outcome == 'another station was chosen first':
+            self.answer_envelope({'envelope': 'errors/envelopes/station-already-chosen.json'}, request_id)
+        elif plan.get('drop'):
+            self.close_unanswered()   # kept, but the app never hears so: its outbox sends it again
+        else:
+            self.answer_no_content(request_id)
+
+    def handle_stations(self, request_id: str) -> None:
+        """The "My station" list (contract §1.4): the shared fixture's two stations with a fixed ETag, kept for a day,
+        and 304 with no body when the app sends that ETag back. Every request is counted, for the 24-hour cache check."""
+        token = self.bearer_token()
+        with self.state.lock:
+            install_id = self.state.issued_tokens.get(token)
+        if int(self.headers.get('Content-Length') or 0) > 0:
+            raise RequestRefused('a GET of the station list carries no body')
+        if install_id is None:
+            self.answer_token_not_issued(request_id)
+            return
+        scenario = self.state.next_scenario(STATIONS_ROUTE)
+        plan = SCENARIOS[scenario]
+        if 'envelope' in plan:
+            self.record({'request_id': request_id, 'scenario': scenario})
+            self.answer_envelope(plan, request_id)
+            return
+        listed_tags = [tag.strip() for tag in (self.headers.get('If-None-Match') or '').split(',')]
+        is_not_modified = STATION_LIST_ENTITY_TAG in listed_tags
+        self.record({'request_id': request_id, 'scenario': scenario,
+                     'station_list': 'not changed (304)' if is_not_modified else 'listed (200)'})
+        encoded = b'' if is_not_modified else json.dumps(read_fixture(STATION_LIST_FIXTURE)['response']).encode('utf-8')
+        self.send_response(304 if is_not_modified else 200)
+        if not is_not_modified:
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(encoded)))
+        self.send_header('ETag', STATION_LIST_ENTITY_TAG)
+        self.send_header('Cache-Control', STATION_LIST_CACHE_CONTROL)
+        self.send_header('X-Request-Id', request_id)
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def answer_envelope(self, plan: dict[str, Any], request_id: str) -> None:
+        """A shared error envelope with this request's id, and the plan's Retry-After or the envelope's own."""
+        envelope = read_fixture(plan['envelope'])
+        body = envelope['body']
+        body['error']['request_id'] = request_id
+        self.answer_json(envelope['http_status'], body, request_id, plan.get('retry_after_seconds', envelope.get('retry_after_seconds')))
+
+    def answer_no_content(self, request_id: str) -> None:
+        self.send_response(204)
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Request-Id', request_id)
+        self.end_headers()
 
     def bearer_token(self) -> str:
         """The install token of `Authorization: Bearer <token>`. A missing or malformed header is refused (400), so the
@@ -673,6 +965,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         self.answer_json(envelope['http_status'], body, request_id)
 
     def answer_with_scenario(self, scenario: str, request_id: str, token: str) -> None:
+        """An identify's answer other than a 200 from the fixtures: a dropped connection, an unreadable page, or an
+        error envelope."""
         plan = SCENARIOS[scenario]
         if plan.get('drop'):
             self.close_unanswered()
@@ -685,19 +979,6 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             self.send_header('X-Request-Id', request_id)
             self.end_headers()
             self.wfile.write(encoded)
-            return
-        if 'response' in plan:
-            response = read_fixture(plan['response'])['response']
-            response['request_id'] = request_id
-            if 'extra_actions_from' in plan:
-                add_actions(response['result']['card'], read_fixture(plan['extra_actions_from'])['card']['actions'])
-            if holds_phone_numbers(response):
-                with self.state.lock:
-                    install_id = self.state.issued_tokens.get(token)
-                replacement = self.state.take_phone_number_for(install_id)
-                if replacement is not None:
-                    response = replace_phone_numbers(response, replacement)
-            self.answer_json(200, response, request_id)
             return
         envelope = read_fixture(plan['envelope'])
         body = envelope['body']
@@ -739,6 +1020,21 @@ class FakeListenerApi(BaseHTTPRequestHandler):
 
 # ---- The control page ----------------------------------------------------------------------------------------
 
+def render_answer_section(route: str, scenarios: list[tuple[str, str]]) -> str:
+    """One route's buttons on the control page: a heading, what it answers with nothing queued, a button per answer
+    ("Next answer: …") and a line the page fills with that route's queue."""
+    buttons = '\n'.join(f'      <button type="button" class="answer" data-scenario="{html.escape(name)}">'
+                        f'Next answer: {html.escape(label)}</button>' for name, label in scenarios)
+    return f'''  <section aria-labelledby="answers-{route}-heading">
+    <h2 id="answers-{route}-heading">{html.escape(ROUTE_HEADINGS[route])}</h2>
+    <p>Each button queues one answer; {html.escape(ROUTE_DEFAULT_WORDS[route])}</p>
+    <div class="buttons">
+{buttons}
+    </div>
+    <p id="queued-{route}" aria-live="polite"></p>
+  </section>'''
+
+
 def render_panel(nonce: str, port: int) -> str:
     """The control page (P6 design §4.7, §5.0 (a)): a button per answer, "No signal" on and off, a phone number for a
     phone check, reset, and a live view of what the app sent. Standard-library HTML with one inline script, allowed by
@@ -746,10 +1042,11 @@ def render_panel(nonce: str, port: int) -> str:
     by_route: dict[str, list[tuple[str, str]]] = {route: [] for route in ROUTES}
     for name, plan in SCENARIOS.items():
         by_route[plan['route']].append((name, plan['label']))
-    scenario_buttons = '\n'.join(
-        f'<button type="button" class="answer" data-scenario="{html.escape(name)}">'
-        f'Next answer: {html.escape(label)}</button>'
-        for route in ROUTES for name, label in by_route[route])
+    # One section per route, each with its own queue: an identify, a station choice, the station list.
+    answer_sections = '\n'.join(render_answer_section(route, by_route[route]) for route in ROUTES)
+    # Station names for the hints and choices the state lists by id only; "<" written as an escape, inside a script.
+    station_names = json.dumps(station_names_from_fixtures()).replace('<', '\\u003c')
+    default_answers = json.dumps(DEFAULT_SCENARIOS).replace('<', '\\u003c')
     return f'''<!doctype html>
 <html lang="en">
 <head>
@@ -793,14 +1090,7 @@ def render_panel(nonce: str, port: int) -> str:
   <p>The emulator's app talks to this stand-in at http://10.0.2.2:{port}/api/v1. Choose its next answer, cut its
      signal, then use the app. This page only works from this PC: requests through a tunnel are refused.</p>
 
-  <section aria-labelledby="answers-heading">
-    <h2 id="answers-heading">Next answer to "Tap to identify"</h2>
-    <p>Each button queues one answer; with none queued, the app gets "Match".</p>
-    <div class="buttons">
-{scenario_buttons}
-    </div>
-    <p id="queued" aria-live="polite"></p>
-  </section>
+{answer_sections}
 
   <section aria-labelledby="signal-heading">
     <h2 id="signal-heading">Signal</h2>
@@ -837,6 +1127,8 @@ def render_panel(nonce: str, port: int) -> str:
   <section aria-labelledby="sent-heading">
     <h2 id="sent-heading">What the app sent</h2>
     <p id="counts"></p>
+    <p id="choices"></p>
+    <p id="station-list-requests"></p>
     <div class="table-scroll">
       <table>
         <thead><tr><th scope="col">Method</th><th scope="col">Path</th><th scope="col">Outcome</th>
@@ -851,6 +1143,9 @@ def render_panel(nonce: str, port: int) -> str:
 <script nonce="{nonce}">
   'use strict';
   const statusLine = document.getElementById('status');
+  const stationNames = {station_names};
+  const defaultAnswers = {default_answers};
+  function stationName(stationId) {{ return stationNames[stationId] || ('station ' + String(stationId).slice(0, 8)); }}
   async function control(path, body, done) {{
     try {{
       const answer = await fetch(path, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
@@ -900,9 +1195,11 @@ def render_panel(nonce: str, port: int) -> str:
   async function refresh() {{
     try {{
       const state = await (await fetch('/__fake/state')).json();
-      const queued = state.queued.recognize;
-      document.getElementById('queued').textContent = queued.length
-        ? 'Queued: ' + queued.join(', ') : 'Nothing queued: the next answer is "match".';
+      for (const [route, queued] of Object.entries(state.queued)) {{
+        const line = document.getElementById('queued-' + route);
+        if (line) line.textContent = queued.length
+          ? 'Queued: ' + queued.join(', ') : 'Nothing queued: the next answer is "' + defaultAnswers[route] + '".';
+      }}
       const signal = document.getElementById('signal');
       signal.textContent = state.is_offline ? 'No signal: requests are cut off.' : 'Signal: requests are answered.';
       signal.className = state.is_offline ? 'signal-off' : '';
@@ -916,11 +1213,17 @@ def render_panel(nonce: str, port: int) -> str:
         + ' · re-registrations: ' + state.re_registrations + ' · identifies: ' + state.recognitions.length
         + ' · crash reports: ' + state.client_error_report_ids.length + ' · cut off: ' + state.dropped_while_offline
         + ' · refused: ' + state.refused;
+      document.getElementById('choices').textContent = 'Choices: ' + state.choices.length
+        + (state.choices.length ? ' — ' + state.choices.map((choice) => stationName(choice.station_id)).join(', ') : '');
+      document.getElementById('station-list-requests').textContent = 'Station list requests: ' + state.station_list_requests;
       const body = document.getElementById('recent');
       body.replaceChildren();
       for (const request of state.recent_requests.slice().reverse()) {{
         const row = document.createElement('tr');
-        cell(row, request.method); cell(row, request.path); cell(row, request.outcome); cell(row, request.request_id);
+        let outcome = request.outcome;
+        if (request.station_hint) outcome += ' · hint: ' + stationName(request.station_hint);
+        if (request.station_id) outcome += ' · station: ' + stationName(request.station_id);
+        cell(row, request.method); cell(row, request.path); cell(row, outcome); cell(row, request.request_id);
         body.appendChild(row);
       }}
     }} catch (error) {{
