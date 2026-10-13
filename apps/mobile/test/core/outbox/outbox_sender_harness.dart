@@ -254,6 +254,13 @@ final class OutboxSenderHarness {
     'expires_at': clock.now().add(const Duration(days: 30)).toIso8601String(),
   });
 
+  /// The stored install token is gone (refused since by another request), so the next send must
+  /// register first.
+  void forgetStoredToken() {
+    ListenerInstallStore(randomUuid: RandomUuid()).forgetToken('stored.install.token');
+    settle();
+  }
+
   void dispose() {
     settle();
     if (folder.existsSync()) folder.deleteSync(recursive: true);

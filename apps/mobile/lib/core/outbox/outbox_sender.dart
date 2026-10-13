@@ -27,7 +27,8 @@ import 'outbox_timing_rules.dart';
 ///    emptied the queue; none for a wake-up, whose wait was already jittered;
 /// 5. honours the pauses: a group paused by a `Retry-After` is skipped while the others go on
 ///    (P6-D38); while a 426 holds everything, one probe goes at each app start and every 6 hours,
-///    and only an answer from the server, any but 426, ends the pause, as does a new app version
+///    and only an answer from the server ends the pause: any but 426, and but a token refused a
+///    second time, which the server checks before the version; a new app version ends it too
 ///    (amendment A2); a probe with no answer, or stopped by a fault on the phone, leaves it;
 /// 6. registers when the install needs it, and after a refused token once per run (contract R10);
 /// 7. sends the oldest due item, one at a time (P6-OFFLINE-10, -11), never while the listener's own
