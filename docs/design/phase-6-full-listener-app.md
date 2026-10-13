@@ -1868,6 +1868,13 @@ attached, it is waited for and never taken over, and a test with `FakeDeviceServ
 4. On the PC I show the recognition: **is_deferred = true**, and its capture time corrected to when you
    recorded.
 5. Tap "Send a test error"; I find its id in the API's log, with the full error.
+6. (Carried from piece 2's walkthrough (b), skipped on 13 October 2026) Turn on **airplane mode**, open
+   History, open a saved result and tap **Call** → your phone's dialler opens with the number, which
+   starts `+447700900`. **Do not press call.** Turn airplane mode off.
+7. (Carried from piece 1's walkthrough (b), skipped on 13 October 2026) Clear **My station**. I play
+   the ad; tap Identify → the sheet. Turn on **airplane mode**, tap **Station B** → its card at once.
+   Turn airplane mode **off** and leave Look Up open, or lock the phone: within about 30 seconds the
+   recognition shows resolution **LISTENER_CHOICE**, Station B chosen (P6-TESTS-07 part 3).
 
 ### Piece 4 — Data saver, slow upload and "Report this"
 
@@ -2975,3 +2982,16 @@ ALL-USABILITY-04, the portal).
 - **`development:show-recognitions`** prints "Chosen by the listener: Station B" and "Decided by: the listener's
   "My station" (Station B)" where the P4 design's piece 3 walkthrough expects "Decided by: the listener's choice" and
   "Decided by: My station"; the walkthrough uses the tool's words.
+
+**Phone walkthrough (b), 13 October 2026** (the user's phone, the real API on port 3100 through the tunnel):
+- **Passed:** two stations in window gave the sheet (14:01, `CHOOSE_STATION`, two candidates); Station A chosen with
+  "Remember" ticked; the next two identifies (14:43, 14:44) answered `MATCH` by `HINT` with no sheet, so
+  **P6-CHOOSER-15 is ticked**. With "My station" cleared, the sheet came back (14:47) and a choice of Station B made
+  with signal reached the server at once (204).
+- **Skipped by the user:** the choice made in airplane mode (the recognition of 14:52) had not reached the server by
+  16:25. The app's code was checked: a phone with no network fails with a socket error, which the outbox reads as
+  "no answer" and keeps the item, so the choice was not lost; in this piece it is sent only while Look Up is open in
+  front (the retry timer) or when it is reopened, and the app was not reopened. The user chose to skip the rest of
+  the check and the History check (Call in airplane mode). Both move into piece 3's walkthrough (b), steps 6 and 7,
+  where the network-back event sends the choice without reopening the app; P6-TESTS-07 and P6-HISTORY-02 stay open
+  until then.
