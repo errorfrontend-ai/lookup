@@ -1,4 +1,4 @@
-import type { RouteObject } from 'react-router';
+import { Navigate, type RouteObject } from 'react-router';
 import { LoadingScreen, NotFoundPage } from '../components/plain-pages';
 import { ChangePasswordPage } from '../features/account/change-password-page';
 import { AdsListPage } from '../features/ads/ads-list-page';
@@ -18,6 +18,9 @@ const loadAdDetailPage = () => import('../features/ads/ad-detail-page').then((mo
 // Sign-up is its own download: a station's people never fetch it once they are approved.
 type SignUpPageName = keyof typeof import('../features/sign-up/sign-up-pages');
 const loadSignUp = (pageName: SignUpPageName) => () => import('../features/sign-up/sign-up-pages').then((module) => ({ Component: module[pageName] }));
+// The super admin's console is its own download too: station people never fetch it.
+type AdminPageName = keyof typeof import('../features/admin/admin-pages');
+const loadAdmin = (pageName: AdminPageName) => () => import('../features/admin/admin-pages').then((module) => ({ Component: module[pageName] }));
 
 /** Every page in the portal. Station pages live under /stations/:stationId so links can be shared. */
 export const PORTAL_ROUTES: RouteObject[] = [
@@ -33,6 +36,26 @@ export const PORTAL_ROUTES: RouteObject[] = [
         element: <RequireSignedIn />,
         children: [
           { index: true, element: <HomeRedirect /> },
+          { path: '/two-factor', lazy: loadAdmin('TwoFactorPage') },
+          {
+            path: '/admin',
+            lazy: loadAdmin('RequireSuperAdmin'),
+            children: [
+              {
+                lazy: loadAdmin('AdminShell'),
+                children: [
+                  { index: true, element: <Navigate to="/admin/applications" replace /> },
+                  { path: 'applications', lazy: loadAdmin('ApplicationsPage') },
+                  { path: 'applications/:stationId', lazy: loadAdmin('ApplicationsPage') },
+                  { path: 'stations', lazy: loadAdmin('StationsPage') },
+                  { path: 'audio-to-check', lazy: loadAdmin('AudioToCheckPage') },
+                  { path: 'system-health', lazy: loadAdmin('SystemHealthPage') },
+                  { path: 'reference-codes', lazy: loadAdmin('ReferenceCodesPage') },
+                  { path: '*', element: <NotFoundPage /> },
+                ],
+              },
+            ],
+          },
           {
             // A station still applying has no name yet, so its application lives outside the station's pages.
             path: '/stations/:stationId/application',

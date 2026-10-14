@@ -113,7 +113,7 @@ export class AdminInsight implements OnApplicationShutdown {
       database.query(
         `SELECT count(*)::integer AS recognition_count,
                 percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_milliseconds)
-                  FILTER (WHERE outcome IN ('MATCH', 'MATCH_DEFAULT', 'CHOOSE_STATION', 'NO_MATCH')) AS match_milliseconds_at_95th_percentile,
+                  FILTER (WHERE outcome IN ('MATCH', 'MATCH_DEFAULT', 'CHOOSE_STATION', 'NO_MATCH', 'AMBIGUOUS')) AS match_milliseconds_at_95th_percentile,
                 count(*) FILTER (WHERE outcome IN ('TIMEOUT', 'BUSY', 'ERROR'))::integer AS failed_count,
                 count(*) FILTER (WHERE outcome <> 'PENDING')::integer AS finished_count
            FROM app.recognition_events WHERE received_at > now() - make_interval(hours => $1)`,
@@ -131,7 +131,10 @@ export class AdminInsight implements OnApplicationShutdown {
     };
   }
 
-  /** Recognitions and audit events whose request id starts with the code a person quoted (gap 14, P5A-D20). */
+  /**
+   * Recognitions and audit events of the last 30 days whose request id starts with the code a person quoted, or is
+   * the full id (gap 14, P5A-D20, §4.6); client crash reports live only in the log.
+   */
   async findByReferenceCode(typed: string): Promise<ReferenceCodeSearchResult> {
     const query = readReferenceCodeQuery(typed);
     if (!query) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'code', code: 'not_a_reference_code' }], internalDetail: 'not a reference code' });
@@ -140,7 +143,8 @@ export class AdminInsight implements OnApplicationShutdown {
       const recognitions = (await database.query(
         `SELECT event.request_id, event.received_at, event.outcome, station.name AS station_name
            FROM app.recognition_events AS event LEFT JOIN app.stations AS station ON station.id = event.station_id
-          WHERE event.request_id LIKE $1 ORDER BY event.received_at DESC LIMIT ${REFERENCE_CODE_RESULT_LIMIT}`,
+          WHERE event.request_id LIKE $1 AND event.received_at > now() - interval '30 days'
+          ORDER BY event.received_at DESC LIMIT ${REFERENCE_CODE_RESULT_LIMIT}`,
         [pattern],
       )) as Array<{ request_id: string; received_at: Date; outcome: string; station_name: string | null }>;
       const auditEvents = (await database.query(
@@ -148,7 +152,8 @@ export class AdminInsight implements OnApplicationShutdown {
            FROM app.audit_events AS event
            LEFT JOIN app.portal_users AS actor ON actor.id = event.actor_portal_user_id
            LEFT JOIN app.stations AS station ON station.id = event.station_id
-          WHERE event.request_id LIKE $1 ORDER BY event.occurred_at DESC LIMIT ${REFERENCE_CODE_RESULT_LIMIT}`,
+          WHERE event.request_id LIKE $1 AND event.occurred_at > now() - interval '30 days'
+          ORDER BY event.occurred_at DESC LIMIT ${REFERENCE_CODE_RESULT_LIMIT}`,
         [pattern],
       )) as Array<{ request_id: string; occurred_at: Date; action: string; entity_type: string; actor_name: string | null; station_name: string | null }>;
       return {

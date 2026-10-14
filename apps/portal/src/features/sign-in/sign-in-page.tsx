@@ -7,8 +7,12 @@ import { ErrorNotice } from '../../components/error-notice';
 import { useSignedInUser } from '../session/use-signed-in-user';
 import { stationHomePath } from '../stations/station-home-path';
 
-/** Where a signed-in person lands: their first station's ads. */
+/**
+ * Where a signed-in person lands: a super admin at the second factor, then the applications (P5A design §4.1);
+ * everyone else at their first station.
+ */
 export function homePathFor(signedInUser: SignedInPortalUser): string {
+  if (signedInUser.user.platformRole === 'SUPER_ADMIN') return signedInUser.isTwoFactorCodeNeeded ? '/two-factor' : '/admin/applications';
   const firstStation = signedInUser.stations[0];
   return firstStation ? stationHomePath(firstStation) : '/';
 }

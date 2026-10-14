@@ -27,7 +27,10 @@ export function RequireSignedIn() {
     );
   }
   if (!signedInUser.data) return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
-  if (signedInUser.data.stations.length === 0) return <NoStationPage onSignOut={() => void signOut()} />;
+  // A super admin belongs to no station; the console is theirs (P5A design §4.1).
+  if (signedInUser.data.stations.length === 0 && signedInUser.data.user.platformRole !== 'SUPER_ADMIN') {
+    return <NoStationPage onSignOut={() => void signOut()} />;
+  }
   return <Outlet />;
 }
 
