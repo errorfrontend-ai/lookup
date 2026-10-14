@@ -80,8 +80,19 @@ describe('source scan', () => {
       path.startsWith('apps/api/src/infrastructure/') ||
       // Sign-in runs before any station context exists; it calls SECURITY DEFINER functions only.
       path.startsWith('apps/api/src/features/authentication/') ||
+      // So do sign-up's step 1, the email link and an invitation link (P5A design §2.8), only through such functions.
+      path === 'apps/api/src/features/registration/registration.service.ts' ||
+      path === 'apps/api/src/features/members/station-team.ts' ||
       path.startsWith('apps/api/src/features/health/');
     expect(filesMatching(apiFiles, directDatabaseAccess, mayUseDataSourceDirectly)).toEqual([]);
+  });
+
+  it('P5A design §3.1: only the admin feature uses the super admin’s connection, which sees every station', () => {
+    const usesAdminConnection = /AdminTransaction|ADMIN_DATA_SOURCE/;
+    const mayUseIt = (path: string) =>
+      path.startsWith('apps/api/src/features/admin/') || path === 'apps/api/src/infrastructure/admin-database/admin-database.module.ts' ||
+      path === 'apps/api/src/app.module.ts';
+    expect(filesMatching(apiFiles, usesAdminConnection, mayUseIt)).toEqual([]);
   });
 
   it('S1-MIGRATIONS-04: one data-source definition, used by both the API and the migration script', () => {

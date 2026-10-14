@@ -11,8 +11,8 @@ const person = userEvent.setup({ delay: null });
 function profileFor(station: ReturnType<typeof signedInUserWith>['stations'][number], overrides: Partial<StationProfile> = {}): StationProfile {
   return {
     id: station.id,
-    name: station.name,
-    frequencyLabel: station.frequencyLabel,
+    name: station.name ?? 'Station A',
+    frequencyLabel: station.frequencyLabel ?? '98.1 FM',
     province: 'Lusaka',
     city: 'Lusaka',
     timeZone: 'Africa/Lusaka',

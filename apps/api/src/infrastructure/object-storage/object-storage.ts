@@ -31,6 +31,9 @@ export class ObjectStorage implements OnApplicationShutdown {
   private readonly internalClient: S3Client;
   private readonly publicClient: S3Client;
   readonly adUploadsBucket: string;
+  /** Phase 5a's private buckets (P5A design §3.1): licence documents (uploads only) and station logos. */
+  readonly licenceDocumentsBucket: string;
+  readonly stationLogosBucket: string;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
     const commonSettings = {
@@ -44,6 +47,8 @@ export class ObjectStorage implements OnApplicationShutdown {
     this.internalClient = new S3Client({ ...commonSettings, endpoint: config.OBJECT_STORAGE_ENDPOINT });
     this.publicClient = new S3Client({ ...commonSettings, endpoint: config.OBJECT_STORAGE_PUBLIC_ENDPOINT });
     this.adUploadsBucket = config.OBJECT_STORAGE_AD_UPLOADS_BUCKET;
+    this.licenceDocumentsBucket = config.OBJECT_STORAGE_LICENCE_DOCUMENTS_BUCKET;
+    this.stationLogosBucket = config.OBJECT_STORAGE_STATION_LOGOS_BUCKET;
   }
 
   /**
@@ -53,10 +58,35 @@ export class ObjectStorage implements OnApplicationShutdown {
    * scripts cannot change it.
    */
   createUploadUrl(objectKey: string, contentType: string, sizeBytes: number, expiresInSeconds: number): Promise<string> {
+    return this.createUploadUrlIn(this.adUploadsBucket, objectKey, contentType, sizeBytes, expiresInSeconds);
+  }
+
+  /** createUploadUrl for another of the private buckets. */
+  createUploadUrlIn(bucket: string, objectKey: string, contentType: string, sizeBytes: number, expiresInSeconds: number): Promise<string> {
     return getSignedUrl(
       this.publicClient,
-      new PutObjectCommand({ Bucket: this.adUploadsBucket, Key: objectKey, ContentType: contentType, ContentLength: sizeBytes }),
+      new PutObjectCommand({ Bucket: bucket, Key: objectKey, ContentType: contentType, ContentLength: sizeBytes }),
       { expiresIn: expiresInSeconds, signableHeaders: new Set(['content-type', 'content-length']) },
+    );
+  }
+
+  /**
+   * A short-lived URL a browser opens a stored file through (a licence document, a logo). The answer's type and an
+   * inline disposition are fixed by the signature, so a stored file is never served as anything else, and never as a
+   * page (P5A design §3.1). The file name shown is reduced to safe characters.
+   */
+  createDownloadUrlIn(bucket: string, objectKey: string, expiresInSeconds: number, shown: { contentType: string; fileName: string }): Promise<string> {
+    const safeName = shown.fileName.normalize('NFKD').replace(/[^A-Za-z0-9._ -]/g, '').trim().slice(0, 120) || 'file';
+    return getSignedUrl(
+      this.publicClient,
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        ResponseContentType: shown.contentType,
+        ResponseContentDisposition: `inline; filename="${safeName}"`,
+        ResponseCacheControl: 'private, no-store',
+      }),
+      { expiresIn: expiresInSeconds },
     );
   }
 
@@ -79,9 +109,14 @@ export class ObjectStorage implements OnApplicationShutdown {
   }
 
   /** Size, type and entity tag of a stored object; null when there is no such object. */
-  async describeObject(objectKey: string): Promise<StoredObjectFacts | null> {
+  describeObject(objectKey: string): Promise<StoredObjectFacts | null> {
+    return this.describeObjectIn(this.adUploadsBucket, objectKey);
+  }
+
+  /** describeObject for another of the private buckets. */
+  async describeObjectIn(bucket: string, objectKey: string): Promise<StoredObjectFacts | null> {
     try {
-      const head = await this.internalClient.send(new HeadObjectCommand({ Bucket: this.adUploadsBucket, Key: objectKey }));
+      const head = await this.internalClient.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
       return { sizeBytes: Number(head.ContentLength ?? -1), contentType: head.ContentType ?? null, entityTag: head.ETag ?? '' };
     } catch (error) {
       if (error instanceof NotFound || (error instanceof S3ServiceException && error.$metadata.httpStatusCode === 404)) return null;
@@ -90,15 +125,36 @@ export class ObjectStorage implements OnApplicationShutdown {
   }
 
   /** The first bytes of the exact version described (If-Match), to check what the file really is. */
-  async readFirstBytes(objectKey: string, entityTag: string, byteCount: number): Promise<Buffer> {
+  readFirstBytes(objectKey: string, entityTag: string, byteCount: number): Promise<Buffer> {
+    return this.readFirstBytesIn(this.adUploadsBucket, objectKey, entityTag, byteCount);
+  }
+
+  /** readFirstBytes for another of the private buckets. */
+  async readFirstBytesIn(bucket: string, objectKey: string, entityTag: string, byteCount: number): Promise<Buffer> {
     const response = await this.internalClient.send(
-      new GetObjectCommand({ Bucket: this.adUploadsBucket, Key: objectKey, Range: `bytes=0-${byteCount - 1}`, IfMatch: entityTag }),
+      new GetObjectCommand({ Bucket: bucket, Key: objectKey, Range: `bytes=0-${byteCount - 1}`, IfMatch: entityTag }),
     );
     return Buffer.from((await response.Body?.transformToByteArray()) ?? []);
   }
 
-  async deleteObject(objectKey: string): Promise<void> {
-    await this.internalClient.send(new DeleteObjectCommand({ Bucket: this.adUploadsBucket, Key: objectKey }));
+  /** The whole of the exact version described (If-Match); for small files only (a logo is at most 2 MB, checked first). */
+  async readObjectIn(bucket: string, objectKey: string, entityTag: string): Promise<Buffer> {
+    const response = await this.internalClient.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey, IfMatch: entityTag }));
+    return Buffer.from((await response.Body?.transformToByteArray()) ?? []);
+  }
+
+  /** Stores a file the API made itself (a processed logo). */
+  async putObjectIn(bucket: string, objectKey: string, body: Buffer, contentType: string): Promise<void> {
+    await this.internalClient.send(new PutObjectCommand({ Bucket: bucket, Key: objectKey, Body: body, ContentType: contentType, ContentLength: body.length }));
+  }
+
+  deleteObject(objectKey: string): Promise<void> {
+    return this.deleteObjectIn(this.adUploadsBucket, objectKey);
+  }
+
+  /** deleteObject for another of the private buckets. */
+  async deleteObjectIn(bucket: string, objectKey: string): Promise<void> {
+    await this.internalClient.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
   }
 
   onApplicationShutdown(): void {

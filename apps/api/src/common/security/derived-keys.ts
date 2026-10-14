@@ -10,6 +10,8 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 export class DerivedKeys {
   readonly accessTokenSigningKey: Uint8Array;
   readonly trustedDeviceKey: Buffer;
+  /** Keys the hash a phone code is kept as, so a copy of the key-value store cannot be searched for codes offline. */
+  readonly oneTimeCodeKey: Buffer;
   private readonly identifierHashingKey: Buffer;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
@@ -17,6 +19,7 @@ export class DerivedKeys {
     const derive = (purpose: string) => Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), `lookup ${purpose} v1`, 32));
     this.accessTokenSigningKey = new Uint8Array(derive('access token signing'));
     this.trustedDeviceKey = derive('trusted device cookie');
+    this.oneTimeCodeKey = derive('one-time codes');
     this.identifierHashingKey = derive('identifier hashing');
   }
 

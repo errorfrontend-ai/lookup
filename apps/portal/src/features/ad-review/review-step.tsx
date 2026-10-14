@@ -12,7 +12,7 @@ import { describeCampaignStatus, describeFileStatus } from '../../plain-words/ad
 import { PUBLISH_BLOCKER_WORDS } from '../../plain-words/publish-words';
 import { describeButtonDestination } from '../ad-buttons/describe-button-destination';
 import { ScheduleFacts } from '../ads/detail/schedule-facts';
-import type { MemberStation } from '../stations/use-current-station';
+import type { NamedMemberStation } from '../stations/use-current-station';
 
 const TYPE_ICONS: Record<'CALL' | 'WHATSAPP' | 'MAP' | 'LINK', IconName> = { CALL: 'phone', WHATSAPP: 'chat', MAP: 'pin', LINK: 'link' };
 const TYPE_WORDS = { CALL: 'Call', WHATSAPP: 'WhatsApp', MAP: 'Directions', LINK: 'Website' } as const;
@@ -109,7 +109,7 @@ export function ReviewStep({
   unsavedSteps = [],
 }: {
   ad: AdDetail;
-  station: MemberStation;
+  station: NamedMemberStation;
   blockers: PublishBlocker[];
   /** Steps with changes made in this visit that are not saved yet. */
   unsavedSteps?: ReadonlyArray<'buttons' | 'schedule'>;

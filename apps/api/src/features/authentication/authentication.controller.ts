@@ -1,4 +1,4 @@
-import { ChangePasswordInput, type SignedInPortalUser, SignInInput } from '@lookup/contracts';
+import { ChangePasswordInput, type SignedInPortalUser, SignInInput, TwoFactorCodeInput } from '@lookup/contracts';
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ClsService } from 'nestjs-cls';
@@ -8,6 +8,7 @@ import { REFRESH_REQUESTS_PER_ADDRESS, SIGN_IN_REQUESTS_PER_ADDRESS } from './au
 import { AuthenticationService, type RequestFacts } from './authentication.service.js';
 import { PublicRoute } from './public-route.decorator.js';
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, TRUSTED_DEVICE_COOKIE } from './session-cookies.js';
+import { TwoFactorSignIn } from './two-factor-sign-in.js';
 
 /**
  * Portal sign-in. Tokens travel only in HttpOnly cookies, never in response bodies or URLs. Every
@@ -18,6 +19,7 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, TRUSTED_DEVICE_COOKIE } from
 export class AuthenticationController {
   constructor(
     private readonly authenticationService: AuthenticationService,
+    private readonly twoFactorSignIn: TwoFactorSignIn,
     private readonly requestContext: ClsService,
   ) {}
 
@@ -63,9 +65,23 @@ export class AuthenticationController {
     await this.authenticationService.changePassword(input, requestFacts(request), response);
   }
 
+  /** The super admin's authenticator code, once per session, before the admin console opens (P5A design §3.3). */
+  @Post('two-factor-code')
+  @HttpCode(204)
+  async checkTwoFactorCode(
+    @Body(new ZodValidationPipe(TwoFactorCodeInput)) input: TwoFactorCodeInput,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    await this.twoFactorSignIn.checkCode(input.code, requestFacts(request), response);
+  }
+
   @Get('me')
   me(): Promise<SignedInPortalUser> {
-    return this.authenticationService.describeSignedInUser(this.requestContext.get<string>('userId'));
+    return this.authenticationService.describeSignedInUser(
+      this.requestContext.get<string>('userId'),
+      this.requestContext.get<boolean | undefined>('isTwoFactorVerified') === true,
+    );
   }
 }
 

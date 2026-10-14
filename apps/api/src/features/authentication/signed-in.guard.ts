@@ -14,7 +14,8 @@ import { ACCESS_TOKEN_COOKIE } from './session-cookies.js';
 /**
  * Runs on every request (registered globally). A route marked @PublicRoute() passes; any other needs a
  * valid access token whose session row is still live and whose user is still active. The user and
- * session ids then go into the request context, where StationScopedTransaction picks them up, and a
+ * session ids then go into the request context, where StationScopedTransaction picks them up (with the platform
+ * role and whether this session passed the super admin's second factor, for the admin guard), and a
  * keyed hash of the user id goes on every log line of the request as `actor` (never the raw id or
  * the email), so one person's requests can be followed through the log.
  */
@@ -41,14 +42,17 @@ export class SignedInGuard implements CanActivate {
     const claims = typeof accessToken === 'string' ? await this.accessTokens.verify(accessToken) : null;
     if (!claims) throw new AppError('UNAUTHENTICATED', { internalDetail: 'missing or invalid access token' });
 
-    const rows = (await this.dataSource.query('SELECT app.find_active_portal_session($1) AS session_owner_id', [
-      claims.portalSessionId,
-    ])) as Array<{ session_owner_id: string | null }>;
-    if (rows[0]?.session_owner_id !== claims.portalUserId) {
+    const rows = (await this.dataSource.query(
+      'SELECT portal_user_id, platform_role, two_factor_verified_at FROM app.describe_active_portal_session($1)',
+      [claims.portalSessionId],
+    )) as Array<{ portal_user_id: string; platform_role: string | null; two_factor_verified_at: Date | null }>;
+    if (rows[0]?.portal_user_id !== claims.portalUserId) {
       throw new AppError('UNAUTHENTICATED', { internalDetail: 'session ended, expired, or user disabled' });
     }
     this.requestContext.set('userId', claims.portalUserId);
     this.requestContext.set('sessionId', claims.portalSessionId);
+    this.requestContext.set('platformRole', rows[0].platform_role);
+    this.requestContext.set('isTwoFactorVerified', rows[0].two_factor_verified_at !== null);
     this.logger.assign({ actor: this.derivedKeys.hashIdentifier(claims.portalUserId) });
     return true;
   }

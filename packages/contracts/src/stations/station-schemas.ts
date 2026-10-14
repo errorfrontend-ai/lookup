@@ -44,8 +44,9 @@ export type UpdateStationProfileInput = z.infer<typeof UpdateStationProfileInput
 /** GET /stations/{stationId} */
 export interface StationProfile {
   id: string;
-  name: string;
-  frequencyLabel: string;
+  /** Null only while the station is still signing up (PENDING_VERIFICATION, before step 3; P5A-D2). */
+  name: string | null;
+  frequencyLabel: string | null;
   province: string | null;
   city: string | null;
   timeZone: string;

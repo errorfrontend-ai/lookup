@@ -38,6 +38,32 @@ export const ERROR_CATALOG = {
   ACTION_NOT_ON_CARD: { httpStatus: 422, message: "That button isn't on this card." },
   RECOGNITION_BUSY: { httpStatus: 503, message: 'Look Up is busy right now. Please try again in a moment.' },
   RECOGNITION_TIMEOUT: { httpStatus: 503, message: 'That took too long. Please try again.' },
+  // Station sign-up, the super admin's second factor and the team (phase 5a, P5A design §3.5): each written for the
+  // person who meets it, so the portal shows it as it is.
+  EMAIL_ALREADY_REGISTERED: { httpStatus: 409, message: 'This email already has an account. Sign in instead.' },
+  // SMS_SENDER=none: no code could reach the applicant, so sign-up does not start (P5A design §3.1, O16).
+  SIGN_UP_UNAVAILABLE: { httpStatus: 503, message: "Station sign-up isn't open yet. Please try again later." },
+  // A logo or licence document that was refused; the reason goes in fields (UPLOAD_REJECTED's words are about audio).
+  STATION_FILE_REJECTED: { httpStatus: 400, message: "We can't use this file. Check the type and size, then choose it again." },
+  HUMAN_CHECK_FAILED: { httpStatus: 400, message: "We couldn't confirm you're a person. Please do the check again." },
+  HUMAN_CHECK_UNAVAILABLE: { httpStatus: 503, message: "We couldn't run the human check just now. Please try again in a minute." },
+  VERIFICATION_CODE_INCORRECT: { httpStatus: 400, message: "That code isn't right. Check the SMS and try again." },
+  VERIFICATION_CODE_EXPIRED: { httpStatus: 400, message: 'This code has expired. Send yourself a new one.' },
+  VERIFICATION_CODE_LOCKED: { httpStatus: 400, message: 'Too many wrong tries. Send yourself a new code.' },
+  RESEND_TOO_SOON: { httpStatus: 429, message: 'You can ask for a new one in a minute.' },
+  EMAIL_LINK_EXPIRED: { httpStatus: 400, message: 'This link has expired. Ask for a new one on the sign-up page.' },
+  EMAIL_LINK_NOT_VALID: { httpStatus: 400, message: "This link doesn't work any more. Ask for a new one on the sign-up page." },
+  APPLICATION_INCOMPLETE: { httpStatus: 409, message: "Your application isn't finished yet." },
+  APPLICATION_NOT_EDITABLE: { httpStatus: 409, message: "This can't be changed at the moment." },
+  CHANGE_REQUEST_ALREADY_OPEN: { httpStatus: 409, message: 'You already have a change waiting for review.' },
+  TWO_FACTOR_REQUIRED: { httpStatus: 403, message: 'Enter the code from your authenticator app first.' },
+  TWO_FACTOR_CODE_INCORRECT: { httpStatus: 400, message: "That code isn't right. Use the current code in your authenticator app." },
+  INVITATION_NOT_VALID: { httpStatus: 400, message: "This invitation link doesn't work. Ask the station's owner for a new one." },
+  INVITATION_EXPIRED: { httpStatus: 400, message: "This invitation has expired. Ask the station's owner for a new one." },
+  INVITATION_FOR_ANOTHER_EMAIL: { httpStatus: 403, message: 'This invitation was sent to another email address. Sign in with that one.' },
+  ALREADY_A_MEMBER: { httpStatus: 409, message: 'This person is already in your team.' },
+  LAST_OWNER: { httpStatus: 409, message: 'A station needs at least one owner. Invite another owner first.' },
+  STATION_STATUS_CHANGE_NOT_ALLOWED: { httpStatus: 409, message: "This station's status can't change that way." },
   INTERNAL: { httpStatus: 500, message: 'Something went wrong on our side. Please try again.' },
   SERVICE_UNAVAILABLE: { httpStatus: 503, message: 'The service is temporarily unavailable. Please try again shortly.' },
 } as const satisfies Record<string, { httpStatus: number; message: string }>;

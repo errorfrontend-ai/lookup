@@ -44,6 +44,13 @@ describe('production configuration fails closed', () => {
     ALLOWED_BROWSER_ORIGINS: 'https://portal.example.com',
     LISTENER_INSTALL_TOKEN_SECRET: 'Zr7m0Qx2Lk9VpT4cWb6NyH1jS8dGfA3uEoI5aMnRtYv',
     LISTENER_INSTALL_ID_PEPPER: 'Hb3Kq8Wz1Pn6Ty4Rc9Mv2Xs7Lj5Df0Ga1Ue8Io3YtNq',
+    ADMIN_DATABASE_URL: 'postgresql://lookup_admin_api:password@database.internal:5432/lookup',
+    TWO_FACTOR_ENCRYPTION_SECRET: 'Tf6Ns1Qb8Kw3Jx5Pm0Vr7Ld2Hc9Gz4Ya1Ue6Wo3XiRk',
+    PORTAL_PUBLIC_ORIGIN: 'https://portal.example.com',
+    EMAIL_SMTP_URL: 'smtps://sender:password@smtp.example.com:465',
+    EMAIL_FROM_ADDRESS: 'Look Up <no-reply@example.com>',
+    SMS_SENDER: 'none',
+    HUMAN_CHECK_SECRET_KEY: '0x4AAAAAAAexampleSecretKeyForTheTests',
   };
 
   it('accepts a sound production configuration', () => {
@@ -85,6 +92,48 @@ describe('production configuration fails closed', () => {
     );
     expect(() => loadAppConfig({ ...developmentConfig, LISTENER_INSTALL_TOKEN_SECRET: developmentConfig.AUTHENTICATION_SECRET })).toThrow(
       /must all be different/,
+    );
+  });
+
+  it('P5A design §3.1, §5: production refuses the development SMS sender, Turnstile’s test keys, plain email, a placeholder sender and an http portal', () => {
+    for (const [name, badValue, reason] of [
+      ['SMS_SENDER', 'development', 'must not be "development" in production'],
+      ['SMS_SENDER', undefined, 'must not be "development" in production'],
+      ['HUMAN_CHECK_SECRET_KEY', '1x0000000000000000000000000000000AA', 'must not be a test key in production'],
+      ['HUMAN_CHECK_SECRET_KEY', '2x0000000000000000000000000000000AA', 'must not be a test key in production'],
+      ['HUMAN_CHECK_SECRET_KEY', '3x0000000000000000000000000000000AA', 'must not be a test key in production'],
+      ['HUMAN_CHECK_SECRET_KEY', undefined, 'must not be a test key in production'],
+      ['EMAIL_SMTP_URL', 'smtp://sender:password@smtp.example.com:587', 'must be smtps:// or require TLS in production'],
+      ['EMAIL_FROM_ADDRESS', undefined, 'must be a real sending address in production'],
+      ['PORTAL_PUBLIC_ORIGIN', 'http://portal.example.com', 'must be https in production'],
+    ] as const) {
+      expect(() => loadAppConfig({ ...soundProductionConfig, [name]: badValue }), `${name}=${String(badValue)}`).toThrow(`${name}: ${reason}`);
+    }
+    expect(loadAppConfig({ ...soundProductionConfig, EMAIL_SMTP_URL: 'smtp://sender:password@smtp.example.com:587', EMAIL_SMTP_REQUIRE_TLS: 'true' }).EMAIL_SMTP_REQUIRE_TLS).toBe(true);
+    expect(loadAppConfig({ ...soundProductionConfig, NODE_ENV: 'development', SMS_SENDER: undefined, HUMAN_CHECK_SECRET_KEY: undefined })).toMatchObject({
+      SMS_SENDER: 'development',
+      HUMAN_CHECK_SECRET_KEY: '1x0000000000000000000000000000000AA',
+      OBJECT_STORAGE_LICENCE_DOCUMENTS_BUCKET: 'lookup-licence-documents',
+      OBJECT_STORAGE_STATION_LOGOS_BUCKET: 'lookup-station-logos',
+      NOTIFICATION_SENDING_ENABLED: true,
+    });
+  });
+
+  it('P5A-D19: the second-factor key is required, random and its own; the admin database address is the admin role’s own', () => {
+    const developmentConfig = { ...soundProductionConfig, NODE_ENV: 'development' };
+    for (const badValue of [undefined, 'too-short', 'CHANGE_ME_TWO_FACTOR_SECRET_43_CHARACTERS_OR_MORE____', developmentConfig.AUTHENTICATION_SECRET]) {
+      let message = '';
+      try {
+        loadAppConfig({ ...developmentConfig, TWO_FACTOR_ENCRYPTION_SECRET: badValue });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message, String(badValue)).toMatch(/TWO_FACTOR_ENCRYPTION_SECRET|must all be different/);
+      if (badValue) expect(message).not.toContain(badValue);
+    }
+    expect(() => loadAppConfig({ ...developmentConfig, ADMIN_DATABASE_URL: undefined })).toThrow(/ADMIN_DATABASE_URL/);
+    expect(() => loadAppConfig({ ...developmentConfig, ADMIN_DATABASE_URL: developmentConfig.DATABASE_URL })).toThrow(
+      /ADMIN_DATABASE_URL: must be the super-admin role's own address/,
     );
   });
 

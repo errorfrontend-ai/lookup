@@ -17,7 +17,9 @@ import {
 } from '../scripts/sample-ads.js';
 import { createSampleJingleWav, SHARED_JINGLE_NOTES } from '../scripts/sample-audio.js';
 import { WalkthroughToolProblem } from '../scripts/development-walkthrough-tools.js';
-import { seedDevelopmentData } from '../scripts/seed-development-data.js';
+import { seedDevelopmentData, seedDevelopmentSuperAdminFromEnvironment } from '../scripts/seed-development-data.js';
+import { TwoFactorSecretBox } from '../src/common/security/two-factor-secret-box.js';
+import { decodeBase32, encodeBase32 } from '@lookup/contracts';
 import { databaseSetupClient } from './support/database-clients.js';
 
 describe('development seed', () => {
@@ -394,6 +396,36 @@ describe('development seed', () => {
       storageClient.destroy();
       await setupClient.query(`UPDATE app.ads SET audio_asset_id = NULL WHERE audio_asset_id = ANY($1)`, [oldRecordingIds]);
       await setupClient.query(`DELETE FROM fingerprints.audio_assets WHERE id = ANY($1)`, [oldRecordingIds]);
+    }
+  });
+
+  it('P5A design §7 increment 5: seeds a development super admin with the authenticator secret from the settings, the same after a re-seed', async () => {
+    const email = `seed-super-admin-${runTag}@example.test`;
+    const secret = randomBytes(20);
+    const saved = { ...process.env };
+    try {
+      process.env.SEED_SUPER_ADMIN_EMAIL = email;
+      process.env.SEED_SUPER_ADMIN_PASSWORD = 'amber kettle rainy harbour 7461';
+      process.env.SEED_SUPER_ADMIN_TWO_FACTOR_SECRET = encodeBase32(secret);
+      expect(await seedDevelopmentSuperAdminFromEnvironment()).toContain(email);
+      expect(await seedDevelopmentSuperAdminFromEnvironment()).toContain(email);
+      const stored = await setupClient.query('SELECT id, platform_role, two_factor_secret_ciphertext FROM app.portal_users WHERE email = $1', [email]);
+      expect(stored.rows).toHaveLength(1);
+      expect(stored.rows[0].platform_role).toBe('SUPER_ADMIN');
+      const opened = new TwoFactorSecretBox(process.env.TWO_FACTOR_ENCRYPTION_SECRET as string).open(stored.rows[0].id, stored.rows[0].two_factor_secret_ciphertext);
+      expect(Buffer.from(opened ?? [])).toEqual(secret);
+      process.env.SEED_SUPER_ADMIN_TWO_FACTOR_SECRET = 'TOOSHORT';
+      await expect(seedDevelopmentSuperAdminFromEnvironment()).rejects.toThrow(/at least 16 bytes/);
+      expect(decodeBase32('TOOSHORT')?.length).toBeLessThan(16);
+      delete process.env.SEED_SUPER_ADMIN_EMAIL;
+      expect(await seedDevelopmentSuperAdminFromEnvironment()).toMatch(/not seeded/);
+      await setupClient.query('DELETE FROM app.audit_events WHERE entity_id = $1', [stored.rows[0].id]);
+      await setupClient.query('DELETE FROM app.portal_users WHERE id = $1', [stored.rows[0].id]);
+    } finally {
+      for (const name of ['SEED_SUPER_ADMIN_EMAIL', 'SEED_SUPER_ADMIN_PASSWORD', 'SEED_SUPER_ADMIN_TWO_FACTOR_SECRET']) {
+        if (saved[name] === undefined) delete process.env[name];
+        else process.env[name] = saved[name];
+      }
     }
   });
 

@@ -8,8 +8,9 @@ import { StationScopedTransaction } from '../../infrastructure/database/station-
 
 interface StationRow {
   id: string;
-  name: string;
-  frequency_label: string;
+  /** Null while the station is still signing up (P5A-D2). */
+  name: string | null;
+  frequency_label: string | null;
   province: string | null;
   city: string | null;
   time_zone: string;

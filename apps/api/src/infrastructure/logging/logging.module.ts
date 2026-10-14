@@ -30,6 +30,21 @@ export const REDACTED_LOG_PATHS = [
   '*.deviceCookie',
   '*.uploadUrl',
   '*.playbackUrl',
+  // Phase 5a (P5A design §3.7): codes, link tokens, storage keys, and what an applicant or a reviewer wrote, which may
+  // name people. Not `*.code`, which would hide a database error's SQLSTATE (err.code); each code has its own name.
+  '*.oneTimeCode',
+  '*.verificationCode',
+  '*.twoFactorCode',
+  '*.linkToken',
+  '*.humanCheckToken',
+  '*.objectKey',
+  '*.licenceDocumentObjectKey',
+  '*.recipient',
+  '*.fullName',
+  '*.contactName',
+  '*.licenceNumber',
+  '*.reason',
+  '*.downloadUrl',
 ];
 
 @Module({

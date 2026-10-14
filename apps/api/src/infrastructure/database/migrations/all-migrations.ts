@@ -7,6 +7,7 @@ import { AdHistoryIndexes1791400000000 } from './1791400000000-AdHistoryIndexes.
 import { EngineHookup1791500000000 } from './1791500000000-EngineHookup.js';
 import { StationResolution1791600000000 } from './1791600000000-StationResolution.js';
 import { FingerprintVersionTwo1791700000000 } from './1791700000000-FingerprintVersionTwo.js';
+import { RegistrationAndAdmin1791800000000 } from './1791800000000-RegistrationAndAdmin.js';
 
 /** Every migration, oldest first. The migration script runs these; the API never does. */
 export const ALL_MIGRATIONS = [
@@ -19,4 +20,5 @@ export const ALL_MIGRATIONS = [
   EngineHookup1791500000000,
   StationResolution1791600000000,
   FingerprintVersionTwo1791700000000,
+  RegistrationAndAdmin1791800000000,
 ];

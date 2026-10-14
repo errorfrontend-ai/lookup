@@ -63,6 +63,21 @@ services:
       timeout: 3s
       retries: 30
 
+  mail:
+    # Mailpit catches every email (and, in development, every SMS as an email) the API sends (phase 5a, P5A-D10).
+    # Nothing leaves this machine. Inbox: http://127.0.0.1:8025. About 14 MB. Pinned by digest.
+    image: axllent/mailpit:v1.27@sha256:e22dce5b36f93c77082e204a3942fb6b283b7896e057458400a4c88344c3df68
+    environment:
+      MP_MAX_MESSAGES: 5000
+    ports:
+      - "127.0.0.1:${LOOKUP_DEVELOPMENT_MAIL_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${LOOKUP_DEVELOPMENT_MAIL_INBOX_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
 volumes:
   database-data:
   key-value-data:

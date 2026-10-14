@@ -2,6 +2,7 @@ import {
   type ChangePasswordInput,
   countPasswordCharacters,
   PASSWORD_MAXIMUM_LENGTH,
+  type PlatformRole,
   type SignedInPortalUser,
   type SignInInput,
   type StationRole,
@@ -152,7 +153,7 @@ export class AuthenticationService {
     const refusalReason = this.passwordPolicy.check(input.newPassword, {
       fullName: signedInUser.user.fullName,
       email: signedInUser.user.email,
-      stationNames: signedInUser.stations.map((station) => station.name),
+      stationNames: signedInUser.stations.flatMap((station) => (station.name ? [station.name] : [])),
     });
     if (refusalReason) {
       throw new AppError('VALIDATION_FAILED', {
@@ -196,13 +197,16 @@ export class AuthenticationService {
     }
   }
 
-  /** The signed-in person and the stations they belong to, read through row-level security as that user. */
-  describeSignedInUser(portalUserId: string): Promise<SignedInPortalUser> {
+  /**
+   * The signed-in person and the stations they belong to, read through row-level security as that user.
+   * `isTwoFactorVerified`: whether this session passed the super admin's second factor (false for a new session).
+   */
+  describeSignedInUser(portalUserId: string, isTwoFactorVerified = false): Promise<SignedInPortalUser> {
     return this.stationScopedTransaction.run(
       async (database) => {
         const [user] = (await database.query(
-          'SELECT id, full_name, email FROM app.portal_users WHERE id = app.current_user_id()',
-        )) as Array<{ id: string; full_name: string; email: string }>;
+          'SELECT id, full_name, email, platform_role FROM app.portal_users WHERE id = app.current_user_id()',
+        )) as Array<{ id: string; full_name: string; email: string; platform_role: PlatformRole | null }>;
         if (!user) throw new AppError('UNAUTHENTICATED', { internalDetail: 'signed-in user not visible' });
         const stations = (await database.query(
           `SELECT stations.id, stations.name, stations.frequency_label, stations.status, memberships.role
@@ -210,9 +214,11 @@ export class AuthenticationService {
              JOIN app.stations AS stations ON stations.id = memberships.station_id
             WHERE memberships.portal_user_id = app.current_user_id()
             ORDER BY stations.name`,
-        )) as Array<{ id: string; name: string; frequency_label: string; status: StationStatus; role: StationRole }>;
+        )) as Array<{ id: string; name: string | null; frequency_label: string | null; status: StationStatus; role: StationRole }>;
         return {
-          user: { id: user.id, fullName: user.full_name, email: user.email },
+          user: { id: user.id, fullName: user.full_name, email: user.email, platformRole: user.platform_role },
+          // A super admin's second factor is asked before the admin console opens (P5A-D19), once per session.
+          isTwoFactorCodeNeeded: user.platform_role === 'SUPER_ADMIN' && !isTwoFactorVerified,
           stations: stations.map((station) => ({
             id: station.id,
             name: station.name,
@@ -233,7 +239,8 @@ export class AuthenticationService {
     return row?.settings ?? null;
   }
 
-  private async startBrowserSession(
+  /** Sets the cookies of a session the database has just issued (sign-in, sign-up step 1, an invitation accepted). */
+  async startBrowserSession(
     response: Response,
     portalUserId: string,
     portalSessionId: string,

@@ -1,6 +1,9 @@
 /**
- * Creates the private ad-uploads bucket if it is missing and sets its CORS rules, so the portal can
- * upload (PUT) and play back (GET) files directly. Run once per environment:
+ * Creates the private buckets if they are missing and sets their CORS rules, so the portal can reach them directly:
+ * - ad uploads: upload (PUT) and play back (GET);
+ * - licence documents (phase 5a): upload (PUT) only; a super admin opens one through a 5-minute link (P5A design §3.1);
+ * - station logos (phase 5a): upload (PUT), and show (GET) through short links.
+ * Run once per environment:
  *
  *   npm run object-storage:prepare
  *
@@ -9,7 +12,7 @@
  * never change CORS or delete buckets.
  */
 import { pathToFileURL } from 'node:url';
-import { CreateBucketCommand, HeadBucketCommand, PutBucketCorsCommand, S3Client } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, HeadBucketCommand, PutBucketCorsCommand, S3Client, type CORSRule } from '@aws-sdk/client-s3';
 import { loadAppConfig } from '../src/config/app-config.js';
 
 export async function prepareObjectStorage(): Promise<void> {
@@ -26,29 +29,39 @@ export async function prepareObjectStorage(): Promise<void> {
     forcePathStyle: true,
     credentials: { accessKeyId: config.OBJECT_STORAGE_ACCESS_KEY_ID, secretAccessKey: config.OBJECT_STORAGE_SECRET_ACCESS_KEY },
   });
-  const bucket = config.OBJECT_STORAGE_AD_UPLOADS_BUCKET;
+  const origins = [...config.ALLOWED_BROWSER_ORIGINS];
+  const buckets: Array<[string, CORSRule]> = [
+    [config.OBJECT_STORAGE_AD_UPLOADS_BUCKET, {
+      AllowedOrigins: origins,
+      AllowedMethods: ['PUT', 'GET'],
+      AllowedHeaders: ['Content-Type', 'Range'],
+      ExposeHeaders: ['ETag', 'Content-Length', 'Content-Range', 'Accept-Ranges'],
+      MaxAgeSeconds: 3600,
+    }],
+    [config.OBJECT_STORAGE_LICENCE_DOCUMENTS_BUCKET, {
+      AllowedOrigins: origins,
+      AllowedMethods: ['PUT'],
+      AllowedHeaders: ['Content-Type'],
+      ExposeHeaders: ['ETag'],
+      MaxAgeSeconds: 3600,
+    }],
+    [config.OBJECT_STORAGE_STATION_LOGOS_BUCKET, {
+      AllowedOrigins: origins,
+      AllowedMethods: ['PUT', 'GET'],
+      AllowedHeaders: ['Content-Type'],
+      ExposeHeaders: ['ETag', 'Content-Length'],
+      MaxAgeSeconds: 3600,
+    }],
+  ];
   try {
-    try {
-      await client.send(new HeadBucketCommand({ Bucket: bucket }));
-    } catch {
-      await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    for (const [bucket, corsRule] of buckets) {
+      try {
+        await client.send(new HeadBucketCommand({ Bucket: bucket }));
+      } catch {
+        await client.send(new CreateBucketCommand({ Bucket: bucket }));
+      }
+      await client.send(new PutBucketCorsCommand({ Bucket: bucket, CORSConfiguration: { CORSRules: [corsRule] } }));
     }
-    await client.send(
-      new PutBucketCorsCommand({
-        Bucket: bucket,
-        CORSConfiguration: {
-          CORSRules: [
-            {
-              AllowedOrigins: [...config.ALLOWED_BROWSER_ORIGINS],
-              AllowedMethods: ['PUT', 'GET'],
-              AllowedHeaders: ['Content-Type', 'Range'],
-              ExposeHeaders: ['ETag', 'Content-Length', 'Content-Range', 'Accept-Ranges'],
-              MaxAgeSeconds: 3600,
-            },
-          ],
-        },
-      }),
-    );
   } finally {
     client.destroy();
   }
@@ -56,7 +69,7 @@ export async function prepareObjectStorage(): Promise<void> {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   prepareObjectStorage()
-    .then(() => console.log('Object storage is ready: private bucket with CORS for the portal.'))
+    .then(() => console.log('Object storage is ready: private buckets with CORS for the portal.'))
     .catch((error: unknown) => {
       console.error('Could not prepare object storage:', error instanceof Error ? error.name : 'unknown error');
       process.exit(1);

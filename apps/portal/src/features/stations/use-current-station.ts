@@ -5,6 +5,13 @@ import { useSignedInUser } from '../session/use-signed-in-user';
 
 export type MemberStation = SignedInPortalUser['stations'][number];
 
+/** A station past the sign-up steps that ask for its name and frequency: every station page has one. */
+export type NamedMemberStation = MemberStation & { name: string; frequencyLabel: string };
+
+export function isNamedStation(station: MemberStation): station is NamedMemberStation {
+  return station.name !== null && station.frequencyLabel !== null;
+}
+
 /** Roles that may change a station's content (the API's CHANGE_STATION_CONTENT rule). */
 const ROLES_THAT_CHANGE_CONTENT: ReadonlySet<StationRole> = new Set(['OWNER', 'MANAGER']);
 
@@ -31,10 +38,10 @@ export function useCurrentStation(): MemberStation | null {
  * The current station, handed down by StationScope to everything inside it. Screens never look the
  * station up themselves, so if the session ends the scope steps aside first and they simply go away.
  */
-export const StationContext = createContext<MemberStation | null>(null);
+export const StationContext = createContext<NamedMemberStation | null>(null);
 
 /** The current station, for screens that only render inside a station. */
-export function useRequiredCurrentStation(): MemberStation {
+export function useRequiredCurrentStation(): NamedMemberStation {
   const station = useContext(StationContext);
   if (!station) throw new Error('useRequiredCurrentStation used outside a station route');
   return station;

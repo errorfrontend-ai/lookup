@@ -6,7 +6,7 @@ import { useSignOut } from '../features/session/use-sign-out';
 import { useSignedInUser } from '../features/session/use-signed-in-user';
 import { stationHomePath } from '../features/stations/station-home-path';
 import { OnAirIndicator } from './on-air-indicator';
-import type { MemberStation } from '../features/stations/use-current-station';
+import type { NamedMemberStation } from '../features/stations/use-current-station';
 
 interface NavigationItem {
   path: string;
@@ -33,7 +33,7 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
  * The station's dial, the places to go, and who is signed in. The same content fills the sidebar on
  * wide screens and the drawer on phones.
  */
-export function PortalNavigation({ station }: { station: MemberStation }) {
+export function PortalNavigation({ station }: { station: NamedMemberStation }) {
   const signedInUser = useSignedInUser();
   const signOut = useSignOut();
   const navigate = useNavigate();
@@ -65,7 +65,7 @@ export function PortalNavigation({ station }: { station: MemberStation }) {
           >
             {stations.map((memberStation) => (
               <option key={memberStation.id} value={memberStation.id}>
-                {memberStation.name} · {memberStation.frequencyLabel}
+                {memberStation.name && memberStation.frequencyLabel ? `${memberStation.name} · ${memberStation.frequencyLabel}` : 'A station still signing up'}
               </option>
             ))}
           </select>

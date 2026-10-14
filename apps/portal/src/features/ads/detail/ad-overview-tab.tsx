@@ -8,7 +8,7 @@ import { formatRelativeTime } from '../../../formatting/format-relative-time';
 import { describeFileStatus } from '../../../plain-words/ad-status-words';
 import { describeHistoryActor, describeHistoryEvent } from '../../../plain-words/ad-history-words';
 import { describeUploadRefusal } from '../../../plain-words/upload-words';
-import type { MemberStation } from '../../stations/use-current-station';
+import type { NamedMemberStation } from '../../stations/use-current-station';
 import { useAdHistory } from '../use-ad-detail';
 import { ScheduleFacts } from './schedule-facts';
 
@@ -63,7 +63,7 @@ function RecentChanges({ stationId, adId }: { stationId: string; adId: string })
 }
 
 /** The ad at a glance: its audio, when it airs, what changed lately, and what listeners see. */
-export function AdOverviewTab({ ad, station }: { ad: AdDetail; station: MemberStation }) {
+export function AdOverviewTab({ ad, station }: { ad: AdDetail; station: NamedMemberStation }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_21.5rem]">
       <div className="flex flex-col gap-4">

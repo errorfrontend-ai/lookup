@@ -88,7 +88,8 @@ describe('portal sign-in and sessions', () => {
       expect(refreshMaximumAge).toBeLessThanOrEqual(604_800);
 
       expect(response.body).toEqual({
-        user: { id: user.userId, fullName: 'Pat Tester', email: user.email },
+        user: { id: user.userId, fullName: 'Pat Tester', email: user.email, platformRole: null },
+        isTwoFactorCodeNeeded: false,
         stations: [{ id: user.stationId, name: expect.any(String), frequencyLabel: '98.1 FM', status: 'ACTIVE', role: 'OWNER' }],
       });
       const cookies = cookiesSetBy(response);

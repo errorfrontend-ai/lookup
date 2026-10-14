@@ -7,6 +7,7 @@ import { PasswordHasher } from './password-hasher.js';
 import { PasswordPolicy } from './password-policy.js';
 import { SignedInGuard } from './signed-in.guard.js';
 import { TrustedDevices } from './trusted-devices.js';
+import { TwoFactorSignIn } from './two-factor-sign-in.js';
 
 @Module({
   controllers: [AuthenticationController],
@@ -16,6 +17,7 @@ import { TrustedDevices } from './trusted-devices.js';
     PasswordHasher,
     PasswordPolicy,
     TrustedDevices,
+    TwoFactorSignIn,
     // Every route needs a signed-in user unless marked @PublicRoute().
     { provide: APP_GUARD, useClass: SignedInGuard },
   ],

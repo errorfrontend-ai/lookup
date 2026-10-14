@@ -15,6 +15,8 @@ import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { PasswordPolicy } from '../src/features/authentication/password-policy.js';
+import { decodeBase32 } from '@lookup/contracts';
+import { createSuperAdmin } from './create-super-admin.js';
 import { loadDatabaseSetupConfig } from './database-setup-config.js';
 import { assertDevelopmentDatabase, assertOnThisMachine } from './development-walkthrough-tools.js';
 import {
@@ -168,8 +170,31 @@ async function seedFromEnvironment(): Promise<string> {
   }
 }
 
+/**
+ * A development super admin (P5A design §7 increment 5), when SEED_SUPER_ADMIN_EMAIL is set: its password from
+ * SEED_SUPER_ADMIN_PASSWORD and its authenticator secret from SEED_SUPER_ADMIN_TWO_FACTOR_SECRET (base32), so the
+ * authenticator app set up once keeps working after each re-seed, and the browser tests can compute its codes.
+ */
+export async function seedDevelopmentSuperAdminFromEnvironment(): Promise<string> {
+  const email = process.env.SEED_SUPER_ADMIN_EMAIL;
+  if (!email) return 'Super admin: not seeded (SEED_SUPER_ADMIN_EMAIL is not set).';
+  if (process.env.NODE_ENV === 'production') throw new Error('Refusing to seed a super admin in production; use npm run admin:create-super-admin.');
+  const { setupUrl } = loadDatabaseSetupConfig();
+  assertDevelopmentDatabase(setupUrl, process.env.NODE_ENV);
+  const secret = decodeBase32(process.env.SEED_SUPER_ADMIN_TWO_FACTOR_SECRET ?? '');
+  if (!secret || secret.length < 16) throw new Error('SEED_SUPER_ADMIN_TWO_FACTOR_SECRET must be a base32 secret of at least 16 bytes.');
+  await createSuperAdmin(
+    setupUrl,
+    { email, fullName: 'Development Super Admin', password: process.env.SEED_SUPER_ADMIN_PASSWORD ?? '' },
+    process.env.TWO_FACTOR_ENCRYPTION_SECRET ?? '',
+    secret,
+  );
+  return `Super admin: ${email}, with the authenticator secret in SEED_SUPER_ADMIN_TWO_FACTOR_SECRET.`;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   seedFromEnvironment()
+    .then(async (message) => `${message}\n${await seedDevelopmentSuperAdminFromEnvironment()}`)
     .then((message) => console.log(message))
     .catch((error: unknown) => {
       console.error('Could not seed development data:', error instanceof Error ? error.message : 'unknown error');

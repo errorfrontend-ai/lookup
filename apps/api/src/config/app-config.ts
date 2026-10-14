@@ -5,6 +5,21 @@ import { isListenerAppVersion } from '@lookup/contracts';
 export const DATABASE_TLS_MODES = ['disable', 'require', 'verify-full'] as const;
 export type DatabaseTlsMode = (typeof DATABASE_TLS_MODES)[number];
 
+/**
+ * How SMS goes out (P5A design §3.1, O16). `development` delivers each SMS as an email to the development inbox;
+ * `none` sends none, so station sign-up stays closed. No real provider is built before O16's checks are recorded, and
+ * production refuses `development`, so production can never start a sign-up whose code would not arrive.
+ */
+export const SMS_SENDERS = ['development', 'none'] as const;
+export type SmsSenderKind = (typeof SMS_SENDERS)[number];
+
+/** Cloudflare's published Turnstile test secrets (always pass, always fail, "already used"): never in production. */
+export const HUMAN_CHECK_TEST_SECRET_KEYS = [
+  '1x0000000000000000000000000000000AA',
+  '2x0000000000000000000000000000000AA',
+  '3x0000000000000000000000000000000AA',
+] as const;
+
 /** Dependency-injection token for the validated application configuration. */
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
@@ -51,6 +66,33 @@ const AppConfigSchema = z
     OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().min(1),
     /** Private bucket for uploaded ad audio. */
     OBJECT_STORAGE_AD_UPLOADS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/),
+    /** Private bucket for licence documents: uploads only, read through 5-minute links by super admins (P5A design §3.1). */
+    OBJECT_STORAGE_LICENCE_DOCUMENTS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/).default('lookup-licence-documents'),
+    /** Private bucket for station logos, read through short links. */
+    OBJECT_STORAGE_STATION_LOGOS_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/).default('lookup-station-logos'),
+
+    // ---- phase 5a: sign-up, review, the super admin's second factor, the team (P5A design §3) ----------------
+    /** The super-admin endpoints' own role (lookup_admin_api): never the owner or a superuser, checked at start-up. */
+    ADMIN_DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+    /**
+     * Encrypts super admins' second-factor secrets (AES-256-GCM). 32+ random bytes, base64url, different from every
+     * other secret, so changing AUTHENTICATION_SECRET never locks a super admin out (P5A-D19).
+     */
+    TWO_FACTOR_ENCRYPTION_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
+    /** The portal's own address, for the links in emails (an email link, an invitation). */
+    PORTAL_PUBLIC_ORIGIN: z.url({ protocol: /^https?$/ }).default('http://localhost:5180'),
+    /** Where email goes out: Mailpit on this machine in development; smtps:// (or STARTTLS required) in production. */
+    EMAIL_SMTP_URL: z.url({ protocol: /^smtps?$/ }).default('smtp://127.0.0.1:1025'),
+    /** With an smtp:// address: refuse to send unless the server upgrades the connection to TLS, with its certificate checked. */
+    EMAIL_SMTP_REQUIRE_TLS: z.stringbool().default(false),
+    EMAIL_FROM_ADDRESS: z.string().min(3).max(200).default('Look Up <no-reply@lookup.invalid>'),
+    SMS_SENDER: z.enum(SMS_SENDERS).default('development'),
+    /** Send queued SMS and email from this process (the notify queue's worker, P5A-D9). */
+    NOTIFICATION_SENDING_ENABLED: z.stringbool().default(true),
+    /** The first wait before a notification is tried again; each later wait doubles (five tries in all). */
+    NOTIFICATION_RETRY_DELAY_MILLISECONDS: z.coerce.number().int().min(10).max(600_000).default(30_000),
+    /** The Turnstile secret key; Cloudflare's always-pass test key in development and tests (P5A-D8). */
+    HUMAN_CHECK_SECRET_KEY: z.string().min(1).max(200).default(HUMAN_CHECK_TEST_SECRET_KEYS[0]),
 
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     /** Full request details in logs; off by default so customer data never reaches logs by accident. */
@@ -133,13 +175,17 @@ const AppConfigSchema = z
   })
   .superRefine((config, context) => {
     // The template's placeholder has the right shape, so refuse it by name in every environment.
-    for (const secretName of ['AUTHENTICATION_SECRET', 'LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER'] as const) {
+    for (const secretName of ['AUTHENTICATION_SECRET', 'LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER', 'TWO_FACTOR_ENCRYPTION_SECRET'] as const) {
       if (config[secretName].includes('CHANGE_ME')) {
         context.addIssue({ code: 'custom', path: [secretName], message: 'must be replaced with a random value' });
       }
     }
-    if (new Set([config.AUTHENTICATION_SECRET, config.LISTENER_INSTALL_TOKEN_SECRET, config.LISTENER_INSTALL_ID_PEPPER]).size < 3) {
-      context.addIssue({ code: 'custom', path: ['LISTENER_INSTALL_TOKEN_SECRET'], message: 'the three secrets must all be different' });
+    const secrets = [config.AUTHENTICATION_SECRET, config.LISTENER_INSTALL_TOKEN_SECRET, config.LISTENER_INSTALL_ID_PEPPER, config.TWO_FACTOR_ENCRYPTION_SECRET];
+    if (new Set(secrets).size < secrets.length) {
+      context.addIssue({ code: 'custom', path: ['LISTENER_INSTALL_TOKEN_SECRET'], message: 'the secrets must all be different' });
+    }
+    if (config.ADMIN_DATABASE_URL === config.DATABASE_URL) {
+      context.addIssue({ code: 'custom', path: ['ADMIN_DATABASE_URL'], message: "must be the super-admin role's own address" });
     }
     if (config.RECOGNITIONS_PER_INSTALL_PER_DAY < config.RECOGNITIONS_PER_INSTALL_PER_MINUTE) {
       context.addIssue({ code: 'custom', path: ['RECOGNITIONS_PER_INSTALL_PER_DAY'], message: 'must be at least the per-minute limit' });
@@ -170,6 +216,21 @@ const AppConfigSchema = z
     }
     if (config.ALLOWED_BROWSER_ORIGINS.some((origin) => !origin.startsWith('https://'))) {
       context.addIssue({ code: 'custom', path: ['ALLOWED_BROWSER_ORIGINS'], message: 'must all be https in production' });
+    }
+    if (!config.PORTAL_PUBLIC_ORIGIN.startsWith('https://')) {
+      context.addIssue({ code: 'custom', path: ['PORTAL_PUBLIC_ORIGIN'], message: 'must be https in production' });
+    }
+    if (!config.EMAIL_SMTP_URL.startsWith('smtps://') && !config.EMAIL_SMTP_REQUIRE_TLS) {
+      context.addIssue({ code: 'custom', path: ['EMAIL_SMTP_URL'], message: 'must be smtps:// or require TLS in production' });
+    }
+    if (/\.invalid>?$/.test(config.EMAIL_FROM_ADDRESS)) {
+      context.addIssue({ code: 'custom', path: ['EMAIL_FROM_ADDRESS'], message: 'must be a real sending address in production' });
+    }
+    if (config.SMS_SENDER === 'development') {
+      context.addIssue({ code: 'custom', path: ['SMS_SENDER'], message: 'must not be "development" in production' });
+    }
+    if ((HUMAN_CHECK_TEST_SECRET_KEYS as readonly string[]).includes(config.HUMAN_CHECK_SECRET_KEY)) {
+      context.addIssue({ code: 'custom', path: ['HUMAN_CHECK_SECRET_KEY'], message: 'must not be a test key in production' });
     }
   });
 

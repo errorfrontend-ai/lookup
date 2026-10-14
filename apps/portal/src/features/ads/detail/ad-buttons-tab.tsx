@@ -6,13 +6,13 @@ import { Icon, type IconName } from '../../../components/icons';
 import { ListenerCardPreview } from '../../../components/listener-card-preview';
 import { PhoneWidthToggle, type PhoneWidth } from '../../../components/phone-width-toggle';
 import { describeButtonDestination } from '../../ad-buttons/describe-button-destination';
-import { canChangeStationContent, type MemberStation } from '../../stations/use-current-station';
+import { canChangeStationContent, type NamedMemberStation } from '../../stations/use-current-station';
 
 const TYPE_WORDS: Record<ReadAction['type'], string> = { CALL: 'Call', WHATSAPP: 'WhatsApp', MAP: 'Directions', LINK: 'Website' };
 const TYPE_ICONS: Record<ReadAction['type'], IconName> = { CALL: 'phone', WHATSAPP: 'chat', MAP: 'pin', LINK: 'link' };
 
 /** The buttons: a picture of what listeners see at two phone widths, and each button written out with a way to try it. */
-export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: MemberStation }) {
+export function AdButtonsTab({ ad, station }: { ad: AdDetail; station: NamedMemberStation }) {
   const [phoneWidth, setPhoneWidth] = useState<PhoneWidth>(320);
   const editPath = `/stations/${station.id}/ads/${ad.id}/setup?step=buttons`;
   const canEdit = canChangeStationContent(station);

@@ -3,7 +3,7 @@ import { Outlet, useLocation } from 'react-router';
 import { Icon } from '../components/icons';
 import { useFocusHeadingOnChange } from '../components/use-focus-heading-on-change';
 import { describeStationStatus } from '../plain-words/station-status-words';
-import { type MemberStation, useRequiredCurrentStation } from '../features/stations/use-current-station';
+import { type NamedMemberStation, useRequiredCurrentStation } from '../features/stations/use-current-station';
 import { PortalNavigation } from './portal-navigation';
 
 /**
@@ -63,7 +63,7 @@ export function PortalShell() {
   );
 }
 
-function NavigationDrawer({ station, onClose }: { station: MemberStation; onClose: () => void }) {
+function NavigationDrawer({ station, onClose }: { station: NamedMemberStation; onClose: () => void }) {
   const drawerReference = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -102,7 +102,7 @@ function NavigationDrawer({ station, onClose }: { station: MemberStation; onClos
   );
 }
 
-function StationStatusBanner({ station }: { station: MemberStation }) {
+function StationStatusBanner({ station }: { station: NamedMemberStation }) {
   const banner = describeStationStatus(station.status).banner;
   if (!banner) return null;
   return (

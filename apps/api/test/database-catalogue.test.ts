@@ -11,7 +11,7 @@ const LOGIN_ROLES = ['lookup_api', 'lookup_admin_api', 'lookup_fingerprint_worke
 const SCHEMA_OWNER = 'lookup_schema_owner';
 const STATION_OWNED_TABLES = [
   'action_cards', 'ads', 'campaign_time_windows', 'campaigns', 'clients', 'station_memberships',
-  'recognition_candidates', 'engagement_events', 'campaign_counters',
+  'recognition_candidates', 'engagement_events', 'campaign_counters', 'invitations', 'station_change_requests',
 ];
 /** Tables with no row-level security, each for a stated reason. */
 const TABLES_WITHOUT_ROW_LEVEL_SECURITY: Record<string, string> = {
@@ -24,10 +24,13 @@ const TABLES_WITHOUT_ROW_LEVEL_SECURITY: Record<string, string> = {
 /** Tables that name a station but give stations no policy, each for a stated reason. */
 const TABLES_WITH_A_STATION_BUT_NO_STATION_POLICY: Record<string, string> = {
   'app.recognition_reports': '"Report this" reports are for super admins only (the 5a console); no station ever reads them (P4-D28)',
+  'app.email_verification_links': 'only the registration functions touch it (P5A design §2.3)',
 };
 /** Tables with row-level security and no policy at all: no service role reads or writes them directly. */
 const TABLES_WITH_NO_POLICY: Record<string, string> = {
+  'app.email_verification_links': 'only the registration functions touch it (P5A design §2.3)',
   'app.engagement_deduplication_keys': 'one tap per recognition and action across months; only recognition.record_engagement touches it',
+  'fingerprints.asset_overlaps': 'super admins read and review findings only through two functions (P5A-D11)',
   'app.portal_sessions': 'only the sign-in functions touch it',
   'app.recognition_idempotency_keys': 'only the recognition functions touch it',
   'app.refresh_tokens': 'only the sign-in functions touch it',
@@ -74,6 +77,7 @@ describe('database catalogue', () => {
         'app.ads', 'app.campaigns', 'app.campaign_time_windows', 'fingerprints.audio_assets', 'fingerprints.hashes_version_1',
         'fingerprints.hashes_version_2', 'app.listener_installs', 'app.recognition_events', 'app.audit_events',
         'app.recognition_candidates', 'app.engagement_events', 'app.engagement_deduplication_keys', 'app.campaign_counters', 'app.recognition_reports',
+        'app.email_verification_links', 'app.station_change_requests', 'app.invitations', 'fingerprints.asset_overlaps',
       ]) {
         expect(tableNames).toContain(expected);
       }
@@ -249,13 +253,15 @@ describe('database catalogue', () => {
       }
     });
 
-    it('S3-PRIVACY-01: no table can hold a clip: the only binary columns are keyed hashes and checksums', async () => {
+    it('S3-PRIVACY-01: no table can hold a clip: the only binary columns are keyed hashes, checksums and the encrypted two-factor secret', async () => {
       const binaryColumns = await rows<{ name: string }>(
         `SELECT table_schema || '.' || table_name || '.' || column_name AS name FROM information_schema.columns
           WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND data_type = 'bytea' ORDER BY 1`,
       );
       expect(binaryColumns.map((column) => column.name)).toEqual([
-        'app.ads.upload_content_sha256', 'app.listener_installs.install_id_hash', 'app.refresh_tokens.token_hash', 'fingerprints.audio_assets.content_sha256',
+        'app.ads.upload_content_sha256', 'app.email_verification_links.token_hash', 'app.invitations.token_hash',
+        'app.listener_installs.install_id_hash', 'app.portal_users.two_factor_secret_ciphertext', 'app.refresh_tokens.token_hash',
+        'fingerprints.audio_assets.content_sha256',
       ]);
     });
 
@@ -272,7 +278,8 @@ describe('database catalogue', () => {
         `SELECT role_name || ' ' || privilege || ' on ' || target AS grant_description
            FROM unnest(ARRAY['lookup_api', 'lookup_admin_api']) AS role_name,
                 unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) AS privilege,
-                unnest(ARRAY['fingerprints.audio_assets', 'fingerprints.hashes_version_1', 'fingerprints.hashes_version_2']) AS target
+                unnest(ARRAY['fingerprints.audio_assets', 'fingerprints.hashes_version_1', 'fingerprints.hashes_version_2',
+                             'fingerprints.asset_overlaps']) AS target
           WHERE has_table_privilege(role_name, target, privilege)
          UNION ALL
          SELECT role_name || ' USAGE on schema fingerprints' FROM unnest(ARRAY['lookup_api', 'lookup_admin_api']) AS role_name

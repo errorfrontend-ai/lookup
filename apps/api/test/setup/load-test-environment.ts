@@ -12,3 +12,5 @@ process.env.NODE_ENV = 'test';
 // workers' queues or from each other, and the background ingest sweep stays off unless a test runs it.
 process.env.QUEUE_KEY_PREFIX = `lookup-test-${randomBytes(4).toString('hex')}`;
 process.env.INGEST_SWEEP_INTERVAL_SECONDS = '0';
+// No test application sends notifications unless its test turns the worker on (notifications.test.ts does).
+process.env.NOTIFICATION_SENDING_ENABLED = 'false';

@@ -4,12 +4,12 @@ import { ListenerCardPreview } from '../../components/listener-card-preview';
 import { PhoneWidthToggle, type PhoneWidth } from '../../components/phone-width-toggle';
 import { LARGE_SCREEN_QUERY, useMediaQuery } from '../../components/use-media-query';
 import { describeHiddenButtons } from '../../plain-words/button-words';
-import type { MemberStation } from '../stations/use-current-station';
+import type { NamedMemberStation } from '../stations/use-current-station';
 import { ButtonsEditor } from './buttons-editor';
 import type { ButtonDraft } from './button-draft';
 import type { ButtonFieldProblems, ButtonValidation } from './validate-button-drafts';
 
-function PreviewPanel({ ad, station, validation }: { ad: AdDetail; station: MemberStation; validation: ButtonValidation }) {
+function PreviewPanel({ ad, station, validation }: { ad: AdDetail; station: NamedMemberStation; validation: ButtonValidation }) {
   const [phoneWidth, setPhoneWidth] = useState<PhoneWidth>(320);
   return (
     <section aria-label="What listeners see" className="flex h-fit flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5 lg:sticky lg:top-28">
@@ -41,7 +41,7 @@ export function ButtonsStep({
   showAllProblems,
 }: {
   ad: AdDetail;
-  station: MemberStation;
+  station: NamedMemberStation;
   drafts: ButtonDraft[];
   onChange: (drafts: ButtonDraft[]) => void;
   validation: ButtonValidation;

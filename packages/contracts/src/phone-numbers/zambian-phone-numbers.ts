@@ -31,3 +31,15 @@ export function formatPhoneNumberForDisplay(phoneNumberE164: string): string {
   const zambianMatch = /^\+260([0-9]{2})([0-9]{3})([0-9]{4})$/.exec(phoneNumberE164);
   return zambianMatch ? `+260 ${zambianMatch[1]} ${zambianMatch[2]} ${zambianMatch[3]}` : phoneNumberE164;
 }
+
+/**
+ * "+260977123412" → "+260 97 ••• ••12": the country code, the first two and the last two digits, so a
+ * person recognises their number without the page showing it (SignupVerify and AdminQueue wireframes).
+ * Another country's number keeps its "+", first two and last two digits the same way.
+ */
+export function maskPhoneNumberForDisplay(phoneNumberE164: string): string {
+  const zambianMatch = /^\+260([0-9]{2})[0-9]{5}([0-9]{2})$/.exec(phoneNumberE164);
+  if (zambianMatch) return `+260 ${zambianMatch[1]} ••• ••${zambianMatch[2]}`;
+  const otherMatch = /^\+([0-9]{2})[0-9]+([0-9]{2})$/.exec(phoneNumberE164);
+  return otherMatch ? `+${otherMatch[1]} ••• ••${otherMatch[2]}` : '•••';
+}

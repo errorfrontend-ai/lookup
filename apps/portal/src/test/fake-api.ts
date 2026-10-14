@@ -48,7 +48,8 @@ export function installFakeApi(handlers: Record<string, Handler>) {
 
 export function signedInUserWith(stations: Partial<SignedInPortalUser['stations'][number]>[] = [{}]): SignedInPortalUser {
   return {
-    user: { id: '0190f1a2-0000-7000-8000-000000000001', fullName: 'Chanda Mwale', email: 'chanda@example.test' },
+    user: { id: '0190f1a2-0000-7000-8000-000000000001', fullName: 'Chanda Mwale', email: 'chanda@example.test', platformRole: null },
+    isTwoFactorCodeNeeded: false,
     stations: stations.map((station, index) => ({
       id: `0190f1a2-0000-7000-8000-00000000010${index}`,
       name: `Station ${index === 0 ? 'A' : 'B'}`,

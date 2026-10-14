@@ -50,3 +50,18 @@ export const PASSWORD_CHANGE_REQUESTS_PER_USER: RateLimitRule = {
   windowSeconds: 15 * 60,
   refuseWhenStoreUnavailable: true,
 };
+
+/** The super admin's second factor (P5A design §3.4): wrong codes per address and per account, refused when the store is down. */
+export const TWO_FACTOR_FAILURES_PER_ADDRESS: RateLimitRule = {
+  counterName: 'two-factor-failures-per-address',
+  maximumRequests: 20,
+  windowSeconds: 15 * 60,
+  refuseWhenStoreUnavailable: true,
+};
+
+export const TWO_FACTOR_FAILURES_PER_ACCOUNT: RateLimitRule = {
+  counterName: 'two-factor-failures-per-account',
+  maximumRequests: 5,
+  windowSeconds: 15 * 60,
+  refuseWhenStoreUnavailable: true,
+};
