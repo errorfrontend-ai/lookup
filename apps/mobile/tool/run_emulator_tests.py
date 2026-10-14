@@ -1674,9 +1674,9 @@ def data_use_and_the_pictures_switch(context: RunContext) -> str:
         raise StepFailed('"Load ad pictures on mobile data" was on again after a restart')
     set_pictures_switch(context, True)
     go_home(context)
-    return (f'"about 25 KB" shown; "Used this month" went from {before:,} to {after:,} bytes for {identify_count} '
-            f'identifies that sent {sent_bytes:,}; the row turned the switch off, it stayed off after a restart, and the '
-            'row turned it on')
+    identifies = '1 identify' if identify_count == 1 else f'{identify_count} identifies'
+    return (f'"about 25 KB" shown; "Used this month" went from {before:,} to {after:,} bytes for {identifies} that sent '
+            f'{sent_bytes:,}; the row turned the switch off, it stayed off after a restart, and the row turned it on')
 
 
 def pictures_card_title() -> str:
