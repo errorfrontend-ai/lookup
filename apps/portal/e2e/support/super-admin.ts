@@ -1,5 +1,6 @@
 import { computeTwoFactorCode, decodeBase32, twoFactorTimeStepAt } from '@lookup/contracts';
 import { expect, type Page } from '@playwright/test';
+import { randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { cleanUpIsAllowed } from './remove-browser-test-ads';
 
@@ -70,4 +71,76 @@ export async function openApplication(page: Page, stationName: string): Promise<
   await page.getByRole('button', { name: new RegExp(stationName) }).click();
   await expect(page.getByRole('heading', { name: new RegExp(stationName) })).toBeVisible();
   await expect(page.getByText('Opening the licence document…')).toHaveCount(0);
+}
+
+/**
+ * A failed recognition in the development database, as the app would have left it, for "Find by reference code";
+ * removed again afterwards. Development on this computer only.
+ */
+export async function seedFailedRecognition(): Promise<{ code: string; remove: () => Promise<void> }> {
+  const connectionString = process.env.DATABASE_SETUP_URL ?? '';
+  if (!cleanUpIsAllowed(connectionString, process.env.NODE_ENV)) throw new Error('Seeding runs only against a development database on this computer.');
+  const client = new pg.Client({ connectionString });
+  await client.connect();
+  const installId = randomUUID();
+  const requestId = randomUUID();
+  try {
+    await client.query(`INSERT INTO app.listener_installs (id, install_id_hash, platform, app_version) VALUES ($1, $2, 'ANDROID', 'browser-test')`, [installId, randomBytes(32)]);
+    await client.query(
+      `INSERT INTO app.recognition_events (id, listener_install_id, idempotency_key, request_id, captured_at, received_at, outcome)
+       VALUES ($1, $2, $3, $4, now() - interval '1 hour', now() - interval '1 hour', 'ERROR')`,
+      [randomUUID(), installId, randomUUID(), requestId],
+    );
+  } finally {
+    await client.end();
+  }
+  return {
+    code: `${requestId.slice(0, 4)}-${requestId.slice(4, 8)}`.toUpperCase(),
+    remove: async () => {
+      const cleaner = new pg.Client({ connectionString });
+      await cleaner.connect();
+      try {
+        await cleaner.query('DELETE FROM app.recognition_events WHERE listener_install_id = $1', [installId]);
+        await cleaner.query('DELETE FROM app.listener_installs WHERE id = $1', [installId]);
+      } finally {
+        await cleaner.end();
+      }
+    },
+  };
+}
+
+/**
+ * A finding for "Audio to check" between two of the development seed's sample ads (never a person's own upload),
+ * removed again afterwards with what opening it recorded. Development on this computer only.
+ */
+export async function seedOverlapFinding(): Promise<{ remove: () => Promise<void> }> {
+  const connectionString = process.env.DATABASE_SETUP_URL ?? '';
+  if (!cleanUpIsAllowed(connectionString, process.env.NODE_ENV)) throw new Error('Seeding runs only against a development database on this computer.');
+  const client = new pg.Client({ connectionString });
+  await client.connect();
+  let findingId: string;
+  try {
+    const assets = await client.query<{ audio_asset_id: string }>(
+      `SELECT DISTINCT audio_asset_id FROM app.ads WHERE title IN ('Harvest festival', 'Weekend sale') AND audio_asset_id IS NOT NULL AND upload_object_key IS NOT NULL`,
+    );
+    if (assets.rows.length !== 2) throw new Error('The development seed’s "Harvest festival" and "Weekend sale" ads are needed (npm run database:seed).');
+    findingId = (await client.query<{ id: string }>(
+      `INSERT INTO fingerprints.asset_overlaps (audio_asset_id, overlapping_audio_asset_id, overlap_milliseconds) VALUES ($1, $2, 6400) RETURNING id`,
+      assets.rows.map((row) => row.audio_asset_id),
+    )).rows[0]?.id as string;
+  } finally {
+    await client.end();
+  }
+  return {
+    remove: async () => {
+      const cleaner = new pg.Client({ connectionString });
+      await cleaner.connect();
+      try {
+        await cleaner.query('DELETE FROM app.audit_events WHERE entity_id = $1', [findingId]);
+        await cleaner.query('DELETE FROM fingerprints.asset_overlaps WHERE id = $1', [findingId]);
+      } finally {
+        await cleaner.end();
+      }
+    },
+  };
 }

@@ -68,6 +68,16 @@ describe('licence document and logo storage', () => {
     expect((await fetch(signed)).status).toBe(200);
   });
 
+  it('P5A-ADMIN-QUEUE-10: the store refuses a licence link once its lifetime is over (the console asks for 300 seconds)', async () => {
+    const key = `licence-documents/${randomUUID()}/${randomUUID()}`;
+    created.push([storage.licenceDocumentsBucket, key]);
+    await storage.putObjectIn(storage.licenceDocumentsBucket, key, pdf, 'application/pdf');
+    const shortLived = await storage.createDownloadUrlIn(storage.licenceDocumentsBucket, key, 1, { contentType: 'application/pdf', fileName: 'licence.pdf' });
+    expect((await fetch(shortLived)).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+    expect((await fetch(shortLived)).status).toBe(403);
+  });
+
   it('a download link fixes the type and an inline disposition, whatever the file was stored as, with a safe file name', async () => {
     const key = `licence-documents/${randomUUID()}/${randomUUID()}`;
     created.push([storage.licenceDocumentsBucket, key]);

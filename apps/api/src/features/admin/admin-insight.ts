@@ -14,6 +14,7 @@ import {
 import { Inject, Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
+import { AuditTrail } from '../../common/audit/audit-trail.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { AdminTransaction } from '../../infrastructure/admin-database/admin-database.module.js';
@@ -51,6 +52,7 @@ export class AdminInsight implements OnApplicationShutdown {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly adminTransaction: AdminTransaction,
     private readonly objectStorage: ObjectStorage,
+    private readonly auditTrail: AuditTrail,
   ) {
     this.connection = new Redis(config.KEY_VALUE_STORE_URL, { maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 3_000, lazyConnect: true });
     this.connection.on('error', () => undefined);
@@ -68,7 +70,10 @@ export class AdminInsight implements OnApplicationShutdown {
     return { findings: rows.map(toFinding) };
   }
 
-  /** Plays the upload of an ad that uses each recording (P5A design fact 7: the assets keep no audio of their own). */
+  /**
+   * Plays the upload of an ad that uses each recording (P5A design fact 7: the assets keep no audio of their own).
+   * Listening to stations' audio is audited, as opening a licence document is (P5A-AUDIT-04).
+   */
   async createOverlapPreviewLinks(findingId: string): Promise<AudioOverlapPreviewLinks> {
     const finding = await this.findOverlap(findingId);
     const linkFor = async (adId: string | undefined): Promise<PrivateFileLink | null> => {
@@ -83,7 +88,16 @@ export class AdminInsight implements OnApplicationShutdown {
       });
       return { address, contentType: ad.upload_content_type, expiresAt: new Date(Date.now() + PREVIEW_LINK_SECONDS * 1000).toISOString() };
     };
-    return { first: await linkFor(finding.audio_asset_ads[0]?.ad_id), second: await linkFor(finding.overlapping_audio_asset_ads[0]?.ad_id) };
+    const links = { first: await linkFor(finding.audio_asset_ads[0]?.ad_id), second: await linkFor(finding.overlapping_audio_asset_ads[0]?.ad_id) };
+    await this.adminTransaction.run((database) =>
+      this.auditTrail.record(database, {
+        action: 'audio_previews_opened',
+        entityType: 'asset_overlap',
+        entityId: findingId,
+        changes: { has_first_preview: links.first !== null, has_second_preview: links.second !== null },
+      }),
+    );
+    return links;
   }
 
   async reviewAudioOverlap(findingId: string, note: string | null, requestId: string): Promise<void> {

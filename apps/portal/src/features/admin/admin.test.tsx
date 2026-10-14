@@ -7,7 +7,7 @@ import { findAccessibilityProblems } from '../../test/accessibility';
 import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
 import { setScreenWidth } from '../../test/screen-size';
-import { duplicateWords } from './admin-words';
+import { duplicateWarning, duplicateWords } from './admin-words';
 import { waitWords } from './two-factor-page';
 
 const person = userEvent.setup({ delay: null });
@@ -154,6 +154,54 @@ describe('applications', () => {
     await person.click(screen.getByRole('button', { name: 'Approve station' }));
     expect(await screen.findByText('Approved. The station gets an SMS and email.')).toBeInTheDocument();
     expect(api.calls.some((call) => call.method === 'POST' && call.path === `/admin/applications/${STATION}/approval`)).toBe(true);
+  });
+
+  it('P5A-ADMIN-QUEUE-02..09, -12, -16, -17, -19, -21: the queue and an application as the reviewer sees them', async () => {
+    consoleApi({
+      [`GET /admin/applications/${STATION}`]: () =>
+        jsonResponse(200, detailFor(queueEntry(), { checks: { isPhoneVerified: true, isEmailVerified: false, hasLicenceDocument: true } })),
+    });
+    renderPortalAt('/admin/applications');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Applications' })).toBeInTheDocument();
+    expect(await screen.findByText('Oldest first · 2 waiting')).toBeInTheDocument();
+    const entry = screen.getByRole('button', { name: /Sunrise FM · 98.1 FM/ });
+    expect(entry).toHaveTextContent('Ndola, Copperbelt · 3 days ago');
+    expect(within(entry).getByText('Check: Same frequency and town as an approved station')).toBeInTheDocument();
+    expect(entry).toHaveAttribute('aria-pressed', 'false');
+
+    await person.click(entry);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Sunrise FM · 98.1 FM' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sunrise FM · 98.1 FM/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Ndola, Copperbelt · submitted 3 days ago')).toBeInTheDocument();
+    expect(screen.getByText("An approved station already uses this frequency in this town — make sure this isn't a duplicate or someone pretending to be them.")).toBeInTheDocument();
+    const checks = screen.getByRole('heading', { name: 'Checks' }).nextElementSibling as HTMLElement;
+    expect([...checks.querySelectorAll('li')].map((item) => item.textContent)).toEqual(['Phone number verified by SMSYes', 'Email verifiedNo', 'Licence document uploadedYes']);
+    expect(screen.getByRole('heading', { name: 'Details' })).toBeInTheDocument();
+    expect(screen.getByText('Mutale Banda · +260 97 ••• ••34')).toBeInTheDocument();
+    expect(screen.getByText('IBA/2026/0007')).toBeInTheDocument();
+    expect(screen.getByText('Africa/Lusaka')).toBeInTheDocument();
+    expect(await screen.findByTitle('Licence document: licence.pdf')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open full size' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Reason (needed to reject — the station sees this)')).toHaveAttribute(
+      'placeholder',
+      'e.g. The licence photo is too blurry to read the number. Please upload a clearer copy.',
+    );
+    expect(screen.getByText('The station gets an SMS and email. Your decision goes in the audit log.')).toBeInTheDocument();
+  });
+
+  it('P5A-ADMIN-QUEUE-04, -07: the flag and the note name the matching station’s status', () => {
+    expect(duplicateWords('ACTIVE')).toBe('Check: Same frequency and town as an approved station');
+    expect(duplicateWords('PENDING_REVIEW')).toBe('Check: Same frequency and town as a station waiting for review');
+    expect(duplicateWords('SUSPENDED')).toBe('Check: Same frequency and town as a suspended station');
+    expect(duplicateWarning('PENDING_REVIEW')).toBe("A station waiting for review already uses this frequency in this town — make sure this isn't a duplicate or someone pretending to be them.");
+    expect(duplicateWarning('SUSPENDED')).toMatch(/^A suspended station already uses this frequency in this town/);
+  });
+
+  it('P5A-ADMIN-QUEUE-07: an application with no match shows no warning', async () => {
+    consoleApi({ [`GET /admin/applications/${STATION}`]: () => jsonResponse(200, detailFor(queueEntry({ duplicate: null }))) });
+    renderPortalAt(`/admin/applications/${STATION}`);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Sunrise FM · 98.1 FM' })).toBeInTheDocument();
+    expect(screen.queryByText(/already uses this frequency/)).not.toBeInTheDocument();
   });
 
   it('journey D: rejecting needs a reason of 10 characters or more, sent as written', async () => {

@@ -127,19 +127,21 @@ export function TeamPage() {
             Invite someone
           </h2>
           <form onSubmit={submitInvite} noValidate className="flex flex-col gap-4">
-            <TextField label="Email" type="email" inputMode="email" autoComplete="off" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} error={inviteError} />
-            <fieldset className="flex flex-col gap-2">
-              <legend className="text-label">Role</legend>
-              {STATION_ROLES.map((choice) => (
-                <label key={choice} className="flex min-h-11 items-start gap-3 rounded-md border border-line p-3">
-                  <input type="radio" name="team-role" value={choice} checked={role === choice} onChange={() => setRole(choice)} className="mt-1 size-5" />
-                  <span className="flex flex-col">
-                    <span className="text-label">{ROLE_CHOICES[choice].name}</span>
-                    <span className="text-caption text-muted">{ROLE_CHOICES[choice].explanation}</span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
+            <div className="grid items-start gap-4 lg:grid-cols-2">
+              <TextField label="Email" type="email" inputMode="email" autoComplete="off" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} error={inviteError} />
+              <fieldset className="flex flex-col gap-2">
+                <legend className="text-label">Role</legend>
+                {STATION_ROLES.map((choice) => (
+                  <label key={choice} className="flex min-h-11 items-start gap-3 rounded-md border border-line p-3">
+                    <input type="radio" name="team-role" value={choice} checked={role === choice} onChange={() => setRole(choice)} className="mt-1 size-5" />
+                    <span className="flex flex-col">
+                      <span className="text-label">{ROLE_CHOICES[choice].name}</span>
+                      <span className="text-caption text-muted">{ROLE_CHOICES[choice].explanation}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            </div>
             {invite.isError && !inviteError ? <ErrorNotice error={invite.error} /> : null}
             {invite.isSuccess ? <p role="status" className="text-body">Invitation sent. It works once and lasts 7 days.</p> : null}
             <Button type="submit" className="self-start" disabled={!email.trim()} isBusy={invite.isPending} busyLabel="Sending…">

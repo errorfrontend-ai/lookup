@@ -32,15 +32,31 @@ test.describe('a station signs up and is approved', () => {
     expect(newAd.status()).toBe(403);
     expect(((await newAd.json()) as { error: { code: string } }).error.code).toBe('STATION_NOT_ACTIVE');
 
+    // "Edit application" opens step 3 with the saved answers (P5A-APPLICATION-STATUS-09).
+    await page.getByRole('link', { name: 'Edit application' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'About your station' })).toBeVisible();
+    await expect(page.getByLabel('Station name')).toHaveValue(applicant.stationName);
+    await expect(page.getByLabel('City or town')).toHaveValue(applicant.city);
+    // "Sign out" ends the session; signing in again opens Application status, not the dashboard (-01, -04).
+    await page.goto(`/stations/${stationId}/application`);
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to your station' })).toBeVisible();
+    await page.goto(`/stations/${stationId}/application`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to your station' })).toBeVisible();
+    await page.getByLabel('Email').fill(applicant.email);
+    await page.getByLabel('Password', { exact: true }).fill(applicant.password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Thanks — your application is in' })).toBeVisible();
+
     // The super admin, on their own device: the checks, the licence document through its short link, then Approve.
     const reviewerDevice = await anotherDevice(browser, testInfo);
     try {
       const reviewer = await reviewerDevice.newPage();
       await signInAsSuperAdmin(reviewer);
       await openApplication(reviewer, applicant.stationName);
-      await expect(reviewer.getByText('Phone: confirmed')).toBeVisible();
-      await expect(reviewer.getByText('Email: confirmed')).toBeVisible();
-      await expect(reviewer.getByText('Licence document: uploaded')).toBeVisible();
+      for (const check of ['Phone number verified by SMS', 'Email verified', 'Licence document uploaded']) {
+        await expect(reviewer.getByRole('listitem').filter({ hasText: check })).toContainText('Yes');
+      }
       await expect(reviewer.getByText(applicant.licenceNumber)).toBeVisible();
       await expect(reviewer.locator('iframe[title="Licence document: licence.pdf"]')).toBeVisible();
       await reviewer.getByRole('button', { name: 'Approve station' }).click();

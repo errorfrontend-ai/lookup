@@ -2,11 +2,16 @@ import { useEffect, useRef } from 'react';
 
 /**
  * What a person typed on a sign-up step but has not saved yet, kept while they go Back and come forward again
- * (P5A-SIGNUP-SCREENS-04). It lives in this tab's memory only: never written to the browser's storage, and gone on a
- * reload, when the saved application is the truth again.
+ * (P5A-SIGNUP-SCREENS-04). It lives beside the session, which forgets it all on signing out. It is kept in this tab's
+ * memory only: never written to the browser's storage, and gone on a reload, when the saved application is the truth.
  */
 const drafts = new Map<string, Record<string, string>>();
 const keyOf = (stationId: string, step: string) => `${stationId}:${step}`;
+
+/** Forgets every unsaved answer: on signing out, so the next person on a shared computer never sees them. */
+export function forgetAllDrafts(): void {
+  drafts.clear();
+}
 
 /** The step's unsaved answers, if the person left it with some. */
 export function draftFor(stationId: string, step: string): Record<string, string> | undefined {

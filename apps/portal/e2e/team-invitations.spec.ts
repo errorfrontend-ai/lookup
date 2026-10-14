@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { anotherDevice } from './support/another-device';
 import { pickFrom, waitForMessageTo } from './support/mail-inbox';
-import { signInAsSeededOwner } from './support/sign-in';
+import { signInAsSeededOwner, useNavigation } from './support/sign-in';
 import { BROWSER_TEST_EMAIL_DOMAIN } from './support/station-applicant';
 
 /**
@@ -10,7 +10,7 @@ import { BROWSER_TEST_EMAIL_DOMAIN } from './support/station-applicant';
  * what their role allows, and the owner removes them again, which also leaves the seeded station as it was.
  */
 test.describe('the station team', () => {
-  test('the owner invites an analyst; they join from the email with a new account, see the team without its controls, and are removed again', async ({ page, browser }, testInfo) => {
+  test('the owner invites a manager; they join from the email with a new account, sign in again as a manager, see the team without its controls, and are removed again', async ({ page, browser }, testInfo) => {
     const stationId = await signInAsSeededOwner(page);
     await page.goto(`/stations/${stationId}/team`);
     await expect(page.getByRole('heading', { level: 1, name: 'Team' })).toBeVisible();
@@ -21,31 +21,41 @@ test.describe('the station team', () => {
     const inviteeName = `Mutale Banda ${tag}`;
     const invite = page.getByRole('region', { name: 'Invite someone' });
     await invite.getByLabel('Email').fill(invitedEmail);
-    await invite.getByRole('radio', { name: /Analyst/ }).check();
+    await invite.getByRole('radio', { name: /Manager/ }).check();
     await invite.getByRole('button', { name: 'Send invitation' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Invitation sent. It works once and lasts 7 days.' })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Pending invitations' }).getByText(invitedEmail, { exact: true })).toBeVisible();
 
     const invitation = await waitForMessageTo(invitedEmail, /invitations\/accept#token=/);
     expect(invitation.subject).toMatch(/^You're invited to .+ on Look Up$/);
-    expect(invitation.text).toContain('as an analyst');
+    expect(invitation.text).toContain('as a manager');
 
     const inviteeDevice = await anotherDevice(browser, testInfo);
     try {
       const invitee = await inviteeDevice.newPage();
       await invitee.goto(pickFrom(invitation, /(http:\/\/localhost:5180\/invitations\/accept#token=[A-Za-z0-9_-]{43})/));
-      await expect(invitee.getByRole('heading', { level: 1, name: /^You're invited to join .+ as an Analyst$/ })).toBeVisible();
+      await expect(invitee.getByRole('heading', { level: 1, name: /^You're invited to join .+ as a Manager$/ })).toBeVisible();
       await expect(invitee.getByText(`Your account will use ${invitedEmail}.`)).toBeVisible();
       await invitee.getByLabel('Your full name').fill(inviteeName);
-      await invitee.getByLabel('Password', { exact: true }).fill(`${randomBytes(9).toString('base64url')} copper river morning`);
+      const inviteePassword = `${randomBytes(9).toString('base64url')} copper river morning`;
+      await invitee.getByLabel('Password', { exact: true }).fill(inviteePassword);
       await invitee.getByRole('button', { name: 'Join', exact: true }).click();
       await expect(invitee.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
       expect(new URL(invitee.url()).pathname).toBe(`/stations/${stationId}/overview`);
 
-      // An analyst sees the team but cannot change it.
+      // Signing in afresh opens the station, as a manager (P5A-TEAM-02).
+      await useNavigation(invitee, 'Sign out', testInfo.project.name === 'phone');
+      await expect(invitee.getByRole('heading', { level: 1, name: 'Sign in to your station' })).toBeVisible();
+      await invitee.getByLabel('Email').fill(invitedEmail);
+      await invitee.getByLabel('Password', { exact: true }).fill(inviteePassword);
+      await invitee.getByRole('button', { name: 'Sign in' }).click();
+      await expect(invitee.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+
+      // A manager sees the team but cannot change it (P5A-TEAM-05).
       await invitee.goto(`/stations/${stationId}/team`);
       await expect(invitee.getByRole('heading', { level: 1, name: 'Team' })).toBeVisible();
       await expect(invitee.getByRole('region', { name: 'Members' }).getByText(new RegExp(`^${inviteeName}`))).toBeVisible();
+      await expect(invitee.getByRole('region', { name: 'Members' }).getByText(`${invitedEmail} · Manager`)).toBeVisible();
       await expect(invitee.getByRole('region', { name: 'Invite someone' })).toHaveCount(0);
       await expect(invitee.getByRole('button', { name: /Remove from team/ })).toHaveCount(0);
 

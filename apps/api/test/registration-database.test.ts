@@ -744,6 +744,63 @@ describe('registration and admin database (phase 5a)', () => {
     });
   });
 
+  describe('the phase 5a columns (P5A-DATABASE-01..05, -07)', () => {
+    const columnsOf = async (table: string) =>
+      Object.fromEntries(
+        (await setupClient.query<{ column_name: string; data_type: string; is_nullable: string }>(
+          `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'app' AND table_name = $1`,
+          [table],
+        )).rows.map((row) => [row.column_name, `${row.data_type}${row.is_nullable === 'YES' ? ' (optional)' : ''}`]),
+      );
+
+    it('a station keeps its coverage, stream, licence, contact, verification and review details, each optional until it is given', async () => {
+      expect(await columnsOf('stations')).toMatchObject({
+        coverage_note: 'text (optional)',
+        stream_address: 'text (optional)',
+        licence_number: 'text (optional)',
+        licence_document_object_key: 'text (optional)',
+        contact_name: 'text (optional)',
+        contact_phone_number_e164: 'text (optional)',
+        phone_verified_at: 'timestamp with time zone (optional)',
+        email_verified_at: 'timestamp with time zone (optional)',
+        review_note: 'text (optional)',
+        reviewed_by_portal_user_id: 'uuid (optional)',
+        reviewed_at: 'timestamp with time zone (optional)',
+      });
+      const reviewer = await setupClient.query(
+        `SELECT confrelid::regclass::text AS refers_to FROM pg_constraint WHERE conname = 'stations_reviewed_by_portal_user_foreign_key'`,
+      );
+      expect(reviewer.rows).toEqual([{ refers_to: 'app.portal_users' }]);
+    });
+
+    it('P5A-DATABASE-03: a contact number not in E.164 form is refused by the table itself', async () => {
+      const applicant = await registerApplicant();
+      for (const malformed of ['0971234567', '+260 97 123 4567', '+0971234567', 'call me']) {
+        await expect(setupClient.query('UPDATE app.stations SET contact_phone_number_e164 = $2 WHERE id = $1', [applicant.stationId, malformed])).rejects.toThrow(
+          /stations_contact_phone_number_check/,
+        );
+      }
+    });
+
+    it('P5A-DATABASE-07: an invitation keeps a hash of its token, an expiry, who sent it, and a target that is a station role or a client viewer', async () => {
+      expect(await columnsOf('invitations')).toMatchObject({
+        token_hash: 'bytea',
+        expires_at: 'timestamp with time zone',
+        kind: 'text',
+        station_role: 'text (optional)',
+        client_id: 'uuid (optional)',
+        invited_by_portal_user_id: 'uuid (optional)',
+      });
+      const checks = await setupClient.query<{ definition: string }>(
+        `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname IN ('invitations_kind_check', 'invitations_station_role_check') ORDER BY conname`,
+      );
+      expect(checks.rows.map((row) => row.definition)).toEqual([
+        expect.stringMatching(/STATION_MEMBER.*CLIENT_VIEWER/),
+        expect.stringMatching(/OWNER.*MANAGER.*ANALYST/),
+      ]);
+    });
+  });
+
   describe('privileges (P5A-DATABASE-09)', () => {
     it('P5A-LICENCE-05: the API role reads every station column but the licence document\'s storage key; super admins read it', async () => {
       const readable = await setupClient.query(

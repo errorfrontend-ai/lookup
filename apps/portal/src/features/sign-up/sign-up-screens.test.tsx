@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/portal-api';
@@ -6,6 +6,7 @@ import { FileUploadField } from '../../components/file-upload-field';
 import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { applicationWith, type ApplicationChanges, APPLICANT_STATION_ID as STATION_ID } from '../../test/application-fixtures';
 import { renderPortalAt } from '../../test/render-portal';
+import { forgetAllDrafts } from '../session/unsaved-answers';
 
 /**
  * The sign-up screens as the wireframes and P5A design §4.2 draw them (P5A-SIGNUP-SCREENS-01..28): the words, the
@@ -55,84 +56,59 @@ beforeEach(() => {
   storageAnswers.length = 0;
   window.turnstile = { render: (_element, options) => (options.callback('XXXX.DUMMY.TOKEN.XXXX'), 'widget-1'), remove: () => undefined };
 });
-afterEach(() => {
+afterEach(async () => {
+  // Let requests in flight finish first: a failed session refresh clears the shared cache's signed-in person, and
+  // must not do so in the next test. Then unmount: leaving a step keeps its draft, which would reach the next test too.
+  await waitFor(() => expect(queryClient.isFetching() + queryClient.isMutating()).toBe(0));
+  cleanup();
   queryClient.clear();
+  forgetAllDrafts();
   vi.useRealTimers();
   delete window.turnstile;
 });
 
 describe('the frame of every step', () => {
-  it('P5A-SIGNUP-SCREENS-01, -02, -03: "Step N of 4 · <name>" over a decorative bar with exactly parts 1 to N filled', async () => {
+  it('P5A-SIGNUP-SCREENS-01..04, -12: step 1 reads "Step 1 of 4 · Your account" over one filled part, has no Back, and ends with a full-width "Continue"', async () => {
     installFakeApi(SIGNED_OUT);
-    const first = renderPortalAt('/signup');
+    renderPortalAt('/signup');
     expect(await screen.findByText('Step 1 of 4 · Your account')).toBeInTheDocument();
     expect(filledParts()).toEqual([true, false, false, false]);
-    first.unmount();
-    queryClient.clear();
-
-    const steps = [
-      ['verify', 'Step 2 of 4 · Verify', [true, true, false, false]],
-      ['details', 'Step 3 of 4 · Station details', [true, true, true, false]],
-      ['licence', 'Step 4 of 4 · Licence', [true, true, true, true]],
-    ] as const;
-    for (const [step, words, filled] of steps) {
-      const rendered = renderStep(step, { verification: { isPhoneVerified: true } });
-      expect(await screen.findByText(words)).toBeInTheDocument();
-      expect(filledParts()).toEqual(filled);
-      rendered.unmount();
-      queryClient.clear();
-    }
-  });
-
-  it('P5A-SIGNUP-SCREENS-04: steps 2 to 4 have a 48 × 48 "Back" button; step 1 has none', async () => {
-    installFakeApi(SIGNED_OUT);
-    const first = renderPortalAt('/signup');
-    await screen.findByText('Step 1 of 4 · Your account');
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
-    first.unmount();
-    queryClient.clear();
-    for (const step of ['verify', 'details', 'licence'] as const) {
-      const rendered = renderStep(step);
-      expect(await screen.findByRole('button', { name: 'Back' })).toHaveClass('size-12');
-      rendered.unmount();
-      queryClient.clear();
-    }
+    expect(screen.getByRole('button', { name: 'Continue' })).toHaveClass('w-full', 'min-h-13');
   });
 
-  it('P5A-SIGNUP-SCREENS-04: answers typed on steps 3 and 4 but not saved yet survive going Back and coming forward again', async () => {
-    const first = renderStep('details', { verification: { isPhoneVerified: true } });
+  it.each([
+    ['verify', 'Step 2 of 4 · Verify', [true, true, false, false], 'Continue'],
+    ['details', 'Step 3 of 4 · Station details', [true, true, true, false], 'Continue'],
+    ['licence', 'Step 4 of 4 · Licence', [true, true, true, true], 'Submit for review'],
+  ] as const)('P5A-SIGNUP-SCREENS-01..04, -12: %s reads "%s" over its filled parts, has a 48 × 48 "Back", and a full-width main button', async (step, words, filled, mainButton) => {
+    renderStep(step, { verification: { isPhoneVerified: true } });
+    expect(await screen.findByText(words)).toBeInTheDocument();
+    expect(filledParts()).toEqual(filled);
+    expect(screen.getByRole('button', { name: 'Back' })).toHaveClass('size-12');
+    expect(screen.getByRole('button', { name: mainButton })).toHaveClass('w-full', 'min-h-13');
+  });
+
+  it('P5A-SIGNUP-SCREENS-04: answers typed on step 3 but not saved yet survive going Back and coming forward again', async () => {
+    renderStep('details', { verification: { isPhoneVerified: true } });
     await person.type(await screen.findByLabelText('Station name'), 'Sunrise FM');
     await person.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Check your phone' })).toBeInTheDocument();
     await person.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByLabelText('Station name')).toHaveValue('Sunrise FM');
-    first.unmount();
-    queryClient.clear();
+  });
 
-    renderStep('licence', { verification: { isPhoneVerified: true } });
+  it('P5A-SIGNUP-SCREENS-04: a licence number typed on step 4 but not saved yet survives going Back and coming forward again', async () => {
+    const saved = { verification: { isPhoneVerified: true }, details: { name: 'Sunrise FM', frequencyLabel: '98.1 FM', province: 'Copperbelt', city: 'Ndola' } };
+    renderStep('licence', saved, {
+      [`PUT /stations/${STATION_ID}/application/details`]: () => jsonResponse(200, applicationWith({ ...saved, nextStep: 'licence' })),
+    });
     await person.type(await screen.findByLabelText('Licence number'), 'IBA/2026/0042');
     await person.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'About your station' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Station name')).toHaveValue('Sunrise FM');
-    await person.click(screen.getByRole('button', { name: 'Back' }));
-    await screen.findByRole('heading', { level: 1, name: 'Check your phone' });
     await person.click(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByRole('heading', { level: 1, name: 'About your station' });
-    expect(screen.getByLabelText('Station name')).toHaveValue('Sunrise FM');
-  });
-
-  it('P5A-SIGNUP-SCREENS-12: every step ends with a full-width main button: "Continue" on steps 1 to 3, "Submit for review" on step 4', async () => {
-    installFakeApi(SIGNED_OUT);
-    const first = renderPortalAt('/signup');
-    expect(await screen.findByRole('button', { name: 'Continue' })).toHaveClass('w-full', 'min-h-13');
-    first.unmount();
-    queryClient.clear();
-    for (const [step, label] of [['verify', 'Continue'], ['details', 'Continue'], ['licence', 'Submit for review']] as const) {
-      const rendered = renderStep(step);
-      expect(await screen.findByRole('button', { name: label })).toHaveClass('w-full', 'min-h-13');
-      rendered.unmount();
-      queryClient.clear();
-    }
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your broadcasting licence' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Licence number')).toHaveValue('IBA/2026/0042');
   });
 });
 
@@ -244,7 +220,10 @@ describe('step 3, About your station', () => {
     expect(screen.getByLabelText('Frequency')).toHaveAccessibleDescription('e.g. 98.1 FM');
     const province = screen.getByLabelText('Province') as HTMLSelectElement;
     expect(province.value).toBe('');
-    expect(province.options[0]?.textContent).toBe('Choose province');
+    // P5A-STATION-DETAILS-03: the prompt, then exactly the ten provinces.
+    expect([...province.options].map((option) => option.textContent)).toEqual([
+      'Choose province', 'Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka', 'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western',
+    ]);
     expect(screen.getByLabelText('Add logo · PNG or JPG')).toHaveAttribute('type', 'file');
   });
 
@@ -342,5 +321,68 @@ describe('the upload control (step 3\'s logo, step 4\'s document)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent("Upload failed. The file didn't arrive. Choose it again.");
     expect(screen.getByRole('button', { name: 'Replace' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+});
+
+describe('Application status', () => {
+  const submitted = (changes: ApplicationChanges = {}) =>
+    applicationWith({ status: 'PENDING_REVIEW', nextStep: 'submitted', submittedAt: '2026-10-14T07:30:00.000Z', details: { name: 'Sunrise FM', frequencyLabel: '98.1 FM' }, ...changes });
+  const renderStatus = (application = submitted(), handlers: Parameters<typeof installFakeApi>[0] = {}) => {
+    const api = installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, signedInUserWith([{ id: STATION_ID, name: 'Sunrise FM', status: application.status }])),
+      [`GET /stations/${STATION_ID}/application`]: () => jsonResponse(200, application),
+      ...handlers,
+    });
+    return { api, ...renderPortalAt(`/stations/${STATION_ID}/application`) };
+  };
+  const stage = (name: string) => screen.getByText(name, { selector: 'span' }).closest('li') as HTMLElement;
+
+  it('P5A-APPLICATION-STATUS-05, -06, -10: the heading with the station, the three stages with their lines, and the closing line', async () => {
+    renderStatus();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Thanks — your application is in' })).toBeInTheDocument();
+    expect(screen.getByText('Sunrise FM · 98.1 FM')).toBeInTheDocument();
+    const progress = screen.getByRole('region', { name: 'Application progress' });
+    expect([...progress.querySelectorAll('li')].map((item) => item.textContent)).toEqual([
+      `Submitted${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date('2026-10-14T07:30:00.000Z'))}`,
+      'Under reviewUsually within 2 working days',
+      "ApprovedWe'll text and email you",
+    ]);
+    expect(screen.getByText("If anything is missing we'll tell you exactly what to fix — nothing is lost.")).toBeInTheDocument();
+  });
+
+  it('P5A-APPLICATION-STATUS-02, -07: under review, Submitted is done with a tick, Under review is current, Approved is still to come', async () => {
+    renderStatus();
+    await screen.findByRole('region', { name: 'Application progress' });
+    expect(stage('Submitted').querySelector('svg')).not.toBeNull();
+    expect(stage('Submitted')).not.toHaveAttribute('aria-current');
+    expect(stage('Under review')).toHaveAttribute('aria-current', 'step');
+    expect(stage('Approved')).not.toHaveAttribute('aria-current');
+    expect(stage('Approved').querySelector('svg')).toBeNull();
+  });
+
+  it('P5A-APPLICATION-STATUS-02, -08: rejected, "Rejected" takes Approved’s place with the reviewer’s words; approved, Approved is current', async () => {
+    const rejected = renderStatus(submitted({ status: 'REJECTED', rejectionReason: 'The licence photo is too blurry.\nPlease upload a clearer copy.' }));
+    await screen.findByRole('region', { name: 'Application progress' });
+    expect(stage('Rejected')).toHaveAttribute('aria-current', 'step');
+    expect(stage('Rejected')).toHaveTextContent('The licence photo is too blurry. Please upload a clearer copy.');
+    expect(screen.queryByText('Approved', { selector: 'span' })).not.toBeInTheDocument();
+    rejected.unmount();
+    queryClient.clear();
+
+    renderStatus(submitted({ status: 'ACTIVE' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your station is approved' })).toBeInTheDocument();
+    expect(stage('Approved')).toHaveAttribute('aria-current', 'step');
+    expect(stage('Under review').querySelector('svg')).not.toBeNull();
+  });
+
+  it('P5A-APPLICATION-STATUS-04, -09: "Look Up" and "Sign out", which ends the session; "While you wait" offers "Edit application"', async () => {
+    const { api, router } = renderStatus(submitted(), { 'POST /auth/sign-out': () => jsonResponse(204, null) });
+    expect(await screen.findByText('Look Up')).toBeInTheDocument();
+    const waiting = screen.getByRole('region', { name: 'While you wait' });
+    expect(waiting).toHaveTextContent('You can still change your details. Uploading ads unlocks once your station is approved.');
+    expect(within(waiting).getByRole('link', { name: 'Edit application' })).toHaveAttribute('href', `/stations/${STATION_ID}/application/details`);
+    await person.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    expect(api.calls.some((call) => call.method === 'POST' && call.path === '/auth/sign-out')).toBe(true);
   });
 });

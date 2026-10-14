@@ -175,6 +175,7 @@ describe('phase 5a routes when something underneath fails', () => {
     ['a rejection', 'post', () => `/admin/applications/${applicantStationId}/rejection`, () => ({ reason: 'A reason long enough to be accepted.' })],
     ['a change approval', 'post', () => `/admin/change-requests/${randomUUID()}/approval`],
     ['a change rejection', 'post', () => `/admin/change-requests/${randomUUID()}/rejection`, () => ({ reason: 'A reason long enough to be accepted.' })],
+    ['a change’s licence link', 'post', () => `/admin/change-requests/${randomUUID()}/licence-document-link`],
     ['the stations', 'get', () => '/admin/stations?search=drill'],
     ['a suspension', 'post', () => `/admin/stations/${owner.stationId}/suspension`, () => ({ reason: 'A reason long enough to be accepted.' })],
     ['a reactivation', 'post', () => `/admin/stations/${owner.stationId}/reactivation`],
@@ -185,7 +186,26 @@ describe('phase 5a routes when something underneath fails', () => {
     ['a reference code', 'get', () => '/admin/reference-codes/ABCD-1234'],
   ];
 
+  /** Routes whose own work touches no database: the failure comes in the station check before it. */
+  const checkedFirstRoutes: Array<[...Route, cookie: () => string]> = [
+    ['a logo upload address', 'post', () => `${applicationPath()}/logo-uploads`, () => ({ fileName: 'logo.png', contentType: 'image/png', byteCount: 1000 }), () => applicantCookie],
+    ['a logo upload’s check', 'post', () => `${applicationPath()}/logo-uploads/${randomUUID()}/complete`, undefined, () => applicantCookie],
+    ['a licence upload address', 'post', () => `${applicationPath()}/licence-document-uploads`, () => ({ fileName: 'licence.pdf', contentType: 'application/pdf', byteCount: 1000 }), () => applicantCookie],
+    ['a licence upload’s check', 'post', () => `${applicationPath()}/licence-document-uploads/${randomUUID()}/complete`, undefined, () => applicantCookie],
+    ['a change document address', 'post', () => `/stations/${owner.stationId}/change-request/licence-document-uploads`, () => ({ fileName: 'licence.pdf', contentType: 'application/pdf', byteCount: 1000 }), () => ownerCookie],
+    ['a change document’s check', 'post', () => `/stations/${owner.stationId}/change-request/licence-document-uploads/${randomUUID()}/complete`, undefined, () => ownerCookie],
+  ];
+
   describe.each(['database', 'programming'] as const)('a %s error inside the route', (kind) => {
+    it.each(checkedFirstRoutes)('files: %s', async (_name, method, path, body, cookie) => {
+      Object.assign(failureSwitch, { kind, successfulTransactionsLeft: 0, isAdmin: false, sqlToFail: null });
+      try {
+        await expectGenericFailure(await send(method, path(), body?.(), cookie()), kind);
+      } finally {
+        failureSwitch.kind = null;
+      }
+    });
+
     it.each(applicationRoutes)('sign-up: %s', async (_name, method, path, body) => {
       Object.assign(failureSwitch, { kind, successfulTransactionsLeft: 1, isAdmin: false, sqlToFail: null });
       try {
@@ -242,5 +262,22 @@ describe('phase 5a routes when something underneath fails', () => {
       failureSwitch.kind = null;
       failureSwitch.sqlToFail = null;
     }
+  });
+
+  it('P5A-TESTS-10: every phase 5a route the API has is in this suite', () => {
+    const express = testApplication.application.getHttpAdapter().getInstance() as { router: { stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }> } };
+    const phase5aRoutes = express.router.stack.flatMap((layer) =>
+      layer.route ? Object.keys(layer.route.methods).map((method) => ({ method, path: layer.route?.path as string })) : [],
+    ).filter(({ path }) => /^\/api\/v1\/(admin|registration|invitations|auth\/two-factor-code|stations\/:stationId\/(application|change-request|invitations|members))/.test(path));
+    const tried = [
+      ...[...applicationRoutes, ...activeStationRoutes, ...adminRoutes, ...checkedFirstRoutes].map(([, method, path]) => ({ method, path: path() })),
+      { method: 'post', path: '/invitations/acceptance' },
+      ...directRoutes.map(([, , path]) => ({ method: 'post', path })),
+    ].map(({ method, path }) => `${method} /api/v1${path.split('?')[0]}`);
+    const untried = phase5aRoutes.filter(({ method, path }) => {
+      const pattern = new RegExp(`^${method} ${path.replace(/:[A-Za-z]+/g, '[^/]+')}$`);
+      return !tried.some((request) => pattern.test(request));
+    });
+    expect(untried).toEqual([]);
   });
 });

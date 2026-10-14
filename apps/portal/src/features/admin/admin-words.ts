@@ -18,6 +18,13 @@ export function duplicateWords(status: StationStatus): string {
   return `Check: Same frequency and town as ${other}`;
 }
 
+/** The detail panel's note on a flagged application (P5A-ADMIN-QUEUE-07), naming the other station's status. */
+export function duplicateWarning(status: StationStatus): string {
+  const other =
+    status === 'ACTIVE' ? 'An approved station' : status === 'PENDING_REVIEW' ? 'A station waiting for review' : status === 'SUSPENDED' ? 'A suspended station' : 'Another station';
+  return `${other} already uses this frequency in this town — make sure this isn't a duplicate or someone pretending to be them.`;
+}
+
 /** A station's status as the console lists it. */
 export const STATION_STATUS_WORDS: Record<StationStatus, string> = {
   PENDING_VERIFICATION: 'Signing up',

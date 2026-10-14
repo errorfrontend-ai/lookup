@@ -168,6 +168,15 @@ describe('station sign-up', () => {
     expect(foreign.body.error.fields).toContainEqual({ path: 'mobileNumber', code: 'not_a_zambian_mobile_number' });
     const weak = await stepOne({ password: 'short' }).request.expect(400);
     expect(weak.body.error.fields).toEqual([{ path: 'password', code: 'too_short' }]);
+    // P5A-SIGNUP-05: the same policy as every password: 15 characters, and no common one.
+    const fourteen = await stepOne({ password: 'kettle orchard' }).request.expect(400);
+    expect(fourteen.body.error.fields).toEqual([{ path: 'password', code: 'too_short' }]);
+    const common = await stepOne({ password: 'passwordpassword' }).request.expect(400);
+    expect(common.body.error.fields).toEqual([{ path: 'password', code: 'too_common' }]);
+    const accepted = await signedUpApplicant();
+    const stored = await setupClient.query('SELECT password_hash FROM app.portal_users WHERE id = $1', [accepted.response.body.user.id]);
+    expect(stored.rows[0].password_hash).toMatch(/^\$argon2id\$v=19\$/);
+    expect(stored.rows[0].password_hash).not.toContain(accepted.body.password);
   });
 
   it('P5A-SIGNUP-07: an email that already has an account is a clean 409 with a request id, no database text', async () => {
@@ -231,6 +240,41 @@ describe('station sign-up', () => {
     await supertest(server()).get(`/api/v1/stations/${other.stationId}/application`).set('Cookie', applicant.cookie).expect(404);
     await supertest(server()).post(`/api/v1/stations/${applicant.stationId}/application/licence-document-uploads/${upload.body.uploadId}/complete`)
       .set('Origin', PORTAL_ORIGIN).set('Cookie', other.cookie).expect(404);
+  });
+
+  it('P5A-APPLICATION-STATUS-11: a station under review, or rejected, reaches every application route, and is refused every ad route', async () => {
+    const applicant = await signedUpApplicant();
+    const station = (path: string) =>
+      supertest(server()).get(`/api/v1/stations/${applicant.stationId}${path}`).set('Origin', PORTAL_ORIGIN).set('X-Forwarded-For', newClientAddress()).set('Cookie', applicant.cookie);
+    const details = { name: 'Sunrise FM', frequencyLabel: '98.1 FM', province: 'Copperbelt', city: 'Ndola', timeZone: 'Africa/Lusaka', coverageNote: null, streamAddress: null };
+    await setupClient.query(
+      `UPDATE app.stations SET name = 'Sunrise FM', frequency_label = '98.1 FM', province = 'Copperbelt', city = 'Ndola', licence_number = 'IBA/2026/0042',
+              phone_verified_at = now(), email_verified_at = now(), licence_document_object_key = 'licence-documents/' || id || '/test',
+              licence_document_file_name = 'licence.pdf', licence_document_content_type = 'application/pdf', licence_document_byte_count = 1234,
+              licence_document_uploaded_at = now(), application_submitted_at = now()
+        WHERE id = $1`,
+      [applicant.stationId],
+    );
+    for (const status of ['PENDING_REVIEW', 'REJECTED'] as const) {
+      await setupClient.query(`UPDATE app.stations SET status = $2, review_note = CASE WHEN $2 = 'REJECTED' THEN 'Please check the number.' END WHERE id = $1`, [applicant.stationId, status]);
+      const reached: Array<[route: string, answer: supertest.Response]> = [
+        ['GET application', await applicant.call('get', '')],
+        ['PUT details', await applicant.call('put', '/details').send(details)],
+        ['PUT licence', await applicant.call('put', '/licence').send({ licenceNumber: 'IBA/2026/0042' })],
+        ['POST logo-uploads', await applicant.call('post', '/logo-uploads').send({ fileName: 'logo.png', contentType: 'image/png', byteCount: 1000 })],
+        ['POST licence-document-uploads', await applicant.call('post', '/licence-document-uploads').send({ fileName: 'licence.pdf', contentType: 'application/pdf', byteCount: 1000 })],
+        ['GET the station', await station('')],
+      ];
+      for (const [route, answer] of reached) expect(answer.status, `${status}: ${route}`).toBeLessThan(300);
+      for (const path of ['/ads', '/clients', '/overview']) {
+        const refused = await station(path);
+        expect(refused.status, `${status}: GET ${path}`).toBe(403);
+        expect(refused.body.error).toMatchObject({ code: 'STATION_NOT_ACTIVE', request_id: expect.any(String) });
+      }
+    }
+    // Rejected, the application is sent again and goes back to the queue.
+    const again = await applicant.call('post', '/submission').send({ isLicenceConfirmed: true }).expect(200);
+    expect(again.body.status).toBe('PENDING_REVIEW');
   });
 
   it('P5A-SIGNUP-SCREENS-17: "Send the link again" sends a new link once the minute is up, and the newer link supersedes the first', async () => {

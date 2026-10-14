@@ -11,7 +11,7 @@ import { MISSING_PART_WORDS } from '../../plain-words/sign-up-words';
 import { FileUploadField } from '../../components/file-upload-field';
 import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
-import { draftFor, useKeepDraftOnLeaving } from './step-drafts';
+import { draftFor, useKeepDraftOnLeaving } from '../session/unsaved-answers';
 import { useApplicationChange, useStationApplication, useStationFileUpload } from './use-station-application';
 
 /**
@@ -74,16 +74,18 @@ function LicenceForm({ stationId, saved }: { stationId: string; saved: StationAp
           </Button>
         }
       >
-        <TextField label="Licence number" required maxLength={60} value={licenceNumber} onChange={(event) => setLicenceNumber(event.target.value)} error={fieldErrors.licenceNumber} />
-        <FileUploadField
-          label="Licence document"
-          hint="PDF or a clear photo, up to 5 MB. Only our review team can see it."
-          accept="application/pdf,image/jpeg"
-          savedFileName={saved.licence.document?.fileName ?? null}
-          state={document.state}
-          onChoose={(file) => void document.upload(file)}
-          onTryAgain={() => void document.tryAgain()}
-        />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <TextField label="Licence number" required maxLength={60} value={licenceNumber} onChange={(event) => setLicenceNumber(event.target.value)} error={fieldErrors.licenceNumber} />
+          <FileUploadField
+            label="Licence document"
+            hint="PDF or a clear photo, up to 5 MB. Only our review team can see it."
+            accept="application/pdf,image/jpeg"
+            savedFileName={saved.licence.document?.fileName ?? null}
+            state={document.state}
+            onChoose={(file) => void document.upload(file)}
+            onTryAgain={() => void document.tryAgain()}
+          />
+        </div>
         {isUnderReview ? null : (
           <label className="flex min-h-11 items-start gap-3 py-2 text-body">
             <input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} className="mt-1 size-5" />

@@ -74,3 +74,19 @@ export async function widthsThatScrollSideways(page: Page): Promise<string[]> {
   if (original) await page.setViewportSize(original);
   return problems;
 }
+
+/**
+ * Whether two fields of a form sit in one row at a width (by their labels): forms are one column on a phone and two
+ * from the lg width (P5A-RESPONSIVE-02).
+ */
+export async function areSideBySide(page: Page, firstLabel: string, secondLabel: string, width: number): Promise<boolean> {
+  const original = page.viewportSize();
+  await page.setViewportSize({ width, height: 900 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
+  const [first, second] = await Promise.all([
+    page.getByText(firstLabel, { exact: true }).first().boundingBox(),
+    page.getByText(secondLabel, { exact: true }).first().boundingBox(),
+  ]);
+  if (original) await page.setViewportSize(original);
+  return Boolean(first && second && Math.abs(first.y - second.y) < 4 && Math.abs(first.x - second.x) > 40);
+}

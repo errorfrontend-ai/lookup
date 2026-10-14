@@ -1,5 +1,7 @@
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
-import { computeTwoFactorCode, decodeBase32, twoFactorTimeStepAt } from '@lookup/contracts';
+import { computeTwoFactorCode, decodeBase32, INGEST_QUEUE_NAME, twoFactorTimeStepAt } from '@lookup/contracts';
+import { Queue } from 'bullmq';
+import { Redis } from 'ioredis';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -8,7 +10,9 @@ import { loadDatabaseSetupConfig } from '../scripts/database-setup-config.js';
 import { APP_CONFIG, loadAppConfig } from '../src/config/app-config.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { EMAIL_SENDER, type EmailSender, type OutgoingEmail } from '../src/features/notifications/notification-senders.js';
+import { NotificationWorker, notifyWorkerHeartbeatKey } from '../src/features/notifications/notification-worker.js';
 import { databaseSetupClient } from './support/database-clients.js';
+import { AiringAds } from './support/listener-test-kit.js';
 import { cookieHeader, cookiesSetBy, PORTAL_ORIGIN, type PortalTestUser, PortalTestUsers } from './support/portal-test-users.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
 
@@ -34,6 +38,7 @@ describe('the super-admin console', () => {
   const createdStationIds: string[] = [];
   const createdUserIds: string[] = [];
   const createdAssetIds: string[] = [];
+  const createdInstallIds: string[] = [];
   let adminCookie = '';
   let adminUserId = '';
   const server = () => testApplication.application.getHttpServer();
@@ -74,6 +79,8 @@ describe('the super-admin console', () => {
     await testUsers.cleanUp();
     await setupClient.query('DELETE FROM app.portal_users WHERE id = ANY($1)', [createdUserIds]);
     await setupClient.query('DELETE FROM fingerprints.audio_assets WHERE id = ANY($1)', [createdAssetIds]);
+    await setupClient.query('DELETE FROM app.recognition_events WHERE listener_install_id = ANY($1)', [createdInstallIds]);
+    await setupClient.query('DELETE FROM app.listener_installs WHERE id = ANY($1)', [createdInstallIds]);
     await setupClient.end();
     await testApplication.close();
   });
@@ -89,7 +96,7 @@ describe('the super-admin console', () => {
   }
 
   /** A submitted application, as sign-up leaves it: an owner, a verified contact and (by default) a licence document. */
-  async function submittedApplication(options: { city?: string; frequencyLabel?: string; hasDocument?: boolean } = {}) {
+  async function submittedApplication(options: { city?: string; frequencyLabel?: string; hasDocument?: boolean; hasLicenceNumber?: boolean; submittedAt?: Date } = {}) {
     const stationId = randomUUID();
     const ownerId = randomUUID();
     const tag = randomUUID().slice(0, 8);
@@ -101,12 +108,12 @@ describe('the super-admin console', () => {
                                  email_verified_at, licence_number, licence_document_object_key, licence_document_file_name,
                                  licence_document_content_type, licence_document_byte_count, licence_document_uploaded_at,
                                  licence_confirmed_at, application_submitted_at)
-       VALUES ($1, $2, $3, 'Copperbelt', $4, 'PENDING_REVIEW', 'Mutale Banda', $5, now(), now(), 'IBA/2026/0007',
-               $6, $7, $8, $9, $10, now(), now())`,
+       VALUES ($1, $2, $3, 'Copperbelt', $4, 'PENDING_REVIEW', 'Mutale Banda', $5, now(), now(), $11,
+               $6, $7, $8, $9, $10, now(), $12)`,
       [
         stationId, `Applicant FM ${tag}`, options.frequencyLabel ?? `${randomInt(88, 108)}.${randomInt(0, 10)} FM`, options.city ?? `Town ${tag}`, phone,
         hasDocument ? `licence-documents/${stationId}/${randomUUID()}` : null, hasDocument ? 'licence.pdf' : null, hasDocument ? 'application/pdf' : null,
-        hasDocument ? 1234 : null, hasDocument ? new Date() : null,
+        hasDocument ? 1234 : null, hasDocument ? new Date() : null, (options.hasLicenceNumber ?? true) ? 'IBA/2026/0007' : null, options.submittedAt ?? new Date(),
       ],
     );
     await setupClient.query(`INSERT INTO app.portal_users (id, email, password_hash, full_name) VALUES ($1, $2, $3, 'Mutale Banda')`, [
@@ -177,6 +184,72 @@ describe('the super-admin console', () => {
   it('P5A-ADMIN-QUEUE-19: an application with no licence document cannot be approved', async () => {
     const application = await submittedApplication({ hasDocument: false });
     expect((await asAdmin('post', `/applications/${application.stationId}/approval`).expect(409)).body.error.code).toBe('STATION_STATUS_CHANGE_NOT_ALLOWED');
+  });
+
+  it('P5A-ADMIN-QUEUE-19: an application with no licence number cannot be approved either, and stays waiting', async () => {
+    const application = await submittedApplication({ hasLicenceNumber: false });
+    expect((await asAdmin('post', `/applications/${application.stationId}/approval`).expect(409)).body.error.code).toBe('STATION_STATUS_CHANGE_NOT_ALLOWED');
+    expect((await setupClient.query('SELECT status FROM app.stations WHERE id = $1', [application.stationId])).rows[0].status).toBe('PENDING_REVIEW');
+  });
+
+  it('P5A-ADMIN-QUEUE-01: three applications submitted at different times come back oldest first', async () => {
+    const hour = 60 * 60 * 1000;
+    const newest = await submittedApplication({ submittedAt: new Date(Date.now() - hour) });
+    const oldest = await submittedApplication({ submittedAt: new Date(Date.now() - 3 * hour) });
+    const middle = await submittedApplication({ submittedAt: new Date(Date.now() - 2 * hour) });
+    const queue = await asAdmin('get', '/applications').expect(200);
+    const order = (queue.body.entries as Array<{ stationId: string }>).map((entry) => entry.stationId).filter((id) => [newest, oldest, middle].some((one) => one.stationId === id));
+    expect(order).toEqual([oldest.stationId, middle.stationId, newest.stationId]);
+  });
+
+  it('P5A-ADMIN-QUEUE-18: each decision records on the station who decided and when, and a rejection its reason', async () => {
+    const approved = await submittedApplication();
+    const rejected = await submittedApplication();
+    const before = new Date();
+    await asAdmin('post', `/applications/${approved.stationId}/approval`).expect(204);
+    const reason = 'The licence number does not match the document.';
+    await asAdmin('post', `/applications/${rejected.stationId}/rejection`).send({ reason }).expect(204);
+    const decided = await setupClient.query('SELECT id, status, review_note, reviewed_by_portal_user_id, reviewed_at FROM app.stations WHERE id = ANY($1)', [[approved.stationId, rejected.stationId]]);
+    const byId = Object.fromEntries(decided.rows.map((row) => [row.id, row]));
+    expect(byId[approved.stationId]).toMatchObject({ status: 'ACTIVE', review_note: null, reviewed_by_portal_user_id: adminUserId });
+    expect(byId[rejected.stationId]).toMatchObject({ status: 'REJECTED', review_note: reason, reviewed_by_portal_user_id: adminUserId });
+    for (const row of decided.rows) expect((row.reviewed_at as Date).getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+  });
+
+  it('P5A-ADMIN-ACCESS-01, P5A-ADMIN-QUEUE-11: a station owner is answered 404 on every console route, a caller with no session 401, and neither gets a licence link', async () => {
+    const owner = await testUsers.create();
+    const ownerCookie = await signIn(owner.email, owner.password);
+    const application = await submittedApplication();
+    const someId = randomUUID();
+    const routes: Array<['get' | 'post', string]> = [
+      ['get', '/summary'],
+      ['get', '/applications'],
+      ['get', `/applications/${application.stationId}`],
+      ['post', `/applications/${application.stationId}/licence-document-link`],
+      ['post', `/applications/${application.stationId}/approval`],
+      ['post', `/applications/${application.stationId}/rejection`],
+      ['post', `/change-requests/${someId}/licence-document-link`],
+      ['post', `/change-requests/${someId}/approval`],
+      ['post', `/change-requests/${someId}/rejection`],
+      ['get', '/stations'],
+      ['post', `/stations/${owner.stationId}/suspension`],
+      ['post', `/stations/${owner.stationId}/reactivation`],
+      ['get', '/audio-overlaps'],
+      ['post', `/audio-overlaps/${someId}/preview-links`],
+      ['post', `/audio-overlaps/${someId}/review`],
+      ['get', '/system-health'],
+      ['get', '/reference-codes/ABCD2345'],
+    ];
+    for (const [method, path] of routes) {
+      const asOwner = await asAdmin(method, path, ownerCookie).send({ reason: 'A reason long enough to pass.' });
+      expect(asOwner.status, `${method} ${path} as a station owner`).toBe(404);
+      expect(asOwner.body.error.code).toBe('NOT_FOUND');
+      const anonymous = await supertest(server())[method](`/api/v1/admin${path}`).set('Origin', PORTAL_ORIGIN).set('X-Forwarded-For', newClientAddress()).send({});
+      expect(anonymous.status, `${method} ${path} with no session`).toBe(401);
+    }
+    expect((await setupClient.query('SELECT status FROM app.stations WHERE id = $1', [application.stationId])).rows[0].status).toBe('PENDING_REVIEW');
+    const opened = await setupClient.query(`SELECT count(*)::int AS count FROM app.audit_events WHERE station_id = $1 AND action = 'licence_document_opened'`, [application.stationId]);
+    expect(opened.rows[0].count).toBe(0);
   });
 
   it('journey D: a rejection needs a reason of at least 10 characters, which the station reads word for word', async () => {
@@ -279,6 +352,25 @@ describe('the super-admin console', () => {
     await asAdmin('post', `/audio-overlaps/${randomUUID()}/review`).send({ note: null }).expect(404);
   });
 
+  it('P5A-OVERLAP-REVIEW-03: only the console shows that two stations’ ads share one recording', async () => {
+    const airingAds = new AiringAds(setupClient);
+    try {
+      const shared = await airingAds.create();
+      const second = await airingAds.create({ audio: { audioAssetId: shared.audioAssetId, audioAssetNumber: shared.audioAssetNumber } });
+      const other = await airingAds.create();
+      const finding = (await setupClient.query(
+        `INSERT INTO fingerprints.asset_overlaps (audio_asset_id, overlapping_audio_asset_id, overlap_milliseconds) VALUES ($1, $2, 5000) RETURNING id`,
+        [shared.audioAssetId, other.audioAssetId],
+      )).rows[0].id as string;
+      const listed = (await asAdmin('get', '/audio-overlaps').expect(200)).body.findings.find((one: { id: string }) => one.id === finding);
+      expect(listed.first.audioAssetNumber).toBe(shared.audioAssetNumber);
+      expect(listed.first.ads.map((ad: { stationId: string }) => ad.stationId).sort()).toEqual([shared.stationId, second.stationId].sort());
+      await setupClient.query('DELETE FROM fingerprints.asset_overlaps WHERE id = $1', [finding]);
+    } finally {
+      await airingAds.removeAll();
+    }
+  });
+
   it('System health reports each queue and worker and the last day\'s recognitions; "Find by reference code" finds an audit event by its code', async () => {
     const health = await asAdmin('get', '/system-health').expect(200);
     expect(health.body).toMatchObject({ periodHours: 24, recognitionCount: expect.any(Number) });
@@ -294,5 +386,83 @@ describe('the super-admin console', () => {
     expect(found.body.searchedFor).toBe(requestId.slice(0, 8));
     expect(found.body.auditEvents).toContainEqual(expect.objectContaining({ requestId, action: 'licence_document_opened', actorName: 'Console Operator', stationName: application.name }));
     expect((await asAdmin('get', '/reference-codes/not-a-code').expect(400)).body.error.fields).toEqual([{ path: 'code', code: 'not_a_reference_code' }]);
+  });
+
+  it('P5A-SYSTEM-HEALTH-03, -04: the match time at the 95th percentile and the error rate are those of the last day’s recognitions, seeded ones included', async () => {
+    const installId = randomUUID();
+    createdInstallIds.push(installId);
+    await setupClient.query(`INSERT INTO app.listener_installs (id, install_id_hash, platform, app_version) VALUES ($1, $2, 'ANDROID', 'test')`, [installId, randomBytes(32)]);
+    const seeded: Array<[outcome: string, latency: number]> = [['NO_MATCH', 400], ['NO_MATCH', 900], ['AMBIGUOUS', 1500], ['NO_MATCH', 4200], ['TIMEOUT', 2500], ['ERROR', 300], ['BUSY', 10]];
+    for (const [outcome, latency] of seeded) {
+      await setupClient.query(
+        `INSERT INTO app.recognition_events (id, listener_install_id, idempotency_key, request_id, captured_at, received_at, outcome, latency_milliseconds)
+         VALUES ($1, $2, $3, 'test', now() - interval '1 hour', now() - interval '1 hour', $4, $5)`,
+        [randomUUID(), installId, randomUUID(), outcome, latency],
+      );
+    }
+    // The same rows, read plainly, and the figures worked out here rather than by the console's SQL.
+    const rows = (await setupClient.query<{ outcome: string; latency: number | null }>(
+      `SELECT outcome, latency_milliseconds AS latency FROM app.recognition_events WHERE received_at > now() - interval '24 hours'`,
+    )).rows;
+    const answered = rows.filter((row) => ['MATCH', 'MATCH_DEFAULT', 'CHOOSE_STATION', 'NO_MATCH', 'AMBIGUOUS'].includes(row.outcome) && row.latency !== null)
+      .map((row) => row.latency as number).sort((first, second) => first - second);
+    const position = 0.95 * (answered.length - 1);
+    const below = answered[Math.floor(position)] as number;
+    const above = answered[Math.ceil(position)] as number;
+    const expectedPercentile = Math.round(below + (above - below) * (position - Math.floor(position)));
+    const finished = rows.filter((row) => row.outcome !== 'PENDING').length;
+    const failed = rows.filter((row) => ['TIMEOUT', 'BUSY', 'ERROR'].includes(row.outcome)).length;
+
+    const health = await asAdmin('get', '/system-health').expect(200);
+    expect(health.body.recognitionCount).toBe(rows.length);
+    expect(health.body.matchMillisecondsAt95thPercentile).toBe(expectedPercentile);
+    expect(health.body.errorRate).toBeCloseTo(failed / finished, 10);
+    expect(failed).toBeGreaterThanOrEqual(3);
+  });
+
+  it('P5A-SYSTEM-HEALTH-05: a failed recognition is found by the reference code the app showed the listener', async () => {
+    const installId = randomUUID();
+    createdInstallIds.push(installId);
+    await setupClient.query(`INSERT INTO app.listener_installs (id, install_id_hash, platform, app_version) VALUES ($1, $2, 'ANDROID', 'test')`, [installId, randomBytes(32)]);
+    const requestId = randomUUID();
+    await setupClient.query(
+      `INSERT INTO app.recognition_events (id, listener_install_id, idempotency_key, request_id, captured_at, received_at, outcome)
+       VALUES ($1, $2, $3, $4, now() - interval '2 days', now() - interval '2 days', 'ERROR')`,
+      [randomUUID(), installId, randomUUID(), requestId],
+    );
+    // The app shows the first eight digits as "XXXX-XXXX".
+    const code = `${requestId.slice(0, 4)}-${requestId.slice(4, 8)}`.toUpperCase();
+    const found = await asAdmin('get', `/reference-codes/${code}`).expect(200);
+    expect(found.body.recognitions).toContainEqual(expect.objectContaining({ requestId, outcome: 'ERROR', stationName: null }));
+  });
+
+  it('P5A-SYSTEM-HEALTH-01: a queue’s depth counts the jobs waiting in it', async () => {
+    const ingest = new Queue(INGEST_QUEUE_NAME, { connection: new Redis(process.env.KEY_VALUE_STORE_URL as string, { maxRetriesPerRequest: null }), prefix: process.env.QUEUE_KEY_PREFIX });
+    const depthOf = async () => ((await asAdmin('get', '/system-health').expect(200)).body.queues as Array<{ name: string; depth: number }>).find((queue) => queue.name === 'ingest')?.depth;
+    try {
+      const before = await depthOf();
+      // Held back an hour, so nothing takes them while the test looks.
+      const jobs = await Promise.all([1, 2].map((number) => ingest.add('health-check', { number }, { delay: 3_600_000, jobId: `health-check-${randomUUID()}` })));
+      expect(await depthOf()).toBe((before ?? 0) + 2);
+      await Promise.all(jobs.map((job) => job.remove()));
+      expect(await depthOf()).toBe(before);
+    } finally {
+      await ingest.close();
+    }
+  });
+
+  // Last in this file: it stops the notification worker that the tests above rely on.
+  it('P5A-SYSTEM-HEALTH-02: a stopped worker shows as not running', async () => {
+    const isNotifyRunning = async () => ((await asAdmin('get', '/system-health').expect(200)).body.workers as Array<{ name: string; isRunning: boolean }>).find((worker) => worker.name === 'notify')?.isRunning;
+    expect(await isNotifyRunning()).toBe(true);
+    await testApplication.application.get(NotificationWorker).onApplicationShutdown();
+    // A stopped worker's heartbeat lapses after 45 seconds; the test lets it lapse at once.
+    const store = new Redis(process.env.KEY_VALUE_STORE_URL as string);
+    try {
+      await store.del(notifyWorkerHeartbeatKey(loadAppConfig().QUEUE_KEY_PREFIX));
+    } finally {
+      store.disconnect();
+    }
+    expect(await isNotifyRunning()).toBe(false);
   });
 });

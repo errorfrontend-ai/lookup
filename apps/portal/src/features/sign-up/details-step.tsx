@@ -10,7 +10,7 @@ import { tidyFrequencyLabel } from '../stations/parse-frequency-label';
 import { FileUploadField } from '../../components/file-upload-field';
 import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
-import { draftFor, useKeepDraftOnLeaving } from './step-drafts';
+import { draftFor, useKeepDraftOnLeaving } from '../session/unsaved-answers';
 import { useApplicationChange, useStationApplication, useStationFileUpload } from './use-station-application';
 
 /** The time zones the browser knows, with the station's and Lusaka's always there. */

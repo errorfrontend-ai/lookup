@@ -1,11 +1,16 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
+import supertest from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { HUMAN_CHECK_DUMMY_TOKEN } from '../src/common/security/human-check.js';
 import { APP_CONFIG, loadAppConfig, type AppConfig } from '../src/config/app-config.js';
 import { NotificationQueue, NOTIFY_QUEUE_NAME, type NotificationJobData } from '../src/features/notifications/notification-queue.js';
 import { describeSendFailure, notifyWorkerHeartbeatKey } from '../src/features/notifications/notification-worker.js';
+import { smsTextOf, type NotificationMessage } from '../src/features/notifications/notification-messages.js';
 import { EMAIL_SENDER, type EmailSender, type OutgoingEmail } from '../src/features/notifications/notification-senders.js';
+import { databaseSetupClient } from './support/database-clients.js';
+import { PORTAL_ORIGIN } from './support/portal-test-users.js';
 import { waitForLogWrites } from './support/log-capture.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
 
@@ -18,8 +23,11 @@ import { createTestApplication, type TestApplication } from './support/test-appl
 class RecordingEmailSender implements EmailSender {
   readonly sent: OutgoingEmail[] = [];
   failuresToCome = 0;
+  /** While set, every send waits for it: a slow mail server. */
+  gate: Promise<void> | null = null;
 
   async send(email: OutgoingEmail): Promise<void> {
+    if (this.gate) await this.gate;
     if (this.failuresToCome > 0) {
       this.failuresToCome -= 1;
       throw Object.assign(new Error(`550 mailbox unavailable for ${email.to}`), { code: 'EENVELOPE', responseCode: 550 });
@@ -75,6 +83,51 @@ describe('notifications', () => {
       subject: 'SMS to +44 ••• ••01',
       text: `Your Look Up code is 042817. It expires in 10 minutes. Don't share it.\n\n@${new URL(config.PORTAL_PUBLIC_ORIGIN).host} #042817`,
     });
+  });
+
+  it('P5A-NOTIFICATIONS-03: a sign-up answers at once while its code waits on a slow mail server; the worker sends it afterwards', async () => {
+    let openGate = () => undefined as void;
+    emailSender.gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const setupClient = databaseSetupClient();
+    await setupClient.connect();
+    const mobileNumber = `97${String(randomInt(0, 10_000_000)).padStart(7, '0')}`;
+    const signUpEmail = `queued.${randomUUID().slice(0, 8)}@example.com`;
+    try {
+      const signedUp = await supertest(testApplication.application.getHttpServer())
+        .post('/api/v1/registration/applicants')
+        .set('Origin', PORTAL_ORIGIN)
+        .set('X-Forwarded-For', `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`)
+        .send({ fullName: 'Chanda Mwila', email: signUpEmail, mobileNumber, password: `sunrise over the river ${randomUUID().slice(24)}`, humanCheckToken: HUMAN_CHECK_DUMMY_TOKEN })
+        .expect(201);
+      // Answered while nothing has been sent: the code and the link wait in the queue.
+      expect(emailSender.sent.filter((sent) => sent.to === `260${mobileNumber}@sms.development.invalid` || sent.to === signUpEmail)).toEqual([]);
+      openGate();
+      await eventually(() => emailSender.sent, (sent) => sent.some((one) => one.to === `260${mobileNumber}@sms.development.invalid`) && sent.some((one) => one.to === signUpEmail), 'the code and the link');
+      const stationId = signedUp.body.stationId as string;
+      await setupClient.query('DELETE FROM app.audit_events WHERE station_id = $1 OR actor_portal_user_id = $2', [stationId, signedUp.body.user.id]);
+      await setupClient.query('DELETE FROM app.station_memberships WHERE station_id = $1', [stationId]);
+      await setupClient.query('DELETE FROM app.stations WHERE id = $1', [stationId]);
+      await setupClient.query('DELETE FROM app.portal_users WHERE id = $1', [signedUp.body.user.id]);
+    } finally {
+      openGate();
+      emailSender.gate = null;
+      await setupClient.end();
+    }
+  });
+
+  it('P5A-NOTIFICATIONS-02, -06: every urgent message (the phone code, a review decision, a critical alert) has an SMS', () => {
+    const urgent: NotificationMessage[] = [
+      { template: 'phone_verification_code', code: '042817' },
+      { template: 'application_approved', stationName: 'Sunrise FM' },
+      { template: 'application_rejected', stationName: 'Sunrise FM', reason: 'Please send a clearer photo.' },
+      { template: 'change_request_approved', stationName: 'Sunrise FM' },
+      { template: 'change_request_rejected', stationName: 'Sunrise FM', reason: 'The name belongs to another station.' },
+      { template: 'station_suspended', stationName: 'Sunrise FM', reason: 'Scam buttons.' },
+      { template: 'station_reactivated', stationName: 'Sunrise FM' },
+    ];
+    for (const message of urgent) expect(smsTextOf(message, 'http://localhost:5180'), message.template).toMatch(/^(Your Look Up code|Look Up: )/);
   });
 
   it('an email link is a plain-text email whose link carries the token in its fragment', async () => {

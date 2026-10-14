@@ -1,11 +1,13 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import type http from 'node:http';
-import { RECOGNIZE_QUEUE_NAME, RecognizeResponse } from '@lookup/contracts';
+import { computeTwoFactorCode, decodeBase32, RECOGNIZE_QUEUE_NAME, RecognizeResponse, twoFactorTimeStepAt } from '@lookup/contracts';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSuperAdmin } from '../scripts/create-super-admin.js';
+import { loadDatabaseSetupConfig } from '../scripts/database-setup-config.js';
 import { InstallTokens } from '../src/common/listener-authentication/install-tokens.js';
 import { RecognitionService } from '../src/features/recognition/recognition.service.js';
 import { ACCESS_TOKEN_COOKIE } from '../src/features/authentication/session-cookies.js';
@@ -28,7 +30,7 @@ import {
   sendRecognizeInChunks,
 } from './support/listener-test-kit.js';
 import { waitForLogWrites } from './support/log-capture.js';
-import { PORTAL_ORIGIN } from './support/portal-test-users.js';
+import { cookieHeader, cookiesSetBy, PORTAL_ORIGIN } from './support/portal-test-users.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
 
 /**
@@ -228,6 +230,32 @@ describe('POST /api/v1/recognize', () => {
       expect(ambiguous.body.status).toBe('NO_MATCH');
       expect(JSON.stringify(ambiguous.body)).not.toContain('AMBIGUOUS');
       expect((await eventRow(ambiguous.body.recognition_id))?.outcome).toBe('AMBIGUOUS');
+    });
+
+    it('P5A-ADMIN-STATIONS-03: a station suspended through the console is left out of the very next recognition', async () => {
+      const ad = await airingAds.create();
+      worker.answer = () => match(ad.audioAssetNumber);
+      const { installToken } = await newInstall();
+      expect((await recognize(client, { installToken })).body).toMatchObject({ status: 'MATCH', result: { station: { name: expect.stringMatching(/^Listener test/) } } });
+
+      const password = `quiet harbour lantern ${randomUUID().slice(24)}`;
+      const email = `suspender.${randomUUID().slice(0, 8)}@example.com`;
+      const admin = await createSuperAdmin(loadDatabaseSetupConfig().setupUrl, { email, fullName: 'Console Operator', password }, process.env.TWO_FACTOR_ENCRYPTION_SECRET as string);
+      try {
+        const signedIn = await client().post('/api/v1/auth/sign-in').set('Origin', PORTAL_ORIGIN).set('X-Forwarded-For', newClientAddress()).send({ email, password }).expect(200);
+        const cookie = cookieHeader(cookiesSetBy(signedIn));
+        const code = await computeTwoFactorCode(decodeBase32(admin.secretBase32) as Uint8Array, twoFactorTimeStepAt(Date.now()));
+        await client().post('/api/v1/auth/two-factor-code').set('Origin', PORTAL_ORIGIN).set('Cookie', cookie).send({ code }).expect(204);
+        await client().post(`/api/v1/admin/stations/${ad.stationId}/suspension`).set('Origin', PORTAL_ORIGIN).set('Cookie', cookie).send({ reason: 'Listeners reported a scam button.' }).expect(204);
+
+        const after = await recognize(client, { installToken });
+        expect(after.body.status).toBe('NO_MATCH');
+        expect(after.body).not.toHaveProperty('result');
+        expect(JSON.stringify(after.body)).not.toContain(ad.stationId);
+      } finally {
+        await setupClient.query('DELETE FROM app.audit_events WHERE station_id = $1 OR actor_portal_user_id = $2 OR entity_id = $2', [ad.stationId, admin.portalUserId]);
+        await setupClient.query('DELETE FROM app.portal_users WHERE id = $1', [admin.portalUserId]);
+      }
     });
 
     it('never answers with a station that is not active', async () => {

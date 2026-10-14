@@ -95,6 +95,44 @@ describe('source scan', () => {
     expect(filesMatching(apiFiles, usesAdminConnection, mayUseIt)).toEqual([]);
   });
 
+  it('P5A-STRUCTURE-01..04: registration, members, admin and notifications are feature modules under features/, each imported once by the application module', () => {
+    const applicationModule = readFileSync(resolve(API_SOURCE, 'app.module.ts'), 'utf8');
+    for (const [folder, moduleName] of [['registration', 'RegistrationModule'], ['members', 'MembersModule'], ['admin', 'AdminModule'], ['notifications', 'NotificationsModule']]) {
+      const moduleFile = readFileSync(resolve(API_SOURCE, 'features', folder, `${folder}.module.ts`), 'utf8');
+      expect(moduleFile, folder).toContain(`export class ${moduleName}`);
+      expect(applicationModule.split(`from './features/${folder}/${folder}.module.js'`).length - 1, folder).toBe(1);
+      expect(applicationModule.split(/\W+/).filter((word) => word === moduleName), folder).toHaveLength(2);
+    }
+  });
+
+  it('P5A-INFRASTRUCTURE-01: the development services include Mailpit, pinned by digest, its mail and inbox ports on this computer only', () => {
+    const compose = readFileSync(resolve(REPOSITORY_ROOT, 'infra', 'docker-compose.yml'), 'utf8');
+    // The service's own lines: from "  mail:" up to the next service at the same depth.
+    const lines = compose.split(/\r?\n/);
+    const first = lines.indexOf('  mail:');
+    expect(first).toBeGreaterThan(-1);
+    const after = lines.slice(first + 1).findIndex((line) => /^ {2}[a-z-]+:$/.test(line));
+    const mail = lines.slice(first, after === -1 ? undefined : first + 1 + after).join('\n');
+    expect(mail).toMatch(/image: axllent\/mailpit:v[0-9.]+@sha256:[0-9a-f]{64}/);
+    expect(mail).toMatch(/"127\.0\.0\.1:\$\{LOOKUP_DEVELOPMENT_MAIL_SMTP_PORT:-1025\}:1025"/);
+    expect(mail).toMatch(/"127\.0\.0\.1:\$\{LOOKUP_DEVELOPMENT_MAIL_INBOX_PORT:-8025\}:8025"/);
+  });
+
+  it('P5A-STATION-DETAILS-09: a station’s stream link is only kept, read back to its application form and shown to the reviewer: nothing else uses it before air-play monitoring', () => {
+    const users = PRODUCTION_SOURCE_FOLDERS.flatMap((folder) => readSourceFiles(folder))
+      .filter((file) => /stream_address|streamAddress/.test(file.text))
+      .map((file) => file.path)
+      .sort();
+    expect(users).toEqual([
+      'apps/api/src/features/admin/admin-applications.ts',
+      'apps/api/src/features/registration/registration.service.ts',
+      'apps/api/src/infrastructure/database/migrations/1791800000000-RegistrationAndAdmin.ts',
+      'apps/portal/src/features/sign-up/details-step.tsx',
+      'packages/contracts/src/admin/admin-schemas.ts',
+      'packages/contracts/src/registration/registration-schemas.ts',
+    ]);
+  });
+
   it('S1-MIGRATIONS-04: one data-source definition, used by both the API and the migration script', () => {
     const apiAndScripts = [...apiFiles, ...readSourceFiles('apps/api/scripts')];
     const definesConnection = /type\s*:\s*['"]postgres['"]/;
@@ -148,6 +186,13 @@ describe('source scan', () => {
   it('S3-ENGINE-16: ADR-001 records the hash column type and the benchmark figure it rests on', () => {
     const decision = readFileSync(resolve(REPOSITORY_ROOT, 'docs/adr/ADR-001-fingerprint-engine.md'), 'utf8');
     expect(decision).toMatch(/\*\*Hashes\*\* are exact packed integers[^]*?`bigint` column[^]*?largest hash these settings can produce is about\s+5\.3 × 10\^7/);
+  });
+
+  it('P5A-ADMIN-QUEUE-20: the reviewer runbook records what the Independent Broadcasting Authority publishes, and what a reviewer can and cannot check against it', () => {
+    const runbook = readFileSync(resolve(REPOSITORY_ROOT, 'docs/runbooks/reviewing-station-applications.md'), 'utf8');
+    expect(runbook).toContain('https://www.iba.org.zm/content-service-providers/');
+    expect(runbook).toMatch(/Check that the station's \*\*name, town and frequency\*\* match a row/);
+    expect(runbook).toMatch(/\*\*no licence numbers, no expiry dates and no "as at" date\*\*/);
   });
 
   it('S3-PRIVACY-01: nothing on the listener path can write a file or store a clip: no file system or object storage in the recognition, installs and queue code', () => {

@@ -3,7 +3,7 @@ import { anotherDevice } from './support/another-device';
 import { smsInboxAddress, waitForMessageTo } from './support/mail-inbox';
 import { describeStation, newStationApplicant, signUpStation, submitLicence } from './support/station-applicant';
 import { signInAsSeededOwner } from './support/sign-in';
-import { openApplication, signInAsSuperAdmin } from './support/super-admin';
+import { openApplication, seedFailedRecognition, seedOverlapFinding, signInAsSuperAdmin } from './support/super-admin';
 
 const REASON = 'The licence photo is too blurry to read the number. Please upload a clearer copy.';
 
@@ -66,6 +66,30 @@ test.describe('the super admin reviews an application', () => {
     await page.getByRole('link', { name: 'Go to your station' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe(`/stations/${stationId}/overview`);
+
+    // P5A-ADMIN-STATIONS-02: suspended from the Stations page, with a reason the station is texted; then reactivated.
+    const secondLook = await anotherDevice(browser, testInfo);
+    try {
+      const reviewer = await secondLook.newPage();
+      await signInAsSuperAdmin(reviewer);
+      await reviewer.goto('/admin/stations');
+      await reviewer.getByLabel('Search by name, frequency or town').fill(applicant.stationName);
+      await reviewer.getByRole('button', { name: 'Search', exact: true }).click();
+      await expect(reviewer.getByRole('listitem').filter({ hasText: 'Browser test station' })).toHaveCount(1);
+      const row = reviewer.getByRole('listitem').filter({ hasText: applicant.stationName });
+      await expect(row).toContainText('Approved');
+      await row.getByRole('button', { name: 'Suspend' }).click();
+      const dialog = reviewer.getByRole('dialog', { name: `Suspend ${applicant.stationName}?` });
+      await dialog.getByLabel('Reason (the station sees this)').fill('Listeners reported a payment link that is not the advertiser’s.');
+      await dialog.getByRole('button', { name: 'Suspend station' }).click();
+      await expect(row).toContainText('Suspended');
+      await waitForMessageTo(smsInboxAddress(applicant.phoneNumberE164), /is suspended/);
+      await row.getByRole('button', { name: 'Reactivate' }).click();
+      await expect(row).toContainText('Approved');
+      await waitForMessageTo(smsInboxAddress(applicant.phoneNumberE164), /is active again/);
+    } finally {
+      await secondLook.close();
+    }
   });
 
   test('the console has a sidebar on a desktop and a Menu drawer on a phone; a station user who opens it is sent to their own station', async ({ page, browser }, testInfo) => {
@@ -87,6 +111,18 @@ test.describe('the super admin reviews an application', () => {
       for (const place of places) await expect(sidebar.getByRole('link', { name: new RegExp(`^${place}`) })).toBeVisible();
     }
 
+    // P5A-SYSTEM-HEALTH-05: a failed recognition is found by the code the app showed the listener.
+    const failure = await seedFailedRecognition();
+    try {
+      await page.goto('/admin/reference-codes');
+      await page.getByLabel('Reference code').fill(failure.code);
+      await page.getByRole('button', { name: 'Find' }).click();
+      await expect(page.getByRole('region', { name: 'Recognitions' })).toContainText('Failed on our side');
+      await expect(page.getByRole('region', { name: 'Recognitions' })).toContainText('no station');
+    } finally {
+      await failure.remove();
+    }
+
     const ownerDevice = await anotherDevice(browser, testInfo);
     try {
       const owner = await ownerDevice.newPage();
@@ -97,6 +133,33 @@ test.describe('the super admin reviews an application', () => {
       await expect(owner.getByText('Super admin')).toHaveCount(0);
     } finally {
       await ownerDevice.close();
+    }
+  });
+
+  test('P5A-OVERLAP-REVIEW-02: "Audio to check" plays both recordings of a finding, A and B, through short links', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'Checked once, on the desktop.');
+    const finding = await seedOverlapFinding();
+    try {
+      await signInAsSuperAdmin(page);
+      await page.goto('/admin/audio-to-check');
+      const card = page.getByRole('region', { name: /^Recordings [0-9]+ and [0-9]+$/ }).filter({ hasText: '6.4 seconds overlap' });
+      await expect(card).toContainText('Harvest festival');
+      await expect(card).toContainText('Weekend sale');
+      await card.getByRole('button', { name: 'Play A and B' }).click();
+      for (const side of ['Audio A', 'Audio B']) {
+        const player = card.locator(`audio[aria-label="${side}"]`);
+        await expect(player).toHaveCount(1);
+        expect(await player.getAttribute('src')).toMatch(/X-Amz-Expires=300/);
+        // Muted, so the browser lets it start without a tap; it must really play.
+        await player.evaluate((audio: HTMLAudioElement) => {
+          audio.muted = true;
+          return audio.play();
+        });
+        await expect.poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime), { message: `${side} plays` }).toBeGreaterThan(0.2);
+        await player.evaluate((audio: HTMLAudioElement) => audio.pause());
+      }
+    } finally {
+      await finding.remove();
     }
   });
 });

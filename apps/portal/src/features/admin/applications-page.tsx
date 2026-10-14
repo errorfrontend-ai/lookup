@@ -8,7 +8,7 @@ import { ErrorNotice } from '../../components/error-notice';
 import { TextAreaField } from '../../components/text-area-field';
 import { LARGE_SCREEN_QUERY, useMediaQuery } from '../../components/use-media-query';
 import { ADMIN_SUMMARY_QUERY_KEY } from './admin-shell';
-import { ageWords, duplicateWords } from './admin-words';
+import { ageWords, duplicateWarning, duplicateWords } from './admin-words';
 
 const QUEUE_QUERY_KEY = ['admin', 'applications'] as const;
 
@@ -133,7 +133,7 @@ function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnIt
         <p className="text-caption text-muted">
           {[data.city, data.province].filter(Boolean).join(', ')} · submitted {ageWords(data.submittedAt)}
         </p>
-        {data.duplicate ? <p className="rounded-md bg-warning-soft px-3 py-2 text-body">{duplicateWords(data.duplicate.matchedStationStatus)}</p> : null}
+        {data.duplicate ? <p className="rounded-md border border-warning bg-warning-soft px-3 py-2 text-body">{duplicateWarning(data.duplicate.matchedStationStatus)}</p> : null}
       </div>
       {data.proposedChange ? (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -152,12 +152,22 @@ function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnIt
       <div className="flex flex-col gap-2">
         <SubHeading className="text-label">Checks</SubHeading>
         <ul className="flex flex-col gap-1 text-body">
-          <li>Phone: {data.checks.isPhoneVerified ? 'confirmed' : 'not confirmed'}</li>
-          <li>Email: {data.checks.isEmailVerified ? 'confirmed' : 'not confirmed'}</li>
-          <li>Licence document: {data.checks.hasLicenceDocument ? 'uploaded' : 'missing'}</li>
+          {(
+            [
+              ['Phone number verified by SMS', data.checks.isPhoneVerified],
+              ['Email verified', data.checks.isEmailVerified],
+              ['Licence document uploaded', data.checks.hasLicenceDocument],
+            ] as const
+          ).map(([check, isDone]) => (
+            <li key={check} className="flex justify-between gap-3">
+              <span>{check}</span>
+              <span className={`text-label ${isDone ? 'text-success' : 'text-danger'}`}>{isDone ? 'Yes' : 'No'}</span>
+            </li>
+          ))}
         </ul>
       </div>
-      <dl className="grid gap-x-4 gap-y-1 text-body sm:grid-cols-[auto_1fr]">
+      <SubHeading className="text-label">Details</SubHeading>
+      <dl className="-mt-3 grid gap-x-4 gap-y-1 text-body sm:grid-cols-[auto_1fr]">
         <dt className="text-muted">Contact</dt>
         <dd>
           {data.contact.name ?? 'Not given'} · {data.contact.phoneNumberMasked ?? 'no number'}

@@ -38,7 +38,9 @@ describe('client error reports', () => {
     expect(logLine?.level).toBe(50);
     const loggedText = JSON.stringify(logLine);
     expect(loggedText).not.toContain('owner@station.example');
-    expect(loggedText).not.toContain('977');
+    expect(loggedText).not.toContain('977 123 456');
+    // Not anywhere in what was reported; the line's own timestamp may hold those digits by chance.
+    expect(JSON.stringify(logLine?.clientError)).not.toContain('977');
     expect(loggedText).not.toContain('abcdefghijklmnopqrstuvwxyz0123456789');
     expect(loggedText).not.toContain('secret');
     expect(logLine?.clientError).toMatchObject({ source: 'portal', kind: 'uncaught', location: '/stations/abc/ads' });

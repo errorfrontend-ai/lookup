@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { anotherDevice } from './support/another-device';
-import { accessibilityProblems, controlsTooSmallToTap, focusWithoutVisibleOutline, widthsThatScrollSideways } from './support/accessibility';
+import { accessibilityProblems, areSideBySide, controlsTooSmallToTap, focusWithoutVisibleOutline, widthsThatScrollSideways } from './support/accessibility';
 import { signInAsSeededOwner } from './support/sign-in';
 import { confirmPhoneAndEmail, describeStation, fillInAccount, newStationApplicant, openSignUp, submitLicence } from './support/station-applicant';
 import { openApplication, signInSuperAdminPassword, typeSuperAdminCode } from './support/super-admin';
@@ -16,7 +16,7 @@ test.describe('accessibility of the Phase 5a screens', () => {
     test.setTimeout(300_000);
     const isPhone = testInfo.project.name === 'phone';
     const problems: string[] = [];
-    const check = async (onPage: Page, screen: string, tabPresses = 12) => {
+    const check = async (onPage: Page, screen: string, tabPresses = 12, columns?: [string, string]) => {
       // Not "network idle": step 2 keeps asking whether the email is confirmed. Whatever is loading says so instead.
       await expect(onPage.getByText(/Loading|Opening the/)).toHaveCount(0);
       problems.push(...(await accessibilityProblems(onPage)).map((problem) => `${screen}: ${problem}`));
@@ -25,6 +25,9 @@ test.describe('accessibility of the Phase 5a screens', () => {
       if (!isPhone) {
         problems.push(...(await focusWithoutVisibleOutline(onPage, tabPresses)).map((control) => `${screen}: ${control} takes focus without a visible outline`));
         problems.push(...(await widthsThatScrollSideways(onPage)).map((width) => `${screen}: scrolls sideways at ${width}`));
+        // P5A-RESPONSIVE-02: one column on a phone, two at 1280 px.
+        if (columns && !(await areSideBySide(onPage, ...columns, 1280))) problems.push(`${screen}: "${columns[0]}" and "${columns[1]}" are not side by side at 1280 px`);
+        if (columns && (await areSideBySide(onPage, ...columns, 375))) problems.push(`${screen}: "${columns[0]}" and "${columns[1]}" are side by side at 375 px`);
       }
     };
 
@@ -32,18 +35,18 @@ test.describe('accessibility of the Phase 5a screens', () => {
     const applicant = newStationApplicant();
     await openSignUp(page);
     await expect(page.getByLabel(/Verify you are human/)).toBeVisible();
-    await check(page, 'sign-up step 1, Register your station');
+    await check(page, 'sign-up step 1, Register your station', 12, ['Your full name', 'Work email']);
     const stationId = await fillInAccount(page, applicant);
     await check(page, 'sign-up step 2, Check your phone');
     await confirmPhoneAndEmail(page, browser, applicant);
-    await check(page, 'sign-up step 3, About your station', 16);
+    await check(page, 'sign-up step 3, About your station', 16, ['Station name', 'Frequency']);
     await describeStation(page, applicant);
-    await check(page, 'sign-up step 4, Your broadcasting licence');
+    await check(page, 'sign-up step 4, Your broadcasting licence', 12, ['Licence number', 'Licence document']);
     await submitLicence(page, applicant);
     await check(page, 'Application status, under review');
     await page.goto(`/stations/${stationId}/application/account`);
     await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
-    await check(page, 'sign-up, changing the account');
+    await check(page, 'sign-up, changing the account', 12, ['Your full name', 'Work email']);
 
     // The pages a link opens, here without a usable token.
     await page.goto('/verify-email');
@@ -93,7 +96,7 @@ test.describe('accessibility of the Phase 5a screens', () => {
       const seededStationId = await signInAsSeededOwner(owner);
       await owner.goto(`/stations/${seededStationId}/team`);
       await expect(owner.getByRole('heading', { level: 1, name: 'Team' })).toBeVisible();
-      await check(owner, 'Team', 20);
+      await check(owner, 'Team', 20, ['Email', 'Role']);
     } finally {
       await ownerDevice.close();
     }

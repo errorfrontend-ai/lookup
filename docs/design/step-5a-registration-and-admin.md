@@ -857,4 +857,59 @@ Nothing pushed.
 - Answers typed on steps 3 and 4 but not saved yet survive Back and forward, kept in the tab's memory only, never in
   the browser's storage (P5A-SIGNUP-SCREENS-04).
 
-**Next:** increment 11: the reviews, the full suites, the checklist ticks with evidence, the gate record.
+### Gate record (increment 11, 14 October 2026)
+
+**Checklist.** 178 of the 187 P5A items are ticked, each with test evidence that the evidence checker
+(`scripts/check-requirement-evidence.mjs`) finds. Ticking them needed new tests, and the tests found and fixed more:
+- **New tests:** `station-application-files` (step 3 and step 4 through HTTP with the real object store),
+  `phase-5a-audit-and-logs` (a station's whole life, every write audited under its request id, a router check that
+  no write route is missed, and nothing personal in the log), `phase-5a-when-key-value-store-is-down` (both code
+  checks), `sign-up-screens` (every SIGNUP-SCREENS and APPLICATION-STATUS item), `code-splitting.spec`.
+- **Tests extended:** the console, team, notifications, storage, database, leak-suite and source-scan tests (the leak
+  suite now checks it covers every 5a route), and the browser journeys.
+- **Found and fixed:**
+  - opening the audio previews in "Audio to check" was not audited, though opening a licence document was;
+  - the console's wording (the checks list, the duplicate warning, a "Details" heading) now matches §4.4;
+  - the licence step and the Team invite form are two columns at 1280 px;
+  - the sign-out hook had pulled a sign-up file into the main bundle (the draft store moved to `features/session`).
+
+**Changed by the user's answers or the design**, as noted on each item:
+- P5A-STATION-STATUS-01 and P5A-ADMIN-STATIONS-04 follow P5A-D4: a change request, the station staying `ACTIVE`.
+- P5A-ADMIN-ACCESS-02 follows P5A-D12: 404, not 403.
+- P5A-ADMIN-QUEUE-04 and -07 follow P5A-D17: the matched station's status is named.
+- P5A-LICENCE-05: the key is shown only in the signed upload address, before the file exists (design §3.2's direct
+  upload); never once the file is stored.
+
+**Still open (9), each needing someone or something outside this build:**
+
+| Item | Why it is open |
+|---|---|
+| P5A-SCOPE-01 | The order changed: on 10 October 2026 the user chose the full listener app (P4, with the station chooser, and P6) before 5a, so 5a came after the chooser. A test cannot show build order anyway (as P4-DELIVERY-04); the item needs the user to accept the change. |
+| P5A-SIGNUP-SCREENS-15 | The field's attributes are tested; the manual check that an Android phone offers the SMS code needs the user's phone. |
+| P5A-ADMIN-STATIONS-05 | An approved station's logo and contact edits arrive with the P5B Station profile page. |
+| P5A-NOTIFICATIONS-05 | The SMS provider is the user's choice (ADR-004 records the three checks; no provider is built). |
+| P5A-NOTIFICATIONS-09 | Delivery-report callbacks exist only once a provider is chosen. |
+| P5A-DESIGN-01 to -04 | Wireframes at 1280 px, usability sessions and the user's approval need people. |
+
+**Suites at the gate:**
+- contracts 768;
+- API 1,268 in 80 files: one failed in the last full run, by chance (see below), fixed and passing on its own;
+- portal 744 in 49 files;
+- browser journeys 26 passed and 6 skipped by design (checks made at one width only), at 375 and 1280 px against the
+  real stack, with the fingerprint workers running for the new-ad journey;
+- the evidence checker passes;
+- typecheck clean in the API, the portal and the browser tests.
+
+**Reviews.** The user asked for no sub agents, so there was no independent review pass. I read every changed
+production file against its design section and the checklist while ticking, which is what found the items above.
+
+**Known intermittent:** once in a full API run, `recognize-route.test.ts`'s "refuses a missing, malformed, tampered
+or expired install token" saw a connection reset (`ECONNRESET`). The test sends 300 KB that the API refuses, by
+design, before reading it, and on Windows the client can see the reset first. It passed on a re-run, and the test is
+older than this phase.
+
+**Fixed intermittent:** `client-errors.test.ts` checked that a scrubbed phone number's digits "977" were nowhere in the
+log line, and the line's own timestamp (1791977041355) once held them. It now checks the reported fields for the digits
+and the whole line for the full number.
+
+**Next:** the golden images' own commit (droppable); then the user's walkthroughs (§7) and the choices above.

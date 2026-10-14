@@ -83,6 +83,15 @@ describe('team invitations', () => {
     expect(JSON.stringify(team)).not.toMatch(/token/i);
     const [email] = emails.sent.filter((candidate) => candidate.to === inviteeEmail);
     expect(email?.subject).toMatch(/^You're invited to Test Station/);
+    // P5A-TEAM-01, -07: one row and one email per invitation; the row names the owner who sent it and the role it grants.
+    expect(emails.sent.filter((candidate) => candidate.to === inviteeEmail)).toHaveLength(1);
+    const stored = await setupClient.query('SELECT kind, station_role, invited_by_portal_user_id FROM app.invitations WHERE station_id = $1', [owner.stationId]);
+    expect(stored.rows).toEqual([{ kind: 'STATION_MEMBER', station_role: 'MANAGER', invited_by_portal_user_id: owner.userId }]);
+    // P5A-TEAM-06, P5A-DATABASE-07: what is kept is a hash, not the token the link carries.
+    const kept = (await setupClient.query('SELECT token_hash FROM app.invitations WHERE station_id = $1', [owner.stationId])).rows[0].token_hash as Buffer;
+    expect(kept).toHaveLength(32);
+    expect(kept.equals(Buffer.from(token, 'base64url'))).toBe(false);
+    expect(kept.toString('latin1').includes(token)).toBe(false);
 
     const described = await publicly('/invitations/description').send({ token }).expect(200);
     expect(described.body).toMatchObject({ state: 'OPEN', role: 'MANAGER', invitedEmail: inviteeEmail, hasAccount: false, frequencyLabel: '98.1 FM' });
@@ -133,13 +142,19 @@ describe('team invitations', () => {
     expect((await publicly('/invitations/description').send({ token: 'x'.repeat(43) }).expect(400)).body.error.code).toBe('INVITATION_NOT_VALID');
   });
 
-  it('P5A-D16: an owner removes members but never the last owner; managers and analysts cannot manage the team', async () => {
+  it('P5A-D16, P5A-TEAM-05: an owner removes members but never the last owner; managers and analysts can neither invite nor remove', async () => {
     const owner = await testUsers.create();
     const manager = await testUsers.create({ joinStationId: owner.stationId, role: 'MANAGER' });
+    const analyst = await testUsers.create({ joinStationId: owner.stationId, role: 'ANALYST' });
     const ownerCookie = await signedIn(owner);
     const managerCookie = await signedIn(manager);
-    expect((await at(managerCookie, 'post', `/stations/${owner.stationId}/invitations`).send({ email: `x.${randomUUID().slice(0, 8)}@example.com`, role: 'ANALYST' }).expect(403)).body.error.code).toBe('FORBIDDEN');
-    expect((await at(managerCookie, 'get', `/stations/${owner.stationId}/members`).expect(200)).body.canManage).toBe(false);
+    const analystCookie = await signedIn(analyst);
+    for (const [cookie, target] of [[managerCookie, analyst.userId], [analystCookie, manager.userId]] as const) {
+      expect((await at(cookie, 'post', `/stations/${owner.stationId}/invitations`).send({ email: `x.${randomUUID().slice(0, 8)}@example.com`, role: 'ANALYST' }).expect(403)).body.error.code).toBe('FORBIDDEN');
+      expect((await at(cookie, 'delete', `/stations/${owner.stationId}/members/${target}`).expect(403)).body.error.code).toBe('FORBIDDEN');
+      expect((await at(cookie, 'get', `/stations/${owner.stationId}/members`).expect(200)).body.canManage).toBe(false);
+    }
+    await at(ownerCookie, 'delete', `/stations/${owner.stationId}/members/${analyst.userId}`).expect(200);
     const last = await at(ownerCookie, 'delete', `/stations/${owner.stationId}/members/${owner.userId}`).expect(409);
     expect(last.body.error).toMatchObject({ code: 'LAST_OWNER', message: 'A station needs at least one owner. Invite another owner first.' });
     const removed = await at(ownerCookie, 'delete', `/stations/${owner.stationId}/members/${manager.userId}`).expect(200);

@@ -68,6 +68,24 @@ database's admin user cannot create roles:
    read-only "published cards" projection that recognition reads.
 3. Record the change as an update to this ADR before deploying.
 
+## Phase 5a: the super admin's connection and the audio findings
+
+Added 14 October 2026, with the Phase 5a design (`docs/design/step-5a-registration-and-admin.md`, P5A-D11).
+
+- **The super admin's connection.** The console's routes connect as `lookup_admin_api`, through a pool of their own
+  (`AdminTransaction`). That role is never a superuser and never the API role, which the start-up check enforces.
+  No other feature may use this connection, which the source scan enforces.
+- **The audio findings.** `fingerprints.asset_overlaps` holds the "Audio to check" findings. No role has any grant
+  on it, the API roles included. `lookup_admin_api` reaches it only through two `SECURITY DEFINER` functions in
+  `app`, each with its search path pinned:
+  - `list_asset_overlaps_for_review()` gives each finding with the two asset numbers and the ads that use each one;
+  - `record_asset_overlap_review(…)` marks a finding checked, once, and audits it.
+
+  The functions live in `app`, because calling a function in `fingerprints` would need `USAGE` on that schema, and
+  neither API role may hold it (S1-PRIVILEGES-11).
+- **Status changes.** A trigger guards every change to a station's status. Only `lookup_admin_api` may approve,
+  reject, suspend or reactivate. Only the applicant's own definer function may submit an application for review.
+
 ## How it is proven
 
 | Rule | Test |
@@ -78,3 +96,5 @@ database's admin user cannot create roles:
 | Admin and worker roles do exactly their jobs | `apps/api/test/station-isolation-matrix.test.ts` |
 | The API refuses to start with a dangerous role | `apps/api/test/startup-checks.test.ts` |
 | Feature code uses only `StationScopedTransaction` | `apps/api/test/source-scan.test.ts` |
+| Phase 5a: who may move a station's status, the overlap functions, the column grants | `apps/api/test/registration-database.test.ts` |
+| Phase 5a: the super admin's connection is its own role, used only by the console | `apps/api/test/admin-database.test.ts`, `apps/api/test/source-scan.test.ts` |
