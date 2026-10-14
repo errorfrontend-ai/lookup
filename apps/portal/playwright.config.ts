@@ -25,7 +25,8 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 15_000 },
   reporter: [['list']],
-  globalTeardown: './e2e/support/remove-browser-test-ads.ts',
+  // Afterwards: the test ads come off the seeded station, and the accounts the tests made leave the app's list, the review queue and the seeded team.
+  globalTeardown: ['./e2e/support/remove-browser-test-ads.ts', './e2e/support/take-browser-test-accounts-out.ts'],
   use: {
     baseURL: 'http://localhost:5180',
     channel: 'chrome',

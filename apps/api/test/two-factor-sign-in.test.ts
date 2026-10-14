@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { computeTwoFactorCode, decodeBase32, twoFactorTimeStepAt } from '@lookup/contracts';
 import type pg from 'pg';
 import supertest from 'supertest';
@@ -46,12 +46,13 @@ describe('the super admin\'s second factor', () => {
     return { email, ...enrolment, secret: decodeBase32(enrolment.secretBase32) as Uint8Array };
   }
   /** Signs in by password; the session's cookies go with each later request, as the browser sends them. */
-  async function signIn(email: string) {
+  async function signIn(email: string, clientAddress?: string) {
     const server = testApplication.application.getHttpServer();
-    const response = await supertest(server).post('/api/v1/auth/sign-in').set(ORIGIN).send({ email, password }).expect(200);
+    const fromAddress = { ...ORIGIN, ...(clientAddress ? { 'X-Forwarded-For': clientAddress } : {}) };
+    const response = await supertest(server).post('/api/v1/auth/sign-in').set(fromAddress).send({ email, password }).expect(200);
     const cookie = cookieHeader(cookiesSetBy(response));
     const session = {
-      sendCode: (code: string) => supertest(server).post('/api/v1/auth/two-factor-code').set(ORIGIN).set('Cookie', cookie).send({ code }),
+      sendCode: (code: string) => supertest(server).post('/api/v1/auth/two-factor-code').set(fromAddress).set('Cookie', cookie).send({ code }),
       me: () => supertest(server).get('/api/v1/auth/me').set('Cookie', cookie),
     };
     return { session, signedIn: response.body };
@@ -101,6 +102,38 @@ describe('the super admin\'s second factor', () => {
     }
     const limited = await session.sendCode(right).expect(429);
     expect(limited.headers['retry-after']).toMatch(/^[0-9]+$/);
+  });
+
+  it('P5A-ADMIN-ACCESS-10: wrong codes are limited per address too: twenty from one address, over several accounts, refuse the next', async () => {
+    const address = `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`;
+    for (let account = 0; account < 5; account += 1) {
+      const admin = await enrolledAdmin();
+      const { session } = await signIn(admin.email, address);
+      const wrong = (await codeAt(admin.secret)) === '000000' ? '000001' : '000000';
+      // Four each: under the account's own limit of five.
+      for (let attempt = 0; attempt < 4; attempt += 1) await session.sendCode(wrong).expect(400);
+    }
+    const fresh = await enrolledAdmin();
+    const { session } = await signIn(fresh.email, address);
+    const limited = await session.sendCode(await codeAt(fresh.secret)).expect(429);
+    expect(limited.body.error.code).toBe('RATE_LIMITED');
+    expect(limited.headers['retry-after']).toMatch(/^[0-9]+$/);
+  });
+
+  it('P5A-ADMIN-ACCESS-10: each wrong and each accepted code is written to the audit trail as a sign-in event of the session', async () => {
+    const admin = await enrolledAdmin();
+    const { session } = await signIn(admin.email);
+    const right = await codeAt(admin.secret);
+    await session.sendCode(right === '000000' ? '000001' : '000000').expect(400);
+    await session.sendCode(right).expect(204);
+    const audit = await setupClient.query(
+      `SELECT action, entity_type, request_id FROM app.audit_events WHERE actor_portal_user_id = $1 AND action LIKE 'two_factor_%' ORDER BY occurred_at, id`,
+      [admin.portalUserId],
+    );
+    expect(audit.rows).toEqual([
+      { action: 'two_factor_failed', entity_type: 'portal_session', request_id: expect.any(String) },
+      { action: 'two_factor_succeeded', entity_type: 'portal_session', request_id: expect.any(String) },
+    ]);
   });
 
   it('P5A-D12: a station user is refused (403); a malformed code is refused before anything is checked', async () => {

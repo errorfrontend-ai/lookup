@@ -8,6 +8,7 @@ import { NotFoundPage } from '../../components/plain-pages';
 import { useFocusHeadingOnChange } from '../../components/use-focus-heading-on-change';
 import { useSignOut } from '../session/use-sign-out';
 import { useSignedInUser } from '../session/use-signed-in-user';
+import { homePathFor } from '../sign-in/sign-in-page';
 
 export const ADMIN_SUMMARY_QUERY_KEY = ['admin', 'summary'] as const;
 
@@ -15,7 +16,9 @@ export const ADMIN_SUMMARY_QUERY_KEY = ['admin', 'summary'] as const;
 export function RequireSuperAdmin() {
   const signedInUser = useSignedInUser();
   const user = signedInUser.data;
-  if (!user || user.user.platformRole !== 'SUPER_ADMIN') return <NotFoundPage />;
+  if (!user) return <NotFoundPage />;
+  // Anyone else is sent to their own pages: nothing here says the console exists (the API answers 404 too).
+  if (user.user.platformRole !== 'SUPER_ADMIN') return <Navigate to={homePathFor(user)} replace />;
   if (user.isTwoFactorCodeNeeded) return <Navigate to="/two-factor" replace />;
   return <Outlet />;
 }
@@ -54,10 +57,12 @@ function AdminNavigation() {
                 }
               >
                 {item.label}
+                {/* A space, so the name reads "Applications 2 waiting" (a flex layout draws no gap for it). */}
+                {count ? ' ' : null}
                 {count ? (
                   <span className="rounded-pill bg-accent px-2 text-caption text-on-accent">
-                    {count}
-                    <span className="sr-only"> waiting</span>
+                    <span aria-hidden="true">{count}</span>
+                    <span className="sr-only">{`${count} waiting`}</span>
                   </span>
                 ) : null}
               </NavLink>

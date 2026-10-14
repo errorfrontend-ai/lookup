@@ -75,10 +75,12 @@ export function useStationFileUpload(
   const queryClient = useQueryClient();
   const [state, setState] = useState<StationFileUploadState>({ stage: 'idle' });
   const abort = useRef<AbortController | null>(null);
+  const lastFile = useRef<File | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
 
   const upload = useCallback(
     async (file: File) => {
+      lastFile.current = file;
       const contentType = contentTypeForStationFile(file, purpose);
       if (!contentType) return setState({ stage: 'failed', fileName: file.name, reason: 'wrong_file_type' });
       if (file.size > LARGEST_BYTES[purpose]) return setState({ stage: 'failed', fileName: file.name, reason: 'file_too_large' });
@@ -109,5 +111,6 @@ export function useStationFileUpload(
     },
     [purpose, queryClient, stationId, transport],
   );
-  return { state, upload };
+  const tryAgain = useCallback(() => (lastFile.current ? upload(lastFile.current) : Promise.resolve()), [upload]);
+  return { state, upload, tryAgain };
 }

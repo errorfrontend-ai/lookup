@@ -1,4 +1,3 @@
-import { Redis } from 'ioredis';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -8,25 +7,8 @@ import { KEY_VALUE_STORE } from '../src/infrastructure/key-value-store/key-value
 import { databaseSetupClient } from './support/database-clients.js';
 import { assertNoInternalDetails } from './support/internal-detail-patterns.js';
 import { cookieHeader, cookiesSetBy, PORTAL_ORIGIN, PortalTestUsers } from './support/portal-test-users.js';
+import { switchableKeyValueStore } from './support/switchable-key-value-store.js';
 import { createTestApplication, type TestApplication } from './support/test-application.js';
-
-/**
- * The real Valkey connection, with a switch that makes every command fail the way a dead store does.
- * Lets one test sign in while the store is up, then see what still works once it goes down.
- */
-function switchableKeyValueStore(config: AppConfig) {
-  const realStore = new Redis(config.KEY_VALUE_STORE_URL, { enableOfflineQueue: false, maxRetriesPerRequest: 1 });
-  const switchState = { isDown: false };
-  const connectionRefused = () => Promise.reject(new Error('connect ECONNREFUSED 127.0.0.1:56379'));
-  const store = new Proxy(realStore, {
-    get(target, property, receiver) {
-      if (switchState.isDown && (property === 'eval' || property === 'ping' || property === 'del')) return connectionRefused;
-      const value: unknown = Reflect.get(target, property, receiver);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-  return { store, switchState };
-}
 
 /**
  * Sign-in limits can't be enforced without the counter store, so sign-in refuses rather than allow

@@ -45,7 +45,7 @@ export function VerifyEmailPage() {
               ? "We couldn't reach Look Up. Check your connection, then open the link again."
               : 'Open the link from the email again, or ask for a new one on the sign-up page.'}
       </p>
-      <Link to="/" className="text-label text-accent underline underline-offset-4">
+      <Link to="/" className="inline-flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
         Go to your application
       </Link>
     </main>

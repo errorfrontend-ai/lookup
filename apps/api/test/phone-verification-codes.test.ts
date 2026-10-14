@@ -39,7 +39,7 @@ describe('phone verification codes', () => {
     expect(new Set(codes).size).toBeGreaterThan(9_900);
   });
 
-  it('a code is six digits, lasts 10 minutes, and the store holds only a hash of it with the phone it went to', async () => {
+  it('P5A-VERIFICATION-03: a code is six digits, lasts 10 minutes, and the store holds only a hash of it with the phone it went to', async () => {
     const stationId = newStation();
     const issued = await codes.issue(stationId, phone);
     expect(issued.code).toMatch(/^[0-9]{6}$/);
@@ -62,16 +62,18 @@ describe('phone verification codes', () => {
     expect(await codes.describe(stationId)).toEqual({ sentAt: null, resendAvailableAt: null });
   });
 
-  it('P5A-VERIFICATION-03: a code is refused once 10 minutes have passed', async () => {
-    const stationId = newStation();
-    const { code } = await codes.issue(stationId, phone);
+  it('P5A-VERIFICATION-04: a code still works a moment before 10 minutes, and is refused as expired at 10 minutes', async () => {
+    const inTime = newStation();
+    const late = newStation();
+    const first = await codes.issue(inTime, phone);
+    const second = await codes.issue(late, phone);
     clock.time += 10 * 60_000 - 1;
-    expect(await codes.check(stationId, phone, '000000' === code ? '000001' : '000000')).toBe('INCORRECT');
+    expect(await codes.check(inTime, phone, first.code)).toBe('CORRECT');
     clock.time += 1;
-    expect(await codes.check(stationId, phone, code)).toBe('EXPIRED');
+    expect(await codes.check(late, phone, second.code)).toBe('EXPIRED');
   });
 
-  it('P5A-VERIFICATION-04: five wrong tries lock the code, even the right one after them', async () => {
+  it('P5A-VERIFICATION-05: five wrong tries lock the code, even the right one after them', async () => {
     const stationId = newStation();
     const { code } = await codes.issue(stationId, phone);
     const wrong = code === '123456' ? '654321' : '123456';
@@ -85,7 +87,7 @@ describe('phone verification codes', () => {
     expect(await codes.check(stationId, phone, code)).toBe('LOCKED');
   });
 
-  it('P5A-VERIFICATION-05: another code may be sent 60 seconds after the last, and the new one replaces it', async () => {
+  it('P5A-VERIFICATION-06: another code may be sent 60 seconds after the last (59 s is refused), and the new one replaces it', async () => {
     const stationId = newStation();
     const first = await codes.issue(stationId, phone);
     clock.time += 59_000;

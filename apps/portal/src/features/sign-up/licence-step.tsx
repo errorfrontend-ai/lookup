@@ -11,6 +11,7 @@ import { MISSING_PART_WORDS } from '../../plain-words/sign-up-words';
 import { FileUploadField } from '../../components/file-upload-field';
 import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
+import { draftFor, useKeepDraftOnLeaving } from './step-drafts';
 import { useApplicationChange, useStationApplication, useStationFileUpload } from './use-station-application';
 
 /**
@@ -28,8 +29,10 @@ export function LicenceStep() {
 
 function LicenceForm({ stationId, saved }: { stationId: string; saved: StationApplication }) {
   const navigate = useNavigate();
-  const [licenceNumber, setLicenceNumber] = useState(saved.licence.licenceNumber ?? '');
+  // What was typed here before going Back, else what is saved.
+  const [licenceNumber, setLicenceNumber] = useState(() => draftFor(stationId, 'licence')?.licenceNumber ?? saved.licence.licenceNumber ?? '');
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const { markSaved } = useKeepDraftOnLeaving(stationId, 'licence', { licenceNumber }, { licenceNumber: saved.licence.licenceNumber ?? '' });
   const document = useStationFileUpload(stationId, 'licence-document');
   const saveNumber = useApplicationChange(stationId, (typed: string) =>
     portalApi.put<StationApplication>(`/stations/${stationId}/application/licence`, { licenceNumber: typed }),
@@ -52,6 +55,7 @@ function LicenceForm({ stationId, saved }: { stationId: string; saved: StationAp
         () => false,
       );
       if (!isSaved) return;
+      markSaved();
     }
     if (isUnderReview) return void navigate(`/stations/${stationId}/application`);
     submit.mutate(undefined, { onSuccess: () => void navigate(`/stations/${stationId}/application`) });
@@ -78,9 +82,10 @@ function LicenceForm({ stationId, saved }: { stationId: string; saved: StationAp
           savedFileName={saved.licence.document?.fileName ?? null}
           state={document.state}
           onChoose={(file) => void document.upload(file)}
+          onTryAgain={() => void document.tryAgain()}
         />
         {isUnderReview ? null : (
-          <label className="flex items-start gap-3 text-body">
+          <label className="flex min-h-11 items-start gap-3 py-2 text-body">
             <input type="checkbox" checked={isConfirmed} onChange={(event) => setIsConfirmed(event.target.checked)} className="mt-1 size-5" />
             I confirm this station holds a valid broadcasting licence in Zambia.
           </label>

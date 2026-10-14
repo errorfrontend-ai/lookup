@@ -1,4 +1,5 @@
 import { randomInt, randomUUID } from 'node:crypto';
+import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 import supertest from 'supertest';
 import type pg from 'pg';
@@ -7,6 +8,7 @@ import { HUMAN_CHECK_DUMMY_TOKEN } from '../src/common/security/human-check.js';
 import { CLOCK } from '../src/common/time/clock.js';
 import { APP_CONFIG, loadAppConfig } from '../src/config/app-config.js';
 import { EMAIL_SENDER, type EmailSender, type OutgoingEmail } from '../src/features/notifications/notification-senders.js';
+import { KEY_VALUE_STORE } from '../src/infrastructure/key-value-store/key-value-store.module.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { INTERNAL_DETAIL_PATTERNS } from './support/internal-detail-patterns.js';
 import { cookieHeader, cookiesSetBy, PORTAL_ORIGIN } from './support/portal-test-users.js';
@@ -229,5 +231,54 @@ describe('station sign-up', () => {
     await supertest(server()).get(`/api/v1/stations/${other.stationId}/application`).set('Cookie', applicant.cookie).expect(404);
     await supertest(server()).post(`/api/v1/stations/${applicant.stationId}/application/licence-document-uploads/${upload.body.uploadId}/complete`)
       .set('Origin', PORTAL_ORIGIN).set('Cookie', other.cookie).expect(404);
+  });
+
+  it('P5A-SIGNUP-SCREENS-17: "Send the link again" sends a new link once the minute is up, and the newer link supersedes the first', async () => {
+    const applicant = await signedUpApplicant();
+    const toApplicant = () => emails.sent.filter((email) => email.to === applicant.body.email);
+    const [first] = await eventually(toApplicant, (sent) => sent.length === 1, 'the first link');
+    // The minute since the first link is over: its cooldown is a key in Valkey, which lapses in real time.
+    await testApplication.application.get<Redis>(KEY_VALUE_STORE).del(`email-link-cooldown:${applicant.stationId}`);
+    await applicant.call('post', '/email-verification-links').expect(204);
+    const [, again] = await eventually(toApplicant, (sent) => sent.length === 2, 'the second link');
+    expect(linkTokenIn(again)).not.toBe(linkTokenIn(first));
+
+    const tooSoon = await applicant.call('post', '/email-verification-links').expect(429);
+    expect(tooSoon.body.error.code).toBe('RESEND_TOO_SOON');
+    expect(Number(tooSoon.headers['retry-after'])).toBeGreaterThan(0);
+    const verify = (token: string) => supertest(server()).post('/api/v1/registration/email-verifications').set('Origin', PORTAL_ORIGIN).send({ token });
+    expect((await verify(linkTokenIn(first)).expect(400)).body.error.code).toBe('EMAIL_LINK_NOT_VALID');
+    await verify(linkTokenIn(again)).expect(204);
+  });
+
+  it('P5A-VERIFICATION-07: sending and checking codes are limited per station from any address, and per address across stations', async () => {
+    // Per station: five more codes an hour after the first, whatever address asks.
+    const applicant = await signedUpApplicant();
+    for (let resend = 0; resend < 5; resend += 1) {
+      clock.time += 60_000;
+      await applicant.call('post', '/phone-verification-codes').expect(200);
+    }
+    clock.time += 60_000;
+    const sendsLimited = await applicant.call('post', '/phone-verification-codes').expect(429);
+    expect(sendsLimited.body.error.code).toBe('RATE_LIMITED');
+    expect(Number(sendsLimited.headers['retry-after'])).toBeGreaterThan(0);
+    // Per station: ten checks in 15 minutes, whatever their answer.
+    for (let check = 0; check < 10; check += 1) await applicant.call('post', '/phone-verification').send({ code: '000000' });
+    const checksLimited = await applicant.call('post', '/phone-verification').send({ code: '000000' }).expect(429);
+    expect(checksLimited.body.error.code).toBe('RATE_LIMITED');
+    expect(Number(checksLimited.headers['retry-after'])).toBeGreaterThan(0);
+
+    // Per address: thirty checks in 15 minutes from one address, spread over stations that are each under their own limit.
+    const oneAddress = newClientAddress();
+    const stations = [await signedUpApplicant(), await signedUpApplicant(), await signedUpApplicant(), await signedUpApplicant()];
+    const fromOneAddress = (station: (typeof stations)[number]) =>
+      supertest(server()).post(`/api/v1/stations/${station.stationId}/application/phone-verification`).set('Origin', PORTAL_ORIGIN).set('X-Forwarded-For', oneAddress).set('Cookie', station.cookie);
+    for (let check = 0; check < 30; check += 1) {
+      const answer = await fromOneAddress(stations[check % 4] as (typeof stations)[number]).send({ code: '000000' });
+      expect(answer.status, `check ${check + 1}`).toBe(400);
+    }
+    const addressLimited = await fromOneAddress(stations[2] as (typeof stations)[number]).send({ code: '000000' }).expect(429);
+    expect(addressLimited.body.error.code).toBe('RATE_LIMITED');
+    expect(Number(addressLimited.headers['retry-after'])).toBeGreaterThan(0);
   });
 });

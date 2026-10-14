@@ -101,15 +101,31 @@ describe('getting into the console', () => {
     expect(api.calls.filter((call) => call.path === '/auth/two-factor-code')).toHaveLength(2);
   });
 
-  it('P5A-ADMIN-ACCESS-01: a station user finds no console; a super admin without the code is sent to give it', async () => {
-    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, signedInUserWith()) });
+  it('P5A-ADMIN-ACCESS-01: a station user is sent to their own station; a super admin without the code is sent to give it', async () => {
+    const stationUser = signedInUserWith();
+    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, stationUser) });
     const first = renderPortalAt('/admin/applications');
-    expect(await screen.findByRole('heading', { name: /couldn.t find/i })).toBeInTheDocument();
+    await waitFor(() => expect(first.router.state.location.pathname).toBe(`/stations/${stationUser.stations[0]?.id}/overview`));
+    expect(screen.queryByText('Super admin')).not.toBeInTheDocument();
     first.unmount();
     queryClient.clear();
     installFakeApi({ 'GET /auth/me': () => jsonResponse(200, superAdmin(true)) });
     const second = renderPortalAt('/admin/stations');
     await waitFor(() => expect(second.router.state.location.pathname).toBe('/two-factor'));
+  });
+
+  it('P5A-ADMIN-ACCESS-05, -06, -08: the sidebar says "Look Up · Super admin", lists the five places with counts on two, and marks only the current one', async () => {
+    consoleApi();
+    renderPortalAt('/admin/applications');
+    const navigation = await screen.findByRole('navigation', { name: 'Console' });
+    expect(within(navigation).getByText('Look Up')).toBeInTheDocument();
+    expect(within(navigation).getByText('Super admin')).toBeInTheDocument();
+    await waitFor(() => expect(within(navigation).getByRole('link', { name: 'Applications 2 waiting' })).toBeInTheDocument());
+    const links = within(navigation).getAllByRole('link');
+    const names = ['Applications 2 waiting', 'Stations', 'Audio to check 1 waiting', 'System health', 'Find by reference code'];
+    expect(links).toHaveLength(names.length);
+    names.forEach((name, index) => expect(links[index]).toHaveAccessibleName(name));
+    expect(links.filter((link) => link.getAttribute('aria-current') === 'page')).toEqual([links[0]]);
   });
 
   it('the fifth wrong code says when to try again', () => {
@@ -128,7 +144,8 @@ describe('applications', () => {
     expect(within(entry).getByText(duplicateWords('ACTIVE'))).toBeInTheDocument();
     expect(within(screen.getByRole('button', { name: /Renamed FM/ })).getByText('Change to an approved station')).toBeInTheDocument();
     await person.click(entry);
-    expect(await screen.findByRole('heading', { name: 'Sunrise FM · 98.1 FM' })).toBeInTheDocument();
+    // Beside the list, the application sits under the page's own heading.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Sunrise FM · 98.1 FM' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sunrise FM · 98.1 FM/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('Mutale Banda · +260 97 ••• ••34')).toBeInTheDocument();
     expect(await screen.findByTitle('Licence document: licence.pdf')).toHaveAttribute('src', 'https://storage.example.test/licence.pdf?X-Amz-Expires=300');
@@ -162,13 +179,16 @@ describe('applications', () => {
     expect(api.calls.some((call) => call.path === `/admin/change-requests/${CHANGE_REQUEST}/approval`)).toBe(true);
   });
 
-  it('on a phone the list and the detail are separate pages', async () => {
+  it('on a phone the list and the detail are separate pages, and the detail’s headings start at level one', async () => {
     setScreenWidth(375);
-    consoleApi();
+    consoleApi({ [`POST /admin/applications/${STATION}/approval`]: () => jsonResponse(204, null) });
     renderPortalAt(`/admin/applications/${STATION}`);
-    expect(await screen.findByRole('heading', { name: 'Sunrise FM · 98.1 FM' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sunrise FM · 98.1 FM' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Checks' })).toBeInTheDocument();
     expect(screen.queryByText('Oldest first · 2 waiting')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'All applications' })).toHaveAttribute('href', '/admin/applications');
+    await person.click(screen.getByRole('button', { name: 'Approve station' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Decision recorded' })).toBeInTheDocument();
   });
 });
 

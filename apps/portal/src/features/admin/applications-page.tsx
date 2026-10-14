@@ -34,7 +34,7 @@ export function ApplicationsPage() {
           <p className="text-body text-muted">Oldest first · {entries.length} waiting</p>
         </div>
       ) : (
-        <Link to="/admin/applications" className="text-label text-accent underline underline-offset-4">
+        <Link to="/admin/applications" className="inline-flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
           All applications
         </Link>
       )}
@@ -51,7 +51,7 @@ export function ApplicationsPage() {
             ))}
           </ul>
         ) : null}
-        {showDetail && stationId ? <ApplicationPanel key={stationId} stationId={stationId} /> : isWide ? <p className="text-body text-muted">Choose an application to review it.</p> : null}
+        {showDetail && stationId ? <ApplicationPanel key={stationId} stationId={stationId} isOnItsOwn={!showList} /> : isWide ? <p className="text-body text-muted">Choose an application to review it.</p> : null}
       </div>
     </div>
   );
@@ -79,7 +79,10 @@ function QueueEntryButton({ entry, isSelected, onSelect }: { entry: ApplicationQ
   );
 }
 
-function ApplicationPanel({ stationId }: { stationId: string }) {
+/** On a phone the application is a page of its own, so its headings start at level one. */
+function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnItsOwn: boolean }) {
+  const Heading = isOnItsOwn ? 'h1' : 'h2';
+  const SubHeading = isOnItsOwn ? 'h2' : 'h3';
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [reason, setReason] = useState('');
@@ -109,6 +112,7 @@ function ApplicationPanel({ stationId }: { stationId: string }) {
   if (done) {
     return (
       <section aria-live="polite" className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-5">
+        {isOnItsOwn ? <h1 className="text-title">Decision recorded</h1> : null}
         <p className="text-body">{done}</p>
         <Button variant="secondary" className="self-start" onClick={() => void navigate('/admin/applications')}>
           Back to the applications
@@ -123,9 +127,9 @@ function ApplicationPanel({ stationId }: { stationId: string }) {
   return (
     <section aria-labelledby="application-heading" className="flex flex-col gap-5 rounded-lg border border-line bg-surface p-5">
       <div className="flex flex-col gap-1">
-        <h2 id="application-heading" className="text-title">
+        <Heading id="application-heading" className="text-title">
           {data.name} · {data.frequencyLabel}
-        </h2>
+        </Heading>
         <p className="text-caption text-muted">
           {[data.city, data.province].filter(Boolean).join(', ')} · submitted {ageWords(data.submittedAt)}
         </p>
@@ -146,7 +150,7 @@ function ApplicationPanel({ stationId }: { stationId: string }) {
         </div>
       ) : null}
       <div className="flex flex-col gap-2">
-        <h3 className="text-label">Checks</h3>
+        <SubHeading className="text-label">Checks</SubHeading>
         <ul className="flex flex-col gap-1 text-body">
           <li>Phone: {data.checks.isPhoneVerified ? 'confirmed' : 'not confirmed'}</li>
           <li>Email: {data.checks.isEmailVerified ? 'confirmed' : 'not confirmed'}</li>
@@ -165,22 +169,23 @@ function ApplicationPanel({ stationId }: { stationId: string }) {
       </dl>
       {documentToShow ? (
         <div className="flex flex-col gap-2">
-          <h3 className="text-label">Licence document</h3>
+          <SubHeading className="text-label">Licence document</SubHeading>
           {link.data ? (
             <>
               {link.data.contentType === 'application/pdf' ? (
                 <iframe title={`Licence document: ${documentToShow.fileName}`} src={link.data.address} className="h-96 w-full rounded-md border border-line" />
               ) : (
-                <img src={link.data.address} alt={`Licence document: ${documentToShow.fileName}`} className="max-h-96 w-full rounded-md border border-line object-contain" />
+                <img src={link.data.address} alt={`Licence document: ${documentToShow.fileName}`} className="h-96 w-full rounded-md border border-line object-contain" />
               )}
-              <a href={link.data.address} target="_blank" rel="noopener noreferrer" className="text-label text-accent underline underline-offset-4">
+              <a href={link.data.address} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
                 Open full size
               </a>
             </>
           ) : link.isError ? (
             <ErrorNotice error={link.error} title="We couldn't open the licence document" />
           ) : (
-            <p className="text-body text-muted">Opening the licence document…</p>
+            // The preview's own height, kept while it opens, so Approve and Reject never move under a finger.
+            <p className="flex h-96 items-center justify-center rounded-md border border-line text-body text-muted">Opening the licence document…</p>
           )}
         </div>
       ) : null}

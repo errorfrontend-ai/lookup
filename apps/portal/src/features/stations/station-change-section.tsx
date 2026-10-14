@@ -1,7 +1,7 @@
 import type { RequestStationDetailChangeInput, StationChangeRequest, StationChangeRequestState, StationUploadAddress } from '@lookup/contracts';
 import { contentTypeForStationFile, MAXIMUM_LICENCE_DOCUMENT_SIZE_BYTES } from '@lookup/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useRef, useState } from 'react';
 import { portalApi } from '../../app/portal-api';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
@@ -108,6 +108,7 @@ function ChangeForm({
   const [licenceNumber, setLicenceNumber] = useState(approved.licenceNumber ?? '');
   const [documentUploadId, setDocumentUploadId] = useState<string | null>(null);
   const [upload, setUpload] = useState<StationFileUploadState>({ stage: 'idle' });
+  const lastFile = useRef<File | null>(null);
   const request = useMutation({
     mutationFn: (input: RequestStationDetailChangeInput) => portalApi.post<StationChangeRequestState>(`/stations/${stationId}/change-requests`, input),
     onSuccess: onDone,
@@ -116,6 +117,7 @@ function ChangeForm({
   const isNothingChanged = request.error instanceof ApiError && request.error.fields.some((field) => field.code === 'nothing_changed');
 
   const sendDocument = async (file: File) => {
+    lastFile.current = file;
     const contentType = contentTypeForStationFile(file, 'licence-document');
     if (!contentType) return setUpload({ stage: 'failed', fileName: file.name, reason: 'wrong_file_type' });
     if (file.size > MAXIMUM_LICENCE_DOCUMENT_SIZE_BYTES) return setUpload({ stage: 'failed', fileName: file.name, reason: 'file_too_large' });
@@ -160,6 +162,7 @@ function ChangeForm({
         savedFileName={null}
         state={upload}
         onChoose={(file) => void sendDocument(file)}
+        onTryAgain={() => void (lastFile.current && sendDocument(lastFile.current))}
       />
       {isNothingChanged ? <p role="alert" className="text-body font-bold text-danger">Change at least one thing first.</p> : null}
       {request.isError && !isNothingChanged && Object.keys(fieldErrors).length === 0 ? <ErrorNotice error={request.error} /> : null}

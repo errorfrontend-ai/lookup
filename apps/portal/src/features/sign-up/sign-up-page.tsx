@@ -7,7 +7,7 @@ import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { TextField } from '../../components/text-field';
-import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
+import { fieldErrorsFrom, fieldReasonWords } from '../../plain-words/sign-up-words';
 import { useSignedInUser } from '../session/use-signed-in-user';
 import { homePathFor } from '../sign-in/sign-in-page';
 import { HumanCheckWidget } from './human-check-widget';
@@ -29,6 +29,7 @@ export function SignUpPage() {
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordLeft, setIsPasswordLeft] = useState(false);
   const [humanCheckToken, setHumanCheckToken] = useState<string | null>(null);
 
   const register = useMutation({
@@ -125,14 +126,16 @@ export function SignUpPage() {
             hint="At least 15 characters."
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            error={isPasswordShort ? null : fieldErrors.password}
+            onBlur={() => setIsPasswordLeft(true)}
+            // Too short is said once the field is left, not at every key while it is typed.
+            error={isPasswordShort ? (isPasswordLeft ? fieldReasonWords('too_short') : null) : fieldErrors.password}
           />
         </div>
         <HumanCheckWidget onToken={setHumanCheckToken} />
         {isEmailTaken ? (
           <div role="alert" className="flex flex-col gap-1 rounded-md border border-danger bg-danger-soft px-4 py-3 text-danger">
             <span className="text-body">This email already has an account.</span>
-            <Link to="/sign-in" className="text-label underline underline-offset-4">
+            <Link to="/sign-in" className="inline-flex min-h-11 items-center self-start text-label underline underline-offset-4">
               Sign in instead
             </Link>
           </div>

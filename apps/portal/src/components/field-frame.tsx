@@ -59,4 +59,4 @@ export function describedBy(controlId: string, hint?: string, error?: string | n
 }
 
 export const FIELD_CONTROL_CLASSES =
-  'min-h-11 w-full rounded-md border border-line bg-surface px-3 text-body text-ink placeholder:text-muted aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger';
+  'min-h-12 w-full rounded-md border border-line bg-surface px-3 text-body text-ink placeholder:text-muted aria-[invalid=true]:border-2 aria-[invalid=true]:border-danger';

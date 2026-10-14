@@ -10,6 +10,14 @@ export type StationFileUploadState =
   | { stage: 'done'; fileName: string }
   | { stage: 'failed'; fileName: string; reason: string };
 
+/** Failures that are the file's own fault: sending the same file again cannot help, another file can. */
+const FILE_FAULTS: ReadonlySet<string> = new Set(['wrong_file_type', 'file_too_large', 'image_too_small', 'image_unreadable']);
+
+/** Whether sending the same file again may work: the connection or the storage failed, not the file. */
+export function canTryUploadAgain(reason: string): boolean {
+  return !FILE_FAULTS.has(reason);
+}
+
 /** Why an upload failed, in plain words ("network" is the connection's fault). */
 export function uploadFailureWords(reason: string): string {
   return reason === 'network' ? "The upload didn't finish. Check your connection, then try again." : fieldReasonWords(reason, "We couldn't use this file. Try another one.");
@@ -17,7 +25,8 @@ export function uploadFailureWords(reason: string): string {
 
 /**
  * A file chosen and sent with its progress (P5A design §4.2): its name, "Uploading 40 %", "Uploaded" or "Upload
- * failed" with the reason, and a button to choose (or replace) the file.
+ * failed" with the reason, and a button to choose (or replace) the file. When the connection or storage failed, not
+ * the file, "Try again" sends the same file again.
  */
 export function FileUploadField({
   label,
@@ -26,6 +35,7 @@ export function FileUploadField({
   savedFileName,
   state,
   onChoose,
+  onTryAgain,
 }: {
   label: string;
   hint: string;
@@ -34,6 +44,8 @@ export function FileUploadField({
   savedFileName: string | null;
   state: StationFileUploadState;
   onChoose: (file: File) => void;
+  /** Sends the last chosen file again. */
+  onTryAgain?: () => void;
 }) {
   const inputId = useId();
   const input = useRef<HTMLInputElement>(null);
@@ -61,6 +73,11 @@ export function FileUploadField({
           {shownName ? 'Replace' : 'Choose a file'}
         </Button>
         {shownName ? <span className="min-w-0 truncate text-body">{shownName}</span> : null}
+        {state.stage === 'failed' && onTryAgain && canTryUploadAgain(state.reason) ? (
+          <Button variant="quiet" onClick={onTryAgain}>
+            Try again
+          </Button>
+        ) : null}
         {state.stage === 'done' || (state.stage === 'idle' && savedFileName) ? <span className="text-label text-success">Uploaded</span> : null}
       </div>
       {state.stage === 'uploading' ? (

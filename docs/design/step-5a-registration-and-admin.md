@@ -719,7 +719,7 @@ Playwright stubs Turnstile's script by routing `challenges.cloudflare.com/turnst
   - **Africa's Talking** supports Zambia SMS. Its sender-ID registration letters cover Airtel and MTN only, and its price could not be confirmed (the pricing page refused).
   - **Twilio** Zambia: an alphanumeric sender ID needs about 3 weeks of pre-registration; no numeric or short codes; $0.3942 per segment.
   - **Local aggregators** (Celcom Africa and others) claim all three networks.
-  - Recorded in `docs/adr/` as the O16 notes. The choice is the user's.
+  - Recorded in `docs/adr/ADR-004-sms-provider.md` as the O16 notes. The choice is the user's.
 - **Turnstile:** Cloudflare's test keys, siteverify and CSP, as in §3.1 (developers.cloudflare.com/turnstile, pages updated May–September 2026). Tokens last 300 s and are single-use.
 - **Mailpit:** v1.31.4, 16.8 MB compressed. SMTP on 1025, web and API on 8025. No volume needed.
 - **sharp:** 0.35.5, Node ≥ 20.9. The Windows package is 19.8 MB unpacked, with libvips bundled. HEIC is not supported by the prebuilt package, which is why licence photos are JPG.
@@ -796,8 +796,8 @@ Every P5A item, by area, with the section that builds it. Items marked **open** 
 
 ## 12. Build record
 
-**14 October 2026 (overnight, under the user's standing approval).** Increments 1 to 4 built, and increment 5's API
-(all but the seeded development super admin). Nothing pushed.
+**14 October 2026 (overnight and the day after, under the user's standing approval).** Increments 1 to 10 built.
+Nothing pushed.
 
 | Increment | Built | Tests |
 |---|---|---|
@@ -806,6 +806,12 @@ Every P5A item, by area, with the section that builds it. Items marked **open** 
 | 3. Foundations | The clock; the admin data source and `AdminTransaction`; notifications (the `notify` queue, the in-process worker, SMTP, the development SMS sender) and Mailpit in compose; the two buckets and download links with a fixed type and inline disposition; the human check; the phone codes; logo processing; the error catalogue, redactions and configuration; the second factor (`POST /auth/two-factor-code`) and `npm run admin:create-super-admin` | `human-check`, `phone-verification-codes`, `two-factor-secret-box`, `station-logo-processing`, `notifications`, `station-file-storage`, `admin-database`, `two-factor-sign-in`, `startup-checks` |
 | 4. Registration | Every route of §3.3's registration table, the change requests included (O2: the new licence document is checked first, then named by the request, once) | `registration.test.ts` (journey A end to end, the refusals, the cooldown, expiry and lock, gap 3); `station-change-requests.test.ts` |
 | 5. Admin (API) | `SuperAdminGuard` (404 for everyone else, `TWO_FACTOR_REQUIRED` before the code); the summary, the queue with duplicate flags, the detail, the 5-minute licence links (audited), approval, rejection, change decisions, the stations list with cursors, suspension and reactivation (each told to the station by SMS and email), "Audio to check", System health, "Find by reference code" | `admin-console.test.ts` |
+| 5. (rest) | The seeded development super admin (`SEED_SUPER_ADMIN_*`, its secret in base32, so the browser tests can compute its codes) | `development-seed.test.ts` |
+| 6. Team (API) | Invitations by email (accepted with a new account, or signed in with the invited address), cancelling, removing a member (never the last owner) | `team-invitations.test.ts`, `phase-5a-route-failures.test.ts` |
+| 7. Portal: sign-up | The four steps, the email-link page, Application status, editing the account | `sign-up.test.tsx`, `sign-up-accessibility.test.tsx` |
+| 8. Portal: console | The second-factor page; Applications, Stations, Audio to check, System health, Find by reference code | `admin.test.tsx` |
+| 9. Portal: team and changes | Team, the invitation page, the change request on Station profile | `team.test.tsx`, `station-profile-page.test.tsx` |
+| 10. Browser journeys | `station-sign-up.spec.ts` (journey A, then approval and signing in), `admin-review.spec.ts` (journey D: reject, fix, submit again, approve), `team-invitations.spec.ts` (journey E), `phase-5a-accessibility.spec.ts` (axe with contrast, focus, 44 px, widths 320 to 1280), each at 375 and 1280 px against the real stack. Docs: `docs/runbooks/reviewing-station-applications.md`, `docs/adr/ADR-004-sms-provider.md` | the four specs |
 
 **Changed in the build** (each also noted where the design says it):
 - Migration number, `describe_active_portal_session`, the overlap functions in `app`, `TWO_FACTOR_RESET` (§2).
@@ -819,4 +825,36 @@ Every P5A item, by area, with the section that builds it. Items marked **open** 
 - `fingerprints.asset_overlaps` findings name their recordings by asset number, as the console shows them.
 - A decision's reason (rejection, suspension) is kept on the station or the request; its audit row says only that there was one, because a reason may name people.
 
-**Next:** the seeded development super admin (increment 5's rest); 6 (team); then the portal (7 to 9).
+**How the browser journeys run** (increment 10):
+- Turnstile's script is replaced by a stand-in tick box that hands over Cloudflare's dummy token, and every other
+  request to Cloudflare is refused, so no test needs the internet.
+- SMS and email are read from Mailpit's API. The super admin's code is computed from the seeded secret; the step is
+  chosen after the last one used (read from the development database), since each step counts once.
+- Each journey sends its API calls with an address of its own from 198.18.0.0/15 (`X-Forwarded-For`, which the
+  development proxy passes on), so the per-address sign-up limits count journeys apart.
+- After the run, a clean-up takes the test stations out of the listener app's list, closes any left in the review
+  queue, cancels test invitations to the seeded stations and takes test members off their teams. It runs only
+  against a database on this computer, and only on `browser-test-…@example.test` accounts.
+
+**Found by the browser journeys and fixed:**
+- Five stand-alone links were 20 px tall on a phone (the header's "Sign in", "Sign in instead", the email page's "Go
+  to your application", "All applications", "Open full size"): each is now at least 44 px.
+- On a phone, an application opened on its own page had no level-one heading. Its station name is now the `h1`
+  there (`h2` beside the list), and its sub-headings follow; the decision screen says "Decision recorded".
+- Inside the licence preview, focus moves into the browser's own PDF viewer. The page cannot see that focus, but
+  screenshots of each Tab show the viewer ringing its own buttons, so the focus check skips a focused frame.
+- The licence preview pushed Approve and Reject about 360 px down when it opened, so a tap could land on the wrong
+  thing. Its space is now kept while it opens.
+- Text and select fields were 44 px tall beside a 48 px mobile-number field: every portal field is now 48 px
+  (P5A-SIGNUP-SCREENS-13). Step 4's confirmation tick box sat in a 24 px label on a desktop: now 44 px.
+- The console's counts read "Applications2 waiting" to a screen reader: now "Applications 2 waiting".
+
+**Added while checking the checklist** (increment 11):
+- A station user who opens `/admin` is sent to their own station, not shown "couldn't find" (P5A-ADMIN-ACCESS-01).
+- A too-short password says "Use at least 15 characters." once the field is left (P5A-SIGNUP-SCREENS-10).
+- A logo or licence upload that failed for a connection or storage reason offers "Try again" with the same file; a
+  file that is itself wrong does not (P5A-SIGNUP-SCREENS-28, P5A-LICENCE-06).
+- Answers typed on steps 3 and 4 but not saved yet survive Back and forward, kept in the tab's memory only, never in
+  the browser's storage (P5A-SIGNUP-SCREENS-04).
+
+**Next:** increment 11: the reviews, the full suites, the checklist ticks with evidence, the gate record.

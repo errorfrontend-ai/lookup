@@ -10,6 +10,7 @@ import { tidyFrequencyLabel } from '../stations/parse-frequency-label';
 import { FileUploadField } from '../../components/file-upload-field';
 import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
+import { draftFor, useKeepDraftOnLeaving } from './step-drafts';
 import { useApplicationChange, useStationApplication, useStationFileUpload } from './use-station-application';
 
 /** The time zones the browser knows, with the station's and Lusaka's always there. */
@@ -32,13 +33,29 @@ export function DetailsStep() {
 
 function DetailsForm({ stationId, saved }: { stationId: string; saved: StationApplication }) {
   const navigate = useNavigate();
-  const [name, setName] = useState(saved.details.name ?? '');
-  const [frequencyLabel, setFrequencyLabel] = useState(saved.details.frequencyLabel ?? '');
-  const [province, setProvince] = useState(saved.details.province ?? '');
-  const [city, setCity] = useState(saved.details.city ?? '');
-  const [timeZone, setTimeZone] = useState(saved.details.timeZone);
-  const [coverageNote, setCoverageNote] = useState(saved.details.coverageNote ?? '');
-  const [streamAddress, setStreamAddress] = useState(saved.details.streamAddress ?? '');
+  // What was typed here before going Back, else what is saved.
+  const [draft] = useState(() => draftFor(stationId, 'details'));
+  const [name, setName] = useState(draft?.name ?? saved.details.name ?? '');
+  const [frequencyLabel, setFrequencyLabel] = useState(draft?.frequencyLabel ?? saved.details.frequencyLabel ?? '');
+  const [province, setProvince] = useState(draft?.province ?? saved.details.province ?? '');
+  const [city, setCity] = useState(draft?.city ?? saved.details.city ?? '');
+  const [timeZone, setTimeZone] = useState(draft?.timeZone ?? saved.details.timeZone);
+  const [coverageNote, setCoverageNote] = useState(draft?.coverageNote ?? saved.details.coverageNote ?? '');
+  const [streamAddress, setStreamAddress] = useState(draft?.streamAddress ?? saved.details.streamAddress ?? '');
+  const { markSaved } = useKeepDraftOnLeaving(
+    stationId,
+    'details',
+    { name, frequencyLabel, province, city, timeZone, coverageNote, streamAddress },
+    {
+      name: saved.details.name ?? '',
+      frequencyLabel: saved.details.frequencyLabel ?? '',
+      province: saved.details.province ?? '',
+      city: saved.details.city ?? '',
+      timeZone: saved.details.timeZone,
+      coverageNote: saved.details.coverageNote ?? '',
+      streamAddress: saved.details.streamAddress ?? '',
+    },
+  );
   const logo = useStationFileUpload(stationId, 'logo');
   const save = useApplicationChange(stationId, (input: SaveStationApplicationDetailsInput) =>
     portalApi.put<StationApplication>(`/stations/${stationId}/application/details`, input),
@@ -59,7 +76,12 @@ function DetailsForm({ stationId, saved }: { stationId: string; saved: StationAp
         coverageNote: coverageNote.trim() || null,
         streamAddress: streamAddress.trim() || null,
       },
-      { onSuccess: () => void navigate(`/stations/${stationId}/application/licence`) },
+      {
+        onSuccess: () => {
+          markSaved();
+          void navigate(`/stations/${stationId}/application/licence`);
+        },
+      },
     );
   };
 
@@ -104,6 +126,7 @@ function DetailsForm({ stationId, saved }: { stationId: string; saved: StationAp
           savedFileName={saved.details.logoAddress ? 'Your logo' : null}
           state={logo.state}
           onChoose={(file) => void logo.upload(file)}
+          onTryAgain={() => void logo.tryAgain()}
         />
         {saved.details.logoAddress ? <img src={saved.details.logoAddress} alt="Your station's logo" width={96} height={96} className="size-24 rounded-md border border-line object-contain" /> : null}
         <details className="rounded-md border border-line p-4">

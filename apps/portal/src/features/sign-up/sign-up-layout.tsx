@@ -41,7 +41,7 @@ export function SignUpLayout({
           </span>
         )}
         {number === 1 && !onBack ? (
-          <Link to="/sign-in" className="text-label text-accent underline underline-offset-4">
+          <Link to="/sign-in" className="inline-flex min-h-11 items-center text-label text-accent underline underline-offset-4">
             Sign in
           </Link>
         ) : null}

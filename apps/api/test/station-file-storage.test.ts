@@ -36,6 +36,38 @@ describe('licence document and logo storage', () => {
     expect(await storage.describeObjectIn(storage.adUploadsBucket, key)).toBeNull();
   });
 
+  it.each([
+    ['licence', 'licenceDocumentsBucket', 'application/pdf'],
+    ['logo', 'stationLogosBucket', 'image/png'],
+  ] as const)('P5A-LICENCE-09, P5A-STATION-DETAILS-11: the %s bucket itself refuses a PUT longer than signed, of another type, or after the address expired', async (_name, bucketName, contentType) => {
+    const bucket = storage[bucketName];
+    const key = `checks/${randomUUID()}/${randomUUID()}`;
+    created.push([bucket, key]);
+    const signed = await storage.createUploadUrlIn(bucket, key, contentType, pdf.length, 600);
+    const longer = await fetch(signed, { method: 'PUT', headers: { 'Content-Type': contentType }, body: Buffer.concat([pdf, Buffer.from('x')]) });
+    expect(longer.ok).toBe(false);
+    const otherType = await fetch(signed, { method: 'PUT', headers: { 'Content-Type': 'image/svg+xml' }, body: pdf });
+    expect(otherType.ok).toBe(false);
+    expect(await storage.describeObjectIn(bucket, key)).toBeNull();
+
+    const shortLived = await storage.createUploadUrlIn(bucket, key, contentType, pdf.length, 1);
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+    const late = await fetch(shortLived, { method: 'PUT', headers: { 'Content-Type': contentType }, body: pdf });
+    expect(late.status).toBe(403);
+    expect(await storage.describeObjectIn(bucket, key)).toBeNull();
+  });
+
+  it('P5A-LICENCE-04: a stored licence document cannot be read without a signed link', async () => {
+    const key = `licence-documents/${randomUUID()}/${randomUUID()}`;
+    created.push([storage.licenceDocumentsBucket, key]);
+    await storage.putObjectIn(storage.licenceDocumentsBucket, key, pdf, 'application/pdf');
+    const signed = new URL(await storage.createDownloadUrlIn(storage.licenceDocumentsBucket, key, 300, { contentType: 'application/pdf', fileName: 'licence.pdf' }));
+    const unsigned = await fetch(`${signed.origin}${signed.pathname}`);
+    expect(unsigned.status).toBe(403);
+    expect(Buffer.from(await unsigned.arrayBuffer()).includes(Buffer.from('%PDF'))).toBe(false);
+    expect((await fetch(signed)).status).toBe(200);
+  });
+
   it('a download link fixes the type and an inline disposition, whatever the file was stored as, with a safe file name', async () => {
     const key = `licence-documents/${randomUUID()}/${randomUUID()}`;
     created.push([storage.licenceDocumentsBucket, key]);
