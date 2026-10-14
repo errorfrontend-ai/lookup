@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { portalApi } from '../../app/portal-api';
 import { ApiError } from '../../api/api-client';
+import type { StationFileUploadState } from '../../components/file-upload-field';
 import { sendFileToStorage, type StorageTransport } from '../new-ad/send-file-to-storage';
 
 export const stationApplicationQueryKey = (stationId: string) => ['station-application', stationId] as const;
@@ -56,11 +57,7 @@ export function useApplicationChange<Input>(stationId: string, send: (input: Inp
   });
 }
 
-export type StationFileUploadState =
-  | { stage: 'idle' }
-  | { stage: 'uploading'; fileName: string; percent: number }
-  | { stage: 'done'; fileName: string }
-  | { stage: 'failed'; fileName: string; reason: string };
+export type { StationFileUploadState } from '../../components/file-upload-field';
 
 /** Largest sizes by purpose, checked before anything is sent (the API checks again). */
 const LARGEST_BYTES = { logo: 2 * 1024 * 1024, 'licence-document': 5 * 1024 * 1024 } as const;

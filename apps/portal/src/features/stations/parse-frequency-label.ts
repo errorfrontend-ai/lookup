@@ -22,3 +22,9 @@ export function parseFrequencyLabel(label: string): ParsedFrequency | null {
   if (band === 'FM' && (value < FM_BAND_START || value > FM_BAND_END)) return null;
   return { band, numberText, value };
 }
+
+/** "98.1fm" or "98.1 fm" is saved as "98.1 FM"; anything else as typed. */
+export function tidyFrequencyLabel(typed: string): string {
+  const parsed = parseFrequencyLabel(typed);
+  return parsed ? `${parsed.numberText} ${parsed.band}` : typed.trim();
+}

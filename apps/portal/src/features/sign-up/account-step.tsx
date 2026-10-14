@@ -6,7 +6,7 @@ import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { TextField } from '../../components/text-field';
-import { fieldErrorsFrom } from './sign-up-page';
+import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
 import { useApplicationChange, useStationApplication } from './use-station-application';
 

@@ -8,6 +8,12 @@ import { renderPortalAt } from '../../test/render-portal';
 
 const person = userEvent.setup({ delay: null });
 
+/** The O2 section's answer for the tests' station (its id is signedInUserWith's first). */
+const NO_CHANGE_WAITING = {
+  'GET /stations/0190f1a2-0000-7000-8000-000000000100/change-request': () =>
+    jsonResponse(200, { approved: { name: 'Station A', frequencyLabel: '98.1 FM', licenceNumber: 'IBA/2026/0001' }, open: null, lastDecided: null }),
+};
+
 function profileFor(station: ReturnType<typeof signedInUserWith>['stations'][number], overrides: Partial<StationProfile> = {}): StationProfile {
   return {
     id: station.id,
@@ -33,6 +39,7 @@ describe('Station profile', () => {
     const user = signedInUserWith([{ name: 'Radio Phoenix', frequencyLabel: '89.5 FM', role: 'MANAGER' }]);
     const station = user.stations[0] as (typeof user.stations)[number];
     installFakeApi({
+      ...NO_CHANGE_WAITING,
       'GET /auth/me': () => jsonResponse(200, user),
       [`GET /stations/${station.id}`]: () => jsonResponse(200, profileFor(station, { province: 'Copperbelt', city: 'Kitwe' })),
     });
@@ -46,13 +53,15 @@ describe('Station profile', () => {
     expect(within(details).getByText('Africa/Lusaka')).toBeInTheDocument();
     expect(within(details).getByText('Approved')).toBeInTheDocument();
     expect(within(details).getByText('Manager')).toBeInTheDocument();
-    expect(screen.getByText(/checked by Look Up before they go live/)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Name, frequency and licence' })).toBeInTheDocument();
+    expect(screen.getByText(/checked by Look Up before they show/)).toBeInTheDocument();
   });
 
   it('says "Not set" for a place that has not been filled in', async () => {
     const user = signedInUserWith([{}]);
     const station = user.stations[0] as (typeof user.stations)[number];
     installFakeApi({
+      ...NO_CHANGE_WAITING,
       'GET /auth/me': () => jsonResponse(200, user),
       [`GET /stations/${station.id}`]: () => jsonResponse(200, profileFor(station, { province: null, city: null })),
     });
@@ -65,6 +74,7 @@ describe('Station profile', () => {
     const user = signedInUserWith([{ status: 'PENDING_REVIEW' }]);
     const station = user.stations[0] as (typeof user.stations)[number];
     installFakeApi({
+      ...NO_CHANGE_WAITING,
       'GET /auth/me': () => jsonResponse(200, user),
       [`GET /stations/${station.id}`]: () => jsonResponse(200, profileFor(station)),
     });
@@ -80,6 +90,7 @@ describe('Station profile', () => {
       const station = user.stations[0] as (typeof user.stations)[number];
       let saved: Partial<StationProfile> = {};
       const fakeApi = installFakeApi({
+      ...NO_CHANGE_WAITING,
         'GET /auth/me': () => jsonResponse(200, user),
         [`GET /stations/${station.id}`]: () => jsonResponse(200, profileFor(station, { province: null, city: null, ...saved })),
         [`PUT /stations/${station.id}/profile`]: (body) => {
@@ -176,6 +187,7 @@ describe('Station profile', () => {
     const station = user.stations[0] as (typeof user.stations)[number];
     let attempts = 0;
     installFakeApi({
+      ...NO_CHANGE_WAITING,
       'GET /auth/me': () => jsonResponse(200, user),
       [`GET /stations/${station.id}`]: () => {
         attempts += 1;

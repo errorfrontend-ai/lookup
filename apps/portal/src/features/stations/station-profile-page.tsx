@@ -10,6 +10,7 @@ import { Skeleton } from '../../components/skeleton';
 import { TextField } from '../../components/text-field';
 import { useToast } from '../../components/toast-region';
 import { describeStationRole, describeStationStatus } from '../../plain-words/station-status-words';
+import { StationChangeSection } from './station-change-section';
 import { canChangeStationProfile, useRequiredCurrentStation } from './use-current-station';
 import { useStationProfile, useUpdateStationProfile } from './use-station-profile';
 import { browserMaxLength } from '../../formatting/text-length';
@@ -132,9 +133,7 @@ export function StationProfilePage() {
         </section>
       ) : null}
 
-      <p className="text-caption text-muted">
-        Changes to your station's name, frequency or licence are checked by Look Up before they go live, so they can't be made here.
-      </p>
+      <StationChangeSection station={station} />
     </div>
   );
 }

@@ -6,7 +6,8 @@ import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '.
 import { applicationWith, type ApplicationChanges, APPLICANT_STATION_ID as STATION_ID } from '../../test/application-fixtures';
 import { renderPortalAt } from '../../test/render-portal';
 import { applicationStages } from './application-status-page';
-import { tidyFrequencyLabel, timeZoneChoices } from './details-step';
+import { tidyFrequencyLabel } from '../stations/parse-frequency-label';
+import { timeZoneChoices } from './details-step';
 import { confirmationPollingInterval } from './use-station-application';
 import { minutesAndSeconds, secondsUntil } from './verify-step';
 import { linkTokenFrom } from './verify-email-page';

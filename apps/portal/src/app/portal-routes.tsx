@@ -6,6 +6,7 @@ import { ClientsPage } from '../features/clients/clients-page';
 import { OverviewPage } from '../features/overview/overview-page';
 import { SignInPage } from '../features/sign-in/sign-in-page';
 import { StationProfilePage } from '../features/stations/station-profile-page';
+import { TeamPage } from '../features/team/team-page';
 import { PortalShell } from './portal-shell';
 import { HomeRedirect, RequireSignedIn } from './require-signed-in';
 import { RouteErrorPage } from './route-error-page';
@@ -32,6 +33,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
       { path: '/sign-in', element: <SignInPage /> },
       { path: '/signup', lazy: loadSignUp('SignUpPage') },
       { path: '/verify-email', lazy: loadSignUp('VerifyEmailPage') },
+      { path: '/invitations/accept', lazy: loadSignUp('InvitationPage') },
       {
         element: <RequireSignedIn />,
         children: [
@@ -91,6 +93,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
                       { path: 'clients', element: <ClientsPage /> },
                     ],
                   },
+                  { path: 'team', element: <TeamPage /> },
                   { path: 'profile', element: <StationProfilePage /> },
                   { path: 'account', element: <ChangePasswordPage /> },
                   { path: '*', element: <NotFoundPage /> },

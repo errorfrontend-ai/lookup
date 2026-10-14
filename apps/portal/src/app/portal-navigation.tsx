@@ -20,6 +20,7 @@ const NAVIGATION_ITEMS: NavigationItem[] = [
   { path: 'overview', label: 'Overview', icon: 'overview', needsActiveStation: true },
   { path: 'ads', label: 'Ads', icon: 'ads', needsActiveStation: true },
   { path: 'clients', label: 'Clients', icon: 'clients', needsActiveStation: true },
+  { path: 'team', label: 'Team', icon: 'team', needsActiveStation: false },
   { path: 'profile', label: 'Station profile', icon: 'profile', needsActiveStation: false },
 ];
 

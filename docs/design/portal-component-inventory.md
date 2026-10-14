@@ -12,6 +12,7 @@ This list is kept current by a test: `apps/portal/src/source-scan.test.ts` fails
 | `components/client-avatar` | A client's initials on a colour pair taken from the design tokens. | Overview, Ads list, Ad page, Clients, New ad (client) |
 | `components/empty-state` | What a list says when it has nothing to show, and what to do next when the person may. | Ads list, Clients |
 | `components/error-notice` | A failure in plain words with the reference (request id) to quote. Never technical text. | Sign in, Your account, Overview, Ads list, Ad page, New ad, Clients, Station profile, the signed-in check |
+| `components/file-upload-field` | A file chosen and sent with its progress: its name, "Uploading 40 %", "Uploaded" or "Upload failed" with the reason in plain words, and "Choose a file" / "Replace" (phase 5a). | Sign-up's logo and licence document; the station profile's change request |
 | `components/field-frame` | The label, hint and error around any form control, tied together with `aria-describedby`; the error is announced. | Inside the three field components below |
 | `components/frequency-dial` | The station's name and frequency drawn as a radio tuning scale with a needle. Decoration only. | The menu (every station page) |
 | `components/icons` | `Icon`: the portal's own inline SVG line icons, hidden from screen readers. | The menu and top bar, and most screens |

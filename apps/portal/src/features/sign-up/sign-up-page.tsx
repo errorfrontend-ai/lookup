@@ -7,7 +7,7 @@ import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { TextField } from '../../components/text-field';
-import { fieldReasonWords } from '../../plain-words/sign-up-words';
+import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { useSignedInUser } from '../session/use-signed-in-user';
 import { homePathFor } from '../sign-in/sign-in-page';
 import { HumanCheckWidget } from './human-check-widget';
@@ -15,12 +15,6 @@ import { stationApplicationQueryKey } from './use-station-application';
 import { SignUpLayout } from './sign-up-layout';
 
 const PASSWORD_MINIMUM_CHARACTERS = 15;
-
-/** Field problems from the API, by field, in plain words. */
-export function fieldErrorsFrom(error: unknown): Record<string, string> {
-  if (!(error instanceof ApiError)) return {};
-  return Object.fromEntries(error.fields.map((field) => [field.path, fieldReasonWords(field.code)]));
-}
 
 /**
  * Step 1, "Register your station" (P5A design §4.2; P5A-SIGNUP-04..08): name, work email, a Zambian mobile number

@@ -34,6 +34,7 @@ export interface ApiClient {
   get<Result>(path: string): Promise<Result>;
   post<Result>(path: string, body?: unknown): Promise<Result>;
   put<Result>(path: string, body: unknown): Promise<Result>;
+  delete<Result>(path: string): Promise<Result>;
 }
 
 export interface ApiClientDependencies {
@@ -95,6 +96,7 @@ export function createApiClient(dependencies: ApiClientDependencies = {}): ApiCl
     get: (path) => request('GET', path, undefined),
     post: (path, body) => request('POST', path, body),
     put: (path, body) => request('PUT', path, body),
+    delete: (path) => request('DELETE', path, undefined),
   };
 }
 

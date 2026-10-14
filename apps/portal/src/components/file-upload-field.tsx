@@ -1,8 +1,14 @@
 import { useId, useRef } from 'react';
-import { Button } from '../../components/button';
-import { ProgressBar } from '../../components/progress-bar';
-import { fieldReasonWords } from '../../plain-words/sign-up-words';
-import type { StationFileUploadState } from './use-station-application';
+import { fieldReasonWords } from '../plain-words/sign-up-words';
+import { Button } from './button';
+import { ProgressBar } from './progress-bar';
+
+/** A file on its way up: idle, uploading with its share, done, or failed with a field reason code (or "network"). */
+export type StationFileUploadState =
+  | { stage: 'idle' }
+  | { stage: 'uploading'; fileName: string; percent: number }
+  | { stage: 'done'; fileName: string }
+  | { stage: 'failed'; fileName: string; reason: string };
 
 /** Why an upload failed, in plain words ("network" is the connection's fault). */
 export function uploadFailureWords(reason: string): string {

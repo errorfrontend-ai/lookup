@@ -6,17 +6,11 @@ import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { SelectField } from '../../components/select-field';
 import { TextField } from '../../components/text-field';
-import { parseFrequencyLabel } from '../stations/parse-frequency-label';
-import { FileUploadField } from './file-upload-field';
-import { fieldErrorsFrom } from './sign-up-page';
+import { tidyFrequencyLabel } from '../stations/parse-frequency-label';
+import { FileUploadField } from '../../components/file-upload-field';
+import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
 import { useApplicationChange, useStationApplication, useStationFileUpload } from './use-station-application';
-
-/** "98.1fm" or "98.1 fm" is saved as "98.1 FM"; anything else as typed. */
-export function tidyFrequencyLabel(typed: string): string {
-  const parsed = parseFrequencyLabel(typed);
-  return parsed ? `${parsed.numberText} ${parsed.band}` : typed.trim();
-}
 
 /** The time zones the browser knows, with the station's and Lusaka's always there. */
 export function timeZoneChoices(current: string): string[] {

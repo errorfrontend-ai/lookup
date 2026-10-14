@@ -107,12 +107,12 @@ describe('the station shell', () => {
     expect(await screen.findByRole('heading', { name: "We couldn't find that page" })).toBeInTheDocument();
   });
 
-  it.each([['OWNER'], ['MANAGER'], ['ANALYST']] as const)('shows %s the places an approved station has: Overview, Ads, Clients and Station profile', async (role) => {
+  it.each([['OWNER'], ['MANAGER'], ['ANALYST']] as const)('shows %s the places an approved station has: Overview, Ads, Clients, Team and Station profile', async (role) => {
     const user = signedInUserWith([{ role }]);
     installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
     renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
     const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Overview', 'Ads', 'Clients', 'Station profile']);
+    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Overview', 'Ads', 'Clients', 'Team', 'Station profile']);
   });
 
   it('puts Your account and Sign out under the signed-in name and role at the bottom of the menu', async () => {
@@ -145,14 +145,14 @@ describe('the station shell', () => {
     }
   });
 
-  it('tells a station under review why it cannot add ads yet, and offers only its profile', async () => {
+  it('tells a station under review why it cannot add ads yet, and offers only its team and profile', async () => {
     const user = signedInUserWith([{ status: 'PENDING_REVIEW' }]);
     installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
     renderPortalAt(`/stations/${user.stations[0]?.id}/ads`);
     expect(await screen.findByRole('heading', { name: 'Not available yet' })).toBeInTheDocument();
     expect(screen.getAllByText(/checking this station's licence/).length).toBeGreaterThan(0);
     const navigation = (await screen.findAllByRole('navigation', { name: 'Main' }))[0] as HTMLElement;
-    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Station profile']);
+    expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Team', 'Station profile']);
   });
 
   it('after sign-in a station under review lands on its application (P5A design §4.1), a suspended one on its profile', async () => {

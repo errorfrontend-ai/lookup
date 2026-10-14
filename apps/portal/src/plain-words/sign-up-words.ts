@@ -1,4 +1,5 @@
 import type { ApplicationStep } from '@lookup/contracts';
+import { ApiError } from '../api/api-client';
 
 /** The sign-up steps' names, as the wireframes write them (P5A design §4.2). */
 export const SIGN_UP_STEP_NAMES: Record<ApplicationStep, string> = {
@@ -39,6 +40,12 @@ const FIELD_REASON_WORDS: Record<string, string> = {
 
 export function fieldReasonWords(code: string, fallback = "This doesn't look right. Check it and try again."): string {
   return FIELD_REASON_WORDS[code] ?? fallback;
+}
+
+/** Field problems from the API, by field, in plain words. */
+export function fieldErrorsFrom(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError)) return {};
+  return Object.fromEntries(error.fields.map((field) => [field.path, fieldReasonWords(field.code)]));
 }
 
 /** Why an application cannot be submitted yet (APPLICATION_INCOMPLETE's fields), with where it is fixed. */

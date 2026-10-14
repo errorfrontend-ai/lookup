@@ -8,8 +8,8 @@ import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { TextField } from '../../components/text-field';
 import { MISSING_PART_WORDS } from '../../plain-words/sign-up-words';
-import { FileUploadField } from './file-upload-field';
-import { fieldErrorsFrom } from './sign-up-page';
+import { FileUploadField } from '../../components/file-upload-field';
+import { fieldErrorsFrom } from '../../plain-words/sign-up-words';
 import { SignUpLayout } from './sign-up-layout';
 import { useApplicationChange, useStationApplication, useStationFileUpload } from './use-station-application';
 
