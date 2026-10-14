@@ -15,6 +15,9 @@ import { ActiveStationOnly, ContentEditorsOnly, StationScope } from './station-s
 // when first opened, so signing in and the lists load sooner on a slow connection.
 const loadAdSetupPage = () => import('../features/new-ad/ad-setup-page').then((module) => ({ Component: module.AdSetupPage }));
 const loadAdDetailPage = () => import('../features/ads/ad-detail-page').then((module) => ({ Component: module.AdDetailPage }));
+// Sign-up is its own download: a station's people never fetch it once they are approved.
+type SignUpPageName = keyof typeof import('../features/sign-up/sign-up-pages');
+const loadSignUp = (pageName: SignUpPageName) => () => import('../features/sign-up/sign-up-pages').then((module) => ({ Component: module[pageName] }));
 
 /** Every page in the portal. Station pages live under /stations/:stationId so links can be shared. */
 export const PORTAL_ROUTES: RouteObject[] = [
@@ -24,10 +27,23 @@ export const PORTAL_ROUTES: RouteObject[] = [
     hydrateFallbackElement: <LoadingScreen />,
     children: [
       { path: '/sign-in', element: <SignInPage /> },
+      { path: '/signup', lazy: loadSignUp('SignUpPage') },
+      { path: '/verify-email', lazy: loadSignUp('VerifyEmailPage') },
       {
         element: <RequireSignedIn />,
         children: [
           { index: true, element: <HomeRedirect /> },
+          {
+            // A station still applying has no name yet, so its application lives outside the station's pages.
+            path: '/stations/:stationId/application',
+            children: [
+              { index: true, lazy: loadSignUp('ApplicationStatusPage') },
+              { path: 'account', lazy: loadSignUp('AccountStep') },
+              { path: 'verify', lazy: loadSignUp('VerifyStep') },
+              { path: 'details', lazy: loadSignUp('DetailsStep') },
+              { path: 'licence', lazy: loadSignUp('LicenceStep') },
+            ],
+          },
           {
             path: '/stations/:stationId',
             element: <StationScope />,

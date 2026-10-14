@@ -60,6 +60,7 @@ const ICON_DRAWINGS = {
   ),
   plus: <path d="M12 5v14M5 12h14" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
+  back: <path d="M15 18l-6-6 6-6" />,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   check: <path d="M5 12l5 5 9-10" />,
   play: <path d="M8 5l11 7-11 7z" fill="currentColor" />,

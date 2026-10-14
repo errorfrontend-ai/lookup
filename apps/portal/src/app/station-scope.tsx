@@ -1,4 +1,4 @@
-import { Link, Outlet } from 'react-router';
+import { Link, Navigate, Outlet } from 'react-router';
 import { ToastProvider } from '../components/toast-region';
 import { NotFoundPage } from '../components/plain-pages';
 import { describeStationStatus } from '../plain-words/station-status-words';
@@ -12,22 +12,14 @@ export function StationScope() {
   const station = useCurrentStation();
   if (!station) return <NotFoundPage />;
   // A station still at the sign-up steps has no name or frequency yet, and nothing here to show.
-  if (!isNamedStation(station)) return <SignUpNotFinishedPage />;
+  // A station still signing up has its application to finish first.
+  if (!isNamedStation(station)) return <Navigate to={`/stations/${station.id}/application`} replace />;
   return (
     <StationContext.Provider value={station}>
       <ToastProvider>
         <Outlet />
       </ToastProvider>
     </StationContext.Provider>
-  );
-}
-
-function SignUpNotFinishedPage() {
-  return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4">
-      <h1 className="text-title">Finish signing up first</h1>
-      <p className="text-body text-muted">Your station's name and frequency come next in sign-up. Its pages open once they are saved.</p>
-    </main>
   );
 }
 

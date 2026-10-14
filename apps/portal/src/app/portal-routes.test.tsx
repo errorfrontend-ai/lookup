@@ -155,19 +155,31 @@ describe('the station shell', () => {
     expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(['Station profile']);
   });
 
-  it('after sign-in a station under review lands on its profile, not on a page it cannot use', async () => {
-    const user = signedInUserWith([{ status: 'PENDING_REVIEW' }]);
+  it('after sign-in a station under review lands on its application (P5A design §4.1), a suspended one on its profile', async () => {
+    const underReview = signedInUserWith([{ status: 'PENDING_REVIEW' }]);
+    const stationId = underReview.stations[0]?.id as string;
+    let signedIn = underReview;
     installFakeApi({
       'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
       'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
-      'POST /auth/sign-in': () => jsonResponse(200, user),
-      [`GET /stations/${user.stations[0]?.id}`]: () => jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'x', request_id: 'x' } }),
+      'POST /auth/sign-in': () => jsonResponse(200, signedIn),
+      [`GET /stations/${stationId}/application`]: () => jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'x', request_id: 'x' } }),
+      [`GET /stations/${stationId}`]: () => jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'x', request_id: 'x' } }),
     });
-    const { router } = renderPortalAt('/sign-in');
+    const first = renderPortalAt('/sign-in');
     await person.type(await screen.findByLabelText('Email'), 'chanda@example.test');
     await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
     await person.click(screen.getByRole('button', { name: 'Sign in' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${user.stations[0]?.id}/profile`));
+    await waitFor(() => expect(first.router.state.location.pathname).toBe(`/stations/${stationId}/application`));
+    first.unmount();
+    queryClient.clear();
+
+    signedIn = signedInUserWith([{ status: 'SUSPENDED' }]);
+    const second = renderPortalAt('/sign-in');
+    await person.type(await screen.findByLabelText('Email'), 'chanda@example.test');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(second.router.state.location.pathname).toBe(`/stations/${stationId}/profile`));
   });
 
   it('switches station from the station chooser when the person belongs to more than one', async () => {
