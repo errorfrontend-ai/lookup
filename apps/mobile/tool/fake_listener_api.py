@@ -67,7 +67,6 @@ import json
 import re
 import math
 import secrets
-import socket
 import struct
 import threading
 import time
@@ -135,10 +134,9 @@ RECOGNITION_REPORT_REASONS = ('WRONG_OR_MISLEADING_BUTTONS', 'NUMBER_OR_LINK_DOE
 PICTURE_PATH = re.compile(r'^/fake-pictures/([0-9]{1,4})x([0-9]{1,4})\.png$')
 LARGEST_PICTURE_SIDE = 1600
 PUBLIC_ORIGIN = re.compile(r'^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$')
-# "Slow upload" (P6 design §4.7): the clip read about 3 KB a second through a 2 KB receive buffer, so a 27-31 KB clip
-# takes 9-10 seconds, past the app's 5 seconds before "Still working" (§2.5).
-SLOW_UPLOAD_BYTES_PER_SECOND = 3_072
-SLOW_UPLOAD_RECEIVE_BUFFER_BYTES = 2_048
+# "Slow answer" (P6 design §4.7): the clip is read at once and the answer waits 8 seconds, past the app's 5 seconds
+# before "Still working" (§2.5) and inside its 15 seconds of waiting for an answer.
+SLOW_ANSWER_SECONDS = 8
 
 # The "My station" list: one fixed ETag, and the one listener answer that may be kept (contract §1.4).
 STATION_LIST_FIXTURE = 'recognition/listener-station-list/valid/two-stations.json'
@@ -214,10 +212,12 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     # same answer as a replay; one recognition however often it is sent.
     'match-answer-lost': {'route': RECOGNIZE_ROUTE, 'label': 'Match, answer lost',
                           'response': f'{RESPONSES}/match-campaign.json', 'drop_after_keeping': True},
-    # A slow upload (P6 design §2.5, §4.7): the clip is read slowly, then "Match". The clip may still fit in the phone's
-    # buffers, so the app may say "Clip sent" at once instead of a growing share; either way it says "Still working".
-    'slow-upload': {'route': RECOGNIZE_ROUTE, 'label': 'Slow upload', 'response': f'{RESPONSES}/match-campaign.json',
-                    'reads_slowly': True},
+    # A slow connection (P6 design §2.5, §4.7): "Match", answered 8 seconds after the clip arrived. The emulator and a
+    # tunnel take the whole clip at once, so the app says "Still working" with "Clip sent — waiting for the answer";
+    # the growing share is proved by the widget test. (Run 5: reading the clip slowly instead made the emulator's
+    # network drop the connection as the answer went out.)
+    'slow-answer': {'route': RECOGNIZE_ROUTE, 'label': 'Slow answer', 'response': f'{RESPONSES}/match-campaign.json',
+                    'answers_after_seconds': SLOW_ANSWER_SECONDS},
     # A card with a banner and a station logo (P6 design §3.16): drawn pictures with --public-origin.
     'match-with-images': {'route': RECOGNIZE_ROUTE, 'label': 'Match with pictures',
                             'response': f'{RESPONSES}/match-with-images.json', 'pictures': True},
@@ -415,12 +415,6 @@ class FakeState:
         with self.lock:
             for name in names:
                 self.scenarios[SCENARIOS[name]['route']].append(name)
-
-    def peek_scenario(self, route: str) -> str:
-        """The answer [route]'s next request will get, without taking it from the queue."""
-        with self.lock:
-            queue = self.scenarios[route]
-            return queue[0] if queue else DEFAULT_SCENARIOS[route]
 
     def next_scenario(self, route: str) -> str:
         with self.lock:
@@ -773,6 +767,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def refuse(self, reason: str, request_id: str | None) -> None:
+        self.drain_unread_body()
         self.record({'refused': reason})
         self.answer_json(400, {'error': {'code': 'VALIDATION_FAILED', 'message': 'Fake API refused the request.', 'request_id': request_id or '00000000-0000-4000-8000-000000000000'}}, request_id)
 
@@ -791,37 +786,16 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         self.is_body_read = True
         return self.rfile.read(length)
 
-    def read_body_slowly(self) -> bytes:
-        """The body as "Slow upload" reads it: a small receive buffer, then SLOW_UPLOAD_BYTES_PER_SECOND at a time with a
-        second between, so the phone's send has to wait (P6 design §4.7)."""
-        length = int(self.headers.get('Content-Length') or 0)
-        if length > MAXIMUM_BODY_BYTES:
-            raise RequestRefused(f'body of {length} bytes is over {MAXIMUM_BODY_BYTES}')
-        try:
-            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, SLOW_UPLOAD_RECEIVE_BUFFER_BYTES)
-        except OSError:
-            pass   # a platform that will not shrink it still gets the slow reads
-        self.is_body_read = True
-        pieces: list[bytes] = []
-        remaining = length
-        while remaining > 0:
-            piece = self.rfile.read(min(SLOW_UPLOAD_BYTES_PER_SECOND, remaining))
-            if not piece:
-                break
-            pieces.append(piece)
-            remaining -= len(piece)
-            if remaining > 0:
-                self.state.sleep(1)
-        return b''.join(pieces)
-
     def drain_unread_body(self) -> None:
-        """Reads a small body no one has read, before a refusal: Windows answers bytes left unread when the
-        connection closes with a reset, which the caller would see instead of the refusal."""
+        """Reads a body no one has read (one the stand-in would have taken), before a refusal: Windows answers bytes
+        left unread when the connection closes with a reset, which the caller would see instead of the refusal (a
+        listener request refused for its token before its clip was read, for one)."""
         if getattr(self, 'is_body_read', False):
             return
+        self.is_body_read = True
         try:
             length = int(self.headers.get('Content-Length') or 0)
-            if 0 < length <= MAXIMUM_CONTROL_BODY_BYTES:
+            if 0 < length <= MAXIMUM_BODY_BYTES:
                 self.rfile.read(length)
         except (ValueError, OSError):
             pass
@@ -1079,8 +1053,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         token = self.bearer_token()
         with self.state.lock:
             install_id = self.state.issued_tokens.get(token)
-        is_read_slowly = SCENARIOS[self.state.peek_scenario(RECOGNIZE_ROUTE)].get('reads_slowly', False)
-        body = self.read_body_slowly() if is_read_slowly else self.read_body()
+        body = self.read_body()
         if install_id is None:
             self.answer_token_not_issued(request_id)
             return
@@ -1122,6 +1095,8 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if SCENARIOS[scenario].get('drop_after_keeping'):
             self.close_unanswered()   # kept: the same key again gets this answer as a replay
             return
+        if SCENARIOS[scenario].get('answers_after_seconds'):
+            self.state.sleep(SCENARIOS[scenario]['answers_after_seconds'])
         self.answer_recognition(response, request_id, install_id)
 
     def fixture_answer(self, plan: dict[str, Any], fields: dict[str, str]) -> dict[str, Any] | None:

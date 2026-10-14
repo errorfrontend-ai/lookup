@@ -1569,6 +1569,23 @@ class PieceFourTest(unittest.TestCase):
             with self.subTest(not_an_amount):
                 self.assertIsNone(runner.data_amount_bytes(not_an_amount))
 
+    def test_used_this_month_must_grow_by_what_was_sent_to_the_precision_settings_shows(self) -> None:
+        # Below a megabyte, whole kilobytes: one identify of 28,202 bytes.
+        self.assertIsNone(runner.data_use_growth_problem(312_000, 340_000, 28_202))
+        self.assertIsNone(runner.data_use_growth_problem(312_000, 353_000, 28_202))
+        self.assertIn('grew by 12,000', runner.data_use_growth_problem(312_000, 324_000, 28_202) or '')
+        self.assertIn('grew by 44,000', runner.data_use_growth_problem(312_000, 356_000, 28_202) or '')
+        # Past a megabyte, tenths of one (run 5: 1.2 MB → 1.3 MB for one identify).
+        self.assertIsNone(runner.data_use_growth_problem(1_200_000, 1_300_000, 28_202))
+        self.assertIsNone(runner.data_use_growth_problem(1_200_000, 1_300_000, 4 * 28_202))
+        self.assertIn('grew by 300,000', runner.data_use_growth_problem(1_200_000, 1_500_000, 28_202) or '')
+        # Across the megabyte, half a step of each reading.
+        self.assertIsNone(runner.data_use_growth_problem(985_000, 1_000_000, 28_202))
+        self.assertIn('stayed at', runner.data_use_growth_problem(1_200_000, 1_200_000, 5 * 28_202) or '')
+        self.assertEqual((runner.reading_step_bytes(999_000), runner.reading_step_bytes(1_000_000)), (1_000, 100_000))
+        self.assertGreaterEqual((runner.IDENTIFIES_TO_MOVE_USED_THIS_MONTH - 1) * 27_000, 100_000,
+                                'enough identifies of the smallest clip to cross a tenth of a megabyte')
+
     def test_used_this_month_is_the_one_amount_on_the_settings_screen(self) -> None:
         def screen(*labels: str) -> Screen:
             return parse_screen_dump(dump_of([app(label) for label in labels]))
@@ -1657,7 +1674,7 @@ class PieceFourTest(unittest.TestCase):
     def test_piece_four_journeys_queue_only_answers_the_stand_in_knows(self) -> None:
         import fake_listener_api
 
-        for name in ('match', 'slow-upload', 'match-with-images', 'match-answer-lost', 'choose-station',
+        for name in ('match', 'slow-answer', 'match-with-images', 'match-answer-lost', 'choose-station',
                      'choice-answer-lost', 'engagement-answer-lost'):
             self.assertIn(name, fake_listener_api.SCENARIOS)
         self.assertEqual(runner.pictures_card_title(), CARD.title)
@@ -1749,7 +1766,7 @@ class StandInControlTest(unittest.TestCase):
 
     def test_the_scenarios_the_journeys_queue_are_known_to_the_stand_in(self) -> None:
         names = ['choose-station', 'match-by-hint', 'match', 'drop', 'no-match', 'busy-deferred-shed',
-                 'rate-limited-deferred', 'match-station-b', 'slow-upload', 'match-with-images', 'match-answer-lost']
+                 'rate-limited-deferred', 'match-station-b', 'slow-answer', 'match-with-images', 'match-answer-lost']
         self.fake_api.queue(names)
         self.assertEqual(self.fake_api.state()['queued']['recognize'], names)
 

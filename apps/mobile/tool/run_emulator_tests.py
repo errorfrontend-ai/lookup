@@ -122,6 +122,9 @@ LABELS: dict[str, str] = {
 # megabytes with one decimal, each 1,000 of the one before (DataAmount.of).
 CLIP_PERCENT_SENT = re.compile(r'^Clip (\d{1,3})% sent$')
 DATA_AMOUNT = re.compile(r'^(\d+(?:\.\d)?) (KB|MB)$')
+# Identifies the Data journey makes at most for "Used this month" to move: past a megabyte it moves in 100 KB steps,
+# and four identifies of about 30 KB always cross one.
+IDENTIFIES_TO_MOVE_USED_THIS_MONTH = 5
 
 # A saved clip's notification (P6 design §2.16, amendment A6): the same generic words for every outcome, and none of
 # the ad's, the advertiser's or the stations' words, since it shows on a locked phone.
@@ -1484,21 +1487,21 @@ def slow_send_problems(seen: SlowSendSeen) -> list[str]:
 
 
 def a_slow_answer_says_still_working(context: RunContext) -> str:
-    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with "Slow upload" (the stand-in reads the clip about
-    3 KB a second), Identifying says "Still working — the connection is slow." after 5 seconds, then how much of the
-    clip has gone or "Clip sent — waiting for the answer", then the Result. The clip may fit in the phone's and the
-    emulator's buffers, so the app may count it all sent at once (the widget test proves a growing share); the
-    emulator's console can slow its network, but changing the speed back drops the app's open connection (run 3), so
-    it is left alone."""
+    """Step 19 (P6-LISTENING-01; piece 4 walkthrough (a) step 3): with "Slow answer" (the stand-in answers 8 seconds
+    after the clip arrived), Identifying says "Still working — the connection is slow." after 5 seconds, then how much
+    of the clip has gone or "Clip sent — waiting for the answer", then the Result. The emulator takes the whole clip at
+    once, so the app counts it all sent (the widget test proves a growing share). The emulator's console can slow its
+    network, but changing the speed back drops the app's open connection (run 3); a stand-in that read the clip slowly
+    made the emulator's network drop the connection as the answer went out (run 5)."""
     driver, fake_api = context.driver, context.fake_api
     count_before = context.recognize_count()
-    fake_api.queue(['slow-upload'])
+    fake_api.queue(['slow-answer'])
     driver.tap(IDENTIFY_LABELS)
     seen = watch_a_slow_send(driver, SECONDS_FOR_A_SLOW_IDENTIFY)
     problems = slow_send_problems(seen)
     if problems:
         raise StepFailed('; '.join(problems) + f' ({seen.describe()})')
-    check_sends(context, count_before, ['slow-upload'])
+    check_sends(context, count_before, ['slow-answer'])
     context.back_home_from(LABELS['result back'])
     return seen.describe()
 
@@ -1583,6 +1586,23 @@ def used_this_month(screen: Screen, app_package: str) -> int:
     return data_amount_bytes(amounts.pop()) or 0
 
 
+def reading_step_bytes(shown_bytes: int) -> int:
+    """How finely Settings shows an amount (P6 design §2.11): whole kilobytes below a megabyte, then tenths of one."""
+    return 100_000 if shown_bytes >= 1_000_000 else 1_000
+
+
+def data_use_growth_problem(before: int, after: int, sent_bytes: int) -> str | None:
+    """Whether "Used this month" grew by what the identifies sent: at least their requests and less than one and a
+    half times them (the answers are small), give or take half a step of each reading. None when it did."""
+    if after == before:
+        return f'"Used this month" stayed at {before:,} bytes after identifies that sent {sent_bytes:,} bytes'
+    slack = (reading_step_bytes(before) + reading_step_bytes(after)) // 2
+    if not sent_bytes - slack <= after - before < 1.5 * sent_bytes + slack:
+        return (f'"Used this month" grew by {after - before:,} bytes (shown to the nearest {reading_step_bytes(after):,}) '
+                f'for identifies that sent {sent_bytes:,} bytes')
+    return None
+
+
 def read_used_this_month(context: RunContext) -> int:
     context.driver.tap(LABELS['tab settings'])
     context.driver.find_scrolling(LABELS['used this month'])
@@ -1611,35 +1631,38 @@ def set_pictures_switch(context: RunContext, is_on: bool) -> None:
 
 def data_use_and_the_pictures_switch(context: RunContext) -> str:
     """Step 20 (P6-DATASAVER-02 to -04 on the device; piece 4 walkthrough (a) steps 1-2): Settings → Data shows "Each
-    identify uses — about 25 KB" and "Used this month"; one identify adds at least its request to it, and less than
-    twice that; the whole row of "Load ad pictures on mobile data", on at first, turns it off, it stays off after a
-    restart, and the row turns it on again."""
+    identify uses — about 25 KB" and "Used this month"; identifies add at least their requests to it, and less than
+    one and a half times that; the whole row of "Load ad pictures on mobile data", on at first, turns it off, it stays
+    off after a restart, and the row turns it on again. Past a megabyte Settings shows tenths of one, so one identify
+    (about 30 KB) may not move the reading: up to five are made, until it moves (run 5)."""
     driver, fake_api, device = context.driver, context.fake_api, context.device
     driver.tap(LABELS['tab settings'])
     driver.expect_all([LABELS['each identify uses'], LABELS['about 25 KB'], LABELS['used this month']])
-    before = read_used_this_month(context)
-    go_home(context)
-    count_before = context.recognize_count()
-    fake_api.queue(['match'])
-    driver.tap(IDENTIFY_LABELS)
-    driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
-    body_bytes = int(check_sends(context, count_before, ['match'])[0].get('body_bytes') or 0)
-    context.back_home_from(LABELS['result back'])
-    after = read_used_this_month(context)
-    if after == before:
-        # The count is written a moment after the answer; Settings follows it.
-        try:
-            after = driver.wait_until(
-                lambda: (lambda shown: shown if shown != before else None)(
-                    used_this_month(driver.read_screen(), context.app_package)),
-                15, '"Used this month" to change after the identify')
-        except StepFailed:
-            pass
-    # Settings rounds to whole kilobytes, so each reading may be up to 500 bytes off.
-    if not body_bytes - 1_000 <= after - before < 1.5 * body_bytes:
+    before = after = read_used_this_month(context)
+    sent_bytes = identify_count = 0
+    while after == before and identify_count < IDENTIFIES_TO_MOVE_USED_THIS_MONTH:
+        go_home(context)
+        count_before = context.recognize_count()
+        fake_api.queue(['match'])
+        driver.tap(IDENTIFY_LABELS)
+        driver.wait_for(LABELS['result header'], SECONDS_FOR_AN_IDENTIFY)
+        sent_bytes += int(check_sends(context, count_before, ['match'])[0].get('body_bytes') or 0)
+        identify_count += 1
+        context.back_home_from(LABELS['result back'])
+        after = read_used_this_month(context)
+        if after == before:
+            # The count is written a moment after the answer; Settings follows it.
+            try:
+                after = driver.wait_until(
+                    lambda: (lambda shown: shown if shown != before else None)(
+                        used_this_month(driver.read_screen(), context.app_package)),
+                    15, '"Used this month" to change after the identify')
+            except StepFailed:
+                pass
+    problem = data_use_growth_problem(before, after, sent_bytes)
+    if problem is not None:
         reports = [str(report.get('message', ''))[:120] for report in fake_api.request_log().get('client_error_reports', [])]
-        raise StepFailed(f'"Used this month" grew by {after - before:,} bytes for an identify whose request was '
-                         f'{body_bytes:,} bytes; the crash reports the app sent: {reports or "none"}')
+        raise StepFailed(f'{problem} ({identify_count} identifies); the crash reports the app sent: {reports or "none"}')
     if pictures_switch(context).checked is not True:
         raise StepFailed('"Load ad pictures on mobile data" is not on at first')
     set_pictures_switch(context, False)
@@ -1651,8 +1674,9 @@ def data_use_and_the_pictures_switch(context: RunContext) -> str:
         raise StepFailed('"Load ad pictures on mobile data" was on again after a restart')
     set_pictures_switch(context, True)
     go_home(context)
-    return (f'"about 25 KB" shown; "Used this month" went from {before:,} to {after:,} bytes for a request of '
-            f'{body_bytes:,}; the row turned the switch off, it stayed off after a restart, and the row turned it on')
+    return (f'"about 25 KB" shown; "Used this month" went from {before:,} to {after:,} bytes for {identify_count} '
+            f'identifies that sent {sent_bytes:,}; the row turned the switch off, it stayed off after a restart, and the '
+            'row turned it on')
 
 
 def pictures_card_title() -> str:

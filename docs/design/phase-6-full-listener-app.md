@@ -1366,7 +1366,7 @@ also a re-registration, A3) and the clip's lifetime (24 hours on a clock that ma
    `https://example.com/`.
 3. **`apps/mobile/tool/fake_listener_api.py`**: contract §4, plus P6-D30 and P6-D50 (control page,
    forwarded requests refused, control requests checked for their content type, origin and host, the
-   offline switch acting before any scenario is taken, a `slow-upload` scenario, `match-with-images`
+   offline switch acting before any scenario is taken, a `slow-answer` scenario, `match-with-images`
    with its addresses rewritten to the stand-in's public origin, the number replacement taken from the
    control page, `occurredAt` accepted, a token accepted on a re-registration); §4.7.
 4. **Docs**: this file; the security-baseline rows of §3.22; checklist 3 gains the new behaviours this
@@ -1523,12 +1523,17 @@ switches, `/__fake/state`), plus P6-D30 and, added after review, P6-D50:
   closed before any scenario is taken from a queue, so a queued "Busy (shed)" is kept for the first
   request that gets through. A test queues a scenario, sends with "No signal" on, then off, and sees
   the scenario used by the second request.
-- **Scenarios added to contract §4's list**: `slow-upload` and `match-with-images`.
-  - `slow-upload` sets a small receive buffer (`SO_RCVBUF` of 2 KB) on the accepted socket and reads
-    about 3 KB a second, then answers `match`. The clip (27–31 KB) may still fit in the phone's and the
-    emulator's network buffers, so the app may report "Clip sent — waiting for the answer" at once
-    instead of a growing percentage; the walkthrough accepts either, and the widget test with a fake
-    slow network is the proof (P6-LISTENING-01).
+- **Scenarios added to contract §4's list**: `slow-answer` and `match-with-images`.
+  - `slow-answer` reads the clip at once and answers `match` 8 seconds later: past the app's 5 seconds
+    before "Still working", inside its 15 seconds of waiting for an answer. The emulator and a tunnel take
+    the whole clip (27–31 KB) at once, so the app reports "Clip sent — waiting for the answer" rather than a
+    growing percentage; the walkthrough accepts either, and the widget test with a fake slow network is
+    the proof of the percentage (P6-LISTENING-01).
+  - *Changed after emulator run 5 (14 October 2026):* it was `slow-upload`, which read the clip about 3 KB a
+    second through a 2 KB receive buffer. The clip still reached the emulator's network at once, so nothing
+    more showed, and the emulator's network dropped the app's connection just as the answer went out
+    (`HttpException`, so the clip was saved offline). An answer that waits shows the same screens without
+    that drop.
   - `match-with-images`: the existing fixture, with its two picture addresses rewritten to the
     stand-in's own public origin, given at start as `--public-origin https://<address>` (the user's
     fixed ngrok address in a phone check; §5.0 (c)), at `/sample-images/banner.png` and
@@ -1890,7 +1895,7 @@ approved (the P4 design's piece 4). **Items**: P6-DATASAVER-02 to -06; P6-LISTEN
 2. Turn **"Load ad pictures on mobile data"** off (tap anywhere on the row) and on again: the switch
    follows the whole row. The pictures themselves are shown on your phone in walkthrough (c), because
    none can load on the emulator (fact 17).
-3. Press **"Next answer: Slow upload"**, identify: after 5 seconds "Still working — the connection is
+3. Press **"Next answer: Slow answer"**, identify: after 5 seconds "Still working — the connection is
    slow.", then either "Clip [n]% sent" growing or "Clip sent — waiting for the answer" (the clip is
    small enough that the network may take it all at once; the widget test proves the percentage),
    then the result.
@@ -2169,7 +2174,7 @@ P6-D35 to P6-D52 were added after review.
 | P6-D27 | **Taps are one outbox item per (recognition, button) with the first tap's time, from live and saved results, with `sent_at`.** | Contract §5.4; gap 31; a History tap is a real use of the button (Q16). |
 | P6-D28 | **Crash reports with no answer are queued (scrubbed, `occurredAt`, 20 at most, 7 days); a queued report shows no code.** | P6-ERRORREPORTING-05; Step 4's rule that a code means a log line exists. |
 | P6-D29 | **Test numbers come from +44 7700 900000–900999 and links from `example.com` in every new or edited fixture**; the remaining sweep waits for approval. | The user asked whose the sample numbers are; this range will not be allocated (Q13). |
-| P6-D30 | **The stand-in gets a control page, refuses forwarded control requests, and adds `slow-upload` and `match-with-images`** (and, after review, the checks of P6-D50). | The user's "tools must be usable" standard for walkthroughs; the ngrok tunnel would expose its controls (fact 24). |
+| P6-D30 | **The stand-in gets a control page, refuses forwarded control requests, and adds `slow-answer` (first `slow-upload`, changed after run 5) and `match-with-images`** (and, after review, the checks of P6-D50). | The user's "tools must be usable" standard for walkthroughs; the ngrok tunnel would expose its controls (fact 24). |
 | P6-D31 | **Emulator proofs**: the stand-in's "No signal" switch where the network should look connected, `dumpsys notification`, the shade or `am start` with the same intent, `am kill` never `am force-stop`. Amended after review: also **a real network change with the app open** (airplane mode, or `svc wifi` and `svc data`, whichever piece 0 proves), whatever Q2's answer; the notification permission granted through "Allow notifications" before any notification is expected; no picture step on the emulator. | Facts 8, 17 and 22; each proof works on the existing image with no download; the stand-in switch never makes Android report a network change. |
 | P6-D32 | **Every deferred outcome has a History entry and, when answered, a notification**, with the wording of §2.16. | The Saved screen promises a result; a clip must never disappear silently (gap 17). |
 | P6-D33 | **History shows the phone's capture time.** | Contract §5.14: a row does not jump when the answer arrives. |
@@ -2281,7 +2286,7 @@ design states the same ones it shares):
    gate record calls run 4 a one-off drop. The precondition kept here is to make the emulator evidence
    record the app's no-answer reason before the no-answer path is rewritten (piece 0).
 4. Additions to contract §4 (the stand-in), not corrections: the control page, the refusal of
-   forwarded control requests, the `slow-upload` and `match-with-images` scenarios (P6-D30), and the
+   forwarded control requests, the `slow-answer` and `match-with-images` scenarios (P6-D30), and the
    checks of P6-D50 (§4.7). Its `CLIENT_ERROR_FIELDS` must gain `occurredAt`, and `/installs` must
    accept a token it issued (A3); `station_hint` is already accepted (fact 7, corrected after review).
 5. **Hints for unlisted stations** (the server design's Correction 3, adopted). §1.2's `station_hint`
@@ -3080,6 +3085,7 @@ together. Nothing is pushed; the user pushes.
 | 2 | the same | 30 of 32 | The size check's summary line still counted them (driver). **An app bug**: a notification's tap opened History, not its result. Riverpod 3 pauses a provider while no screen on show watches it, so the History view kept for a hidden tab did not yet hold a result the outbox had just saved, and the saved-result page took it as final. Fixed (`c06d60c`): the page looks the id up in History itself before calling it missing, and goes back only once its page has arrived. |
 | 3 | pieces 3 and 4 | 35 of 36 | The Data journey's identify was saved offline: the slow journey before it had slowed the emulator's network, and setting the speed back dropped the app's open connection. The slow journey no longer changes the speed (`162e554`). |
 | 4 | pieces 3, 4 and 5 | 32 of 38 | (1) History's journey counted the saved result's Call tap, now queued to be counted, as data the page needed (driver, `fb7fc2a`). (2) The slow journey: the stand-in was changed during the run (`d1454f6`), so the stand-in and the driver disagreed on the scenario's name; tools are never changed during a run again. (3) "Used this month" did not grow after an identify on the phone, though it does in the widget journey with the app's own wiring; the driver now waits for it and names any crash report, and P6-DATASAVER-03 waits for the next run. (4) A map tap opened the image's own stand-in app, which stayed in front, so the last two journeys could not reach Home; the taps journey now stays on Call and recovery presses Home first (`7f9cdbf`). |
+| 5 | pieces 3 to 6 (part 1) | 37 of 39 | Steps 13 (taps), 14 (answers lost) and 15 (the tablet sizes) passed. (1) The slow journey: the stand-in read the clip about 3 KB a second; the emulator's network had taken the whole clip at once ("Clip sent" showed), and dropped the app's connection as the answer went out (`HttpException` after 9 s, so the clip was saved offline). On this PC the same stand-in answered a normal client correctly, so the drop is the emulator's network; the stand-in now reads the clip at once and answers 8 seconds later ("Slow answer", §4.7), which shows the same screens. (2) The Data journey: "Used this month" grew by 0.1 MB for one identify of 28 KB. Past a megabyte Settings shows tenths of one, so one identify may move the reading by a step or not at all; that is also what run 4 saw (no growth), and the phone was counting all along. The driver now makes up to five identifies until the reading moves, and allows half a step of each reading. Also fixed: a stand-in test that failed about one run in three, because a listener request refused for its token before its clip was read made Windows reset the connection; every refusal now reads the body first. |
 
 Every journey of piece 3 passed in runs 3 and 4: Saved offline and its notification, the clip that survives a
 restart, the queued crash report, the waits the server asks for, airplane mode with the app open, two notifications,
@@ -3098,7 +3104,7 @@ pictures on mobile data, the size, privacy, clip and production checks, and the 
 - "Report this": a flag link at the bottom right of every Result, live or saved; the sheet's four reasons; the
   report through the outbox; History remembers it, so the footer says "Reported".
 - Privacy: the two points this version needs (a clip waiting offline; what a report keeps).
-- The stand-in: "Report this", "Slow upload" (§4.7: a 2 KB receive buffer and about 3 KB a second), and "Match with
+- The stand-in: "Report this", "Slow answer" (§4.7: the answer 8 seconds after the clip; first "Slow upload", see §4.7), and "Match with
   pictures", whose two pictures it draws and serves itself when started with `--public-origin`.
 
 **Piece 5 built** (the app's half `12dea0e`, the tools `162e554`, the server's half `fa75df7`):
@@ -3151,7 +3157,7 @@ P6-LISTENING-01, -02. Waiting, each with its reason in the checklist: P6-TESTS-0
   so with no family a test drew them in its box font; on the phone nothing changes.
 - **The stand-in** reads a control request's body before refusing it: Windows reset the connection otherwise, which
   made one of its own tests flaky.
-- **The stand-in's button names**: "Slow upload", "Match with pictures", "Match, answer lost", "Choice kept, answer
+- **The stand-in's button names**: "Slow answer", "Match with pictures", "Match, answer lost", "Choice kept, answer
   lost", "Tap kept, answer lost".
 
 **Still to do:** emulator run 5 (Docker closed) for steps 13, 14 and the Data journey; the rest of piece 6 (the
