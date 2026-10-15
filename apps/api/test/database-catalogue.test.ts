@@ -374,6 +374,26 @@ describe('database catalogue', () => {
       );
     });
 
+    it('P4-DATABASE-01: every link from the candidates, taps and counters to a station’s campaigns or cards carries the station, like the foundation tables', async () => {
+      const links = await rows<{ link: string; columns: string[] }>(
+        `SELECT conrelid::regclass::text || ' -> ' || confrelid::regclass::text AS link,
+                ARRAY(SELECT attname::text FROM pg_attribute WHERE attrelid = conrelid AND attnum = ANY(conkey) ORDER BY attnum) AS columns
+           FROM pg_constraint
+          WHERE contype = 'f'
+            AND conrelid IN ('app.recognition_candidates'::regclass, 'app.engagement_events'::regclass, 'app.campaign_counters'::regclass)
+            AND confrelid IN ('app.campaigns'::regclass, 'app.action_cards'::regclass)
+          ORDER BY 1`,
+      );
+      expect([...new Set(links.map((link) => link.link))]).toEqual([
+        'app.campaign_counters -> app.campaigns',
+        'app.engagement_events -> app.action_cards',
+        'app.engagement_events -> app.campaigns',
+        'app.recognition_candidates -> app.action_cards',
+        'app.recognition_candidates -> app.campaigns',
+      ]);
+      for (const link of links) expect(link.columns, link.link).toContain('station_id');
+    });
+
     it('P4-DATABASE-05: taps and reports hold no foreign key to recognitions, so an old month of recognitions can always be detached', async () => {
       const keys = await rows<{ table_name: string; referenced_table: string }>(
         `SELECT conrelid::regclass::text AS table_name, confrelid::regclass::text AS referenced_table FROM pg_constraint

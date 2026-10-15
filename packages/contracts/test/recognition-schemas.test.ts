@@ -196,6 +196,19 @@ describe('the recognize response', () => {
     ]);
   });
 
+  it('P4-CHOOSER-01: a chooser answer carries its candidates and no top-level result, for zod and for the JSON Schema', () => {
+    const choosers = valid.filter(({ name }) => name.startsWith('choose-station'));
+    expect(choosers.length).toBeGreaterThanOrEqual(5);
+    for (const { name, fixture } of choosers) {
+      const response = fixture.response as Record<string, unknown>;
+      expect(Array.isArray(response.candidates), name).toBe(true);
+      expect(response, name).not.toHaveProperty('result');
+    }
+    const withResult = invalid.find(({ name }) => name === 'choose-station-with-result')?.fixture.response;
+    expect(RecognizeResponse.safeParse(withResult).success).toBe(false);
+    expect(validateWithJsonSchema(withResult)).toBe(false);
+  });
+
   it('the choosers offer 2, 3 and 4 stations with a card each, every one a default card only out of window', () => {
     type Chooser = { is_deferred: boolean; candidates: Array<{ kind: string; card: { actions: Array<{ id: string }> } }> };
     const chooser = (name: string) => valid.find((fixture) => fixture.name === name)?.fixture.response as Chooser;

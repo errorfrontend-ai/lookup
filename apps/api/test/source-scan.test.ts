@@ -195,6 +195,20 @@ describe('source scan', () => {
     expect(runbook).toMatch(/\*\*no licence numbers, no expiry dates and no "as at" date\*\*/);
   });
 
+  it('P4-DELIVERY-01: ADR-003 records shared audio assets and the station resolution rules', () => {
+    const decision = readFileSync(resolve(REPOSITORY_ROOT, 'docs/adr/ADR-003-shared-audio-and-station-resolution.md'), 'utf8');
+    expect(decision).toMatch(/^# ADR-003: Shared audio assets and station resolution$/m);
+    // Asset sharing: one recording, many owners, linked only by the ingest worker.
+    expect(decision).toContain('**One recording, many owners (D7).**');
+    expect(decision).toContain('the link is set only by the ingest worker');
+    // The resolution rules: the order, every case of the table, and never guessing between stations on air.
+    expect(decision).toContain('**Resolution, in the plan\'s order: candidates, schedule, hint, limits.**');
+    for (const resolution of ['`SINGLE_OWNER`', '`SCHEDULE_UNIQUE`', '`HINT`', '`UNRESOLVED`, `LISTENER_CHOICE` once chosen']) expect(decision).toContain(resolution);
+    expect(decision).toContain('The server never guesses between stations on air');
+    expect(decision).toContain('**Which time decides what.**');
+    expect(decision).toContain('**On air with grace.**');
+  });
+
   it('S3-PRIVACY-01: nothing on the listener path can write a file or store a clip: no file system or object storage in the recognition, installs and queue code', () => {
     const listenerPath = apiFiles.filter((file) => /^apps\/api\/src\/(features\/recognition|features\/listener-installs|common\/listener-authentication|infrastructure\/job-queues)\//.test(file.path));
     expect(listenerPath.length).toBeGreaterThan(10);

@@ -374,6 +374,24 @@ describe('POST /api/v1/engagements', () => {
     expect(await tapRows(recognitionId)).toHaveLength(1);
   });
 
+  it('P4-CHOICE-08 (tap half): taps share one allowance with choices and reports: once choices and a report have used the minute, a tap is refused 429 and not stored', async () => {
+    const { station, install, recognitionId } = await answeredMatch();
+    const followUp = (path: string, body: object) =>
+      client().post(path).set('X-Forwarded-For', randomClientAddress()).set('Authorization', `Bearer ${install.installToken}`).send(body);
+    // A choice on an answer that was not a chooser is refused, but it is counted all the same.
+    for (let sent = 0; sent < FOLLOW_UPS_PER_MINUTE - 1; sent += 1) {
+      expect((await followUp(`/api/v1/recognitions/${recognitionId}/choice`, { station_id: station.stationId })).status).not.toBe(429);
+    }
+    expect((await followUp(`/api/v1/recognitions/${recognitionId}/report`, { station_id: station.stationId, reason: 'SOMETHING_ELSE' })).status).toBe(204);
+    const limited = await sendTap(install.installToken, tapBody(recognitionId, station.stationId, actionOf(station, 0)));
+    expectRefusal(limited, 429, 'RATE_LIMITED');
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+    expect(await tapRows(recognitionId)).toEqual([]);
+    // Another install still taps.
+    const other = await answeredMatch();
+    expect((await sendTap(other.install.installToken, tapBody(other.recognitionId, other.station.stationId, actionOf(other.station, 0)))).status).toBe(204);
+  });
+
   it('ALL-SECURITY-09: a cookie request from another site is refused 403 before anything else', async () => {
     const { station, install, recognitionId } = await answeredMatch();
     const crossSite = await sendTap(install.installToken, tapBody(recognitionId, station.stationId, actionOf(station, 0)), {

@@ -131,6 +131,45 @@ export function sendRecognizeInChunks(
  * them, so the server takes its place in flight and counts the request before the stall; without, the
  * audio part comes first. Resolves with the server's answer and when it came.
  */
+/**
+ * Sends only the headers of a recognize request whose body is declared as `declaredLength` bytes, and waits for the
+ * answer. Nothing of the body is sent, so a refusal made before reading it can never be hidden by a reset of the
+ * connection (Windows drops an answer when the server closes with unread bytes in its socket).
+ */
+export function sendRecognizeHeadersOnly(
+  server: http.Server,
+  options: { installToken: string | null; declaredLength: number },
+): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+  const { port } = server.address() as AddressInfo;
+  const ownAgent = new http.Agent({ keepAlive: false, maxSockets: 1 });
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      agent: ownAgent,
+      host: '127.0.0.1',
+      port,
+      method: 'POST',
+      path: '/api/v1/recognize',
+      headers: {
+        ...(options.installToken === null ? {} : { Authorization: `Bearer ${options.installToken}` }),
+        'Content-Type': `multipart/form-data; boundary=----lookup-test-${randomUUID()}`,
+        'Content-Length': String(options.declaredLength),
+        'X-Forwarded-For': randomClientAddress(),
+      },
+    });
+    request.on('response', (response) => {
+      let body = '';
+      response.on('data', (part: Buffer) => (body += part.toString('utf8')));
+      response.on('end', () => {
+        request.destroy();
+        ownAgent.destroy();
+        resolve({ status: response.statusCode ?? 0, body, headers: response.headers });
+      });
+    });
+    request.on('error', reject);
+    request.flushHeaders();
+  });
+}
+
 export function sendRecognizeAndStall(
   server: http.Server,
   options: { installToken: string; fields?: Record<string, string> },

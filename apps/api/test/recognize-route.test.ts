@@ -27,6 +27,7 @@ import {
   recognizeJobCount,
   registerInstall,
   sendRecognizeAndStall,
+  sendRecognizeHeadersOnly,
   sendRecognizeInChunks,
 } from './support/listener-test-kit.js';
 import { waitForLogWrites } from './support/log-capture.js';
@@ -276,11 +277,19 @@ describe('POST /api/v1/recognize', () => {
       const { installToken, rowId } = await newInstall();
       const tampered = `${installToken.slice(0, -4)}AAAA`;
       const { installToken: expired } = await testApplication.application.get(InstallTokens).issue(rowId, new Date(Date.now() - 31 * 24 * 60 * 60 * 1000));
+      const server = testApplication.application.getHttpServer();
       for (const token of [null, '', 'not-a-token', tampered, expired]) {
-        const response = await recognize(client, { installToken: token, audio: aacClipBytes(300_000) });
+        const response = await recognize(client, { installToken: token });
         expect(response.status, String(token).slice(0, 12)).toBe(401);
         expect(response.body.error).toMatchObject({ code: 'INSTALL_TOKEN_INVALID', request_id: response.headers['x-request-id'] });
+        // Before the size: a body declared too large is refused for the token (401), not for its size (413). Only the
+        // headers are sent, so the answer cannot be lost to a connection reset (it once was, sending the 300 KB).
+        const declaredTooLarge = await sendRecognizeHeadersOnly(server, { installToken: token, declaredLength: 300_000 });
+        expect(declaredTooLarge.status, String(token).slice(0, 12)).toBe(401);
+        expect(JSON.parse(declaredTooLarge.body).error).toMatchObject({ code: 'INSTALL_TOKEN_INVALID', request_id: declaredTooLarge.headers['x-request-id'] });
       }
+      // With a good token the same declared size is refused for its size, so the order above is what decided.
+      expect((await sendRecognizeHeadersOnly(server, { installToken, declaredLength: 300_000 })).status).toBe(413);
       expect(worker.receivedJobs).toHaveLength(0);
     });
 

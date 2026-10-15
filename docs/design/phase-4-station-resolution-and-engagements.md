@@ -2427,3 +2427,56 @@ The tap-farming risk named in §5.8 stays open until P8 (a row in the security b
   and the per-install cap is on: the campaign's limit of 10 is what stops them, and every tap is stored.
 - **The stand-in's button names** are "Match, answer lost", "Choice kept, answer lost" and "Tap kept, answer lost"
   (the P6 design's walkthrough says "Choice, answer lost" and "Tap, answer lost").
+
+## Gate record (15 October 2026)
+
+Phase 4 was built in five pieces (11–14 October 2026) and proven on the emulator, but its gate was not recorded
+then: 75 of its 132 items were ticked. This record closes both parts.
+
+**Checklist.** 126 of the 132 P4 items are ticked, each with test evidence that the evidence checker
+(`scripts/check-requirement-evidence.mjs`) finds. Ticking them meant reading each named test against its item's
+"Verified by"; 47 of the 57 open items were already proven by tests that name them. Where a test proved less than
+its item asks, it was extended, and each addition was shown to fail against broken code before it was kept:
+- **P4-CLOCK-04:** a request from a phone 3 hours slow stores exactly *receipt − send* as its clock skew
+  (`recognize-deferred`; storing 0 instead fails it). Before, only the database function was tested.
+- **P4-CHOICE-08:** taps share the follow-up allowance with choices and reports (`engagements-route`; giving taps an
+  allowance of their own fails it). Before, the tap test filled the allowance with taps alone.
+- **P4-DATABASE-01:** station A's context cannot insert a tap carrying station B's id, refused for want of the
+  privilege (`station-isolation-matrix`; a granted INSERT fails it), and every link from the candidates, taps and
+  counters to campaigns and cards carries `station_id` (`database-catalogue`; a single-column key fails it).
+- **P4-CHOOSER-01:** a contract test that a chooser answer carries its candidates and no top-level `result`
+  (`recognition-schemas`; a chooser schema that lets other keys through fails it).
+- **P4-DELIVERY-01:** a source check that ADR-003 records shared audio assets and the resolution rules.
+
+**Gate part 1 (P4-RESOLUTION-16)** is ticked: every P4 item outside taps and tap limits is ticked, or set aside with a
+reason the user has seen (below).
+
+**Gate part 2 (P4-RESOLUTION-17)** is built and proven, but stays open on one item. Taps, tap limits, the
+engagements route, P4-TIMERULE-04, P4-IDEMPOTENCY-20 and P4-DELIVERY-02 are ticked; emulator run 6 (the P6 design's
+table of emulator runs, 39 of 39, 14 October 2026) passed steps 13 and 14, so two Call taps counted once, a tap made
+with no signal arrived once, and a clip, a choice and a tap whose answers were lost were each kept once. What stays
+is P4-DELIVERY-04, the build order, which only the commit history shows.
+
+**Still open (6):**
+
+| Item | Why it is open |
+|---|---|
+| P4-DELIVERY-04 | The order holds on `main`: the outbox (`9555993`), History and Settings (`c737a2d`), offline capture (`7fe68cb`), then taps in the app (`12dea0e`) and the engagements route (`fa75df7`). No test can show an order of commits; the user is asked to accept the commit history as its proof. |
+| P4-RESOLUTION-17 | Gate part 2 needs P4-DELIVERY-04; everything else in it is ticked. |
+| P4-DELIVERY-03 | Superseded: the user's reorder of 10 October 2026 built the chooser (P4, P6) before sign-up (P5A). |
+| P4-DEFERRED-11 | The deferred allowance and shedding numbers come from the load tests (P8 on Render, the user's answer Q10). |
+| P4-TESTS-06, -07 | k6 load tests at the target rate, and with 1,000 deferred clips on top of live traffic: P8 on Render (Q10). |
+
+**Carried into Phase 5b.** Every station in an answer carries its `logo` field, still `null` (S3-D21): stations have
+uploaded logos since sign-up (P5A), so sending them to listeners, with addresses that stay valid for saved History
+entries (P4-D37), is built with 5b's picture screens, together with the card's header image.
+
+**Suites at the gate:** contracts 769; API 1,272 in 80 files (Docker up), with the one failure of the full run fixed
+and its file re-run (51 of 51); typecheck clean; the evidence checker passes.
+
+**Fixed intermittent.** `recognize-route`'s "refuses a missing, malformed, tampered or expired install token … before
+the size or anything else" sent a 300 KB clip that the API refuses before reading, and on Windows the client
+sometimes saw the connection reset instead of the 401 (the P5A gate record named it). It failed again in this run,
+so it was fixed rather than re-run: the order is now proven by sending only the headers of a body declared too large
+(`sendRecognizeHeadersOnly`) — 401 for each bad token, and 413 for the same declared size with a good token — so
+nothing is left unread and no reset can hide the answer. Each token is still also sent with a normal clip.

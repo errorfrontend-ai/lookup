@@ -197,6 +197,14 @@ describe('station isolation and role privileges, table by table', () => {
            VALUES ($1, $2, $3, $4, $5, 'CAMPAIGN', true)`,
           [ofB.recognition, recognitionReceivedAt, stationIds.B, ofB.campaign, ofB.card],
         );
+        await expectRefused(
+          client,
+          `INSERT INTO app.engagement_events (id, received_at, recognition_id, recognition_received_at, station_id, campaign_id, action_card_id, card_kind,
+                                              action_id, action_type, occurred_at, client_occurred_at, clock_skew_milliseconds, is_counted, request_id)
+           VALUES ($1, now(), $2, $3, $4, $5, $6, 'CAMPAIGN', $7, 'CALL', now(), now(), 0, true, 'test')`,
+          [randomUUID(), ofB.recognition, recognitionReceivedAt, stationIds.B, ofB.campaign, ofB.card, randomUUID()],
+          /permission denied for table engagement_events/,
+        );
         await expectRefused(client, `INSERT INTO app.campaign_counters (campaign_id, station_id) VALUES ($1, $2)`, [ofB.campaign, stationIds.B]);
         await expectRefused(client, `UPDATE app.campaign_counters SET counted_engagement_count = 0 WHERE station_id = $1`, [stationIds.A]);
       });

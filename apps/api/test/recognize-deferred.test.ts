@@ -183,6 +183,20 @@ describe('POST /api/v1/recognize, clips sent later', () => {
     expect(row.client_captured_at.getTime()).toBe(now - slow - 9_000);
   });
 
+  it('P4-CLOCK-04: a request from a phone 3 hours slow keeps its measured clock skew on the row, exactly the receipt time minus the phone’s send time', async () => {
+    const { installToken } = await newInstall();
+    const sentAt = Date.now() - 3 * 3_600_000;
+    const response = await recognize(client, {
+      installToken,
+      fields: { ...defaultRecognizeFields(), captured_at: new Date(sentAt - 9_000).toISOString(), sent_at: new Date(sentAt).toISOString(), is_deferred: 'true' },
+    });
+    expect(response.status).toBe(200);
+    const stored = await setupClient.query('SELECT received_at, clock_skew_milliseconds::text AS skew FROM app.recognition_events WHERE id = $1', [response.body.recognition_id]);
+    const { received_at: receivedAt, skew } = stored.rows[0] as { received_at: Date; skew: string };
+    expect(Number(skew)).toBe(receivedAt.getTime() - sentAt);
+    expect(Math.abs(Number(skew) - 3 * 3_600_000)).toBeLessThan(60_000);
+  });
+
   it('P4-CLOCK-07: the same expired clip sent twice gets 422 CAPTURE_EXPIRED both times, and nothing is queued or stored', async () => {
     const { installToken, rowId } = await newInstall();
     const fields = clipFields({ deferred: true, heardSecondsAgo: 25 * 3_600 });
