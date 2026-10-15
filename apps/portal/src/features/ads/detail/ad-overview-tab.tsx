@@ -1,6 +1,7 @@
-import type { AdDetail } from '@lookup/contracts';
+import { type AdDetail, wholePercentOf } from '@lookup/contracts';
 import { Link } from 'react-router';
 import { AdAudioPlayer } from '../../../components/ad-audio-player';
+import { FigureTile } from '../../../components/figure-tile';
 import { ListenerCardPreview } from '../../../components/listener-card-preview';
 import { FileStatusBadge } from '../../../components/status-badges';
 import { formatFileSize } from '../../../formatting/format-file-size';
@@ -31,6 +32,24 @@ function AudioCard({ ad, stationId }: { ad: AdDetail; stationId: string }) {
         {ad.uploadSizeBytes ? ` · ${formatFileSize(ad.uploadSizeBytes)}` : ''}
         {ad.uploadedAt ? ` · uploaded ${formatRelativeTime(ad.uploadedAt)}` : ''}
       </p>
+    </section>
+  );
+}
+
+/** What listeners did with this ad over the station's last 7 days (P5B-AD-DETAIL-06). */
+function LastSevenDays({ ad }: { ad: AdDetail }) {
+  const { heard, heardSentLater, buttonTaps } = ad.lastSevenDays;
+  const sentLater = wholePercentOf(heardSentLater, heard);
+  return (
+    <section aria-labelledby="ad-last-seven-days" className="flex flex-col gap-3">
+      <h2 id="ad-last-seven-days" className="text-heading">
+        Last 7 days
+      </h2>
+      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <FigureTile title="Heard · 7 days" value={String(heard)} note="Times listeners identified it" />
+        <FigureTile title="Button taps · 7 days" value={String(buttonTaps)} note="Calls, chats, directions and links" />
+        <FigureTile title="Sent later (no signal)" value={sentLater === null ? '—' : `${sentLater} %`} note="Heard with no signal, sent once there was" />
+      </dl>
     </section>
   );
 }
@@ -67,6 +86,7 @@ export function AdOverviewTab({ ad, station }: { ad: AdDetail; station: NamedMem
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_21.5rem]">
       <div className="flex flex-col gap-4">
+        <LastSevenDays ad={ad} />
         <AudioCard ad={ad} stationId={station.id} />
         <section aria-label="When it airs" className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5">
           <div className="flex items-center justify-between gap-3">

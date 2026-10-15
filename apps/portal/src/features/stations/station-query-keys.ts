@@ -6,6 +6,7 @@ export const stationQueryKeys = {
   station: (stationId: string) => ['stations', stationId] as const,
   profile: (stationId: string) => ['stations', stationId, 'profile'] as const,
   overview: (stationId: string) => ['stations', stationId, 'overview'] as const,
+  listenerFigures: (stationId: string, range: string) => ['stations', stationId, 'listener-figures', range] as const,
   clients: (stationId: string) => ['stations', stationId, 'clients'] as const,
   adListPrefix: (stationId: string) => ['stations', stationId, 'ads', 'list'] as const,
   adList: (stationId: string, filters: object) => ['stations', stationId, 'ads', 'list', filters] as const,

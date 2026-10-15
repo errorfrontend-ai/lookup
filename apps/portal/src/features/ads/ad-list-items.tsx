@@ -76,6 +76,24 @@ function SetupLink({ ad, stationId, canChange }: { ad: AdSummary; stationId: str
   );
 }
 
+/** Whether the ad has gone out to listeners: published at some point (not a draft, not unscheduled). */
+function hasBeenPublished(ad: AdSummary): boolean {
+  return ad.campaign !== null && ad.campaign.displayStatus !== 'DRAFT';
+}
+
+/** A number of the last 7 days, or "—" for an ad that was never published (P5B-ADS-LIST-14). */
+function SevenDayNumber({ ad, value }: { ad: AdSummary; value: number }) {
+  if (!hasBeenPublished(ad)) {
+    return (
+      <>
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">Not published yet</span>
+      </>
+    );
+  }
+  return <>{value}</>;
+}
+
 function PlayControl({ ad, stationId }: { ad: AdSummary; stationId: string }) {
   if (!hasPlayableAudio(ad)) return <span className="size-11 shrink-0" aria-hidden="true" />;
   return <AdAudioPlayer stationId={stationId} adId={ad.id} adTitle={ad.title} />;
@@ -93,6 +111,8 @@ export function AdTable({ ads, stationId, canChange }: { ads: AdSummary[]; stati
             <th scope="col" className="px-3 py-3">Campaign</th>
             <th scope="col" className="px-3 py-3">Audio</th>
             <th scope="col" className="px-3 py-3">When it airs</th>
+            <th scope="col" className="px-3 py-3 text-right">Heard · 7d</th>
+            <th scope="col" className="px-3 py-3 text-right">Taps · 7d</th>
             <th scope="col" className="px-3 py-3">Changed</th>
             <th scope="col" className="px-3 py-3">
               <span className="sr-only">Play</span>
@@ -116,6 +136,12 @@ export function AdTable({ ads, stationId, canChange }: { ads: AdSummary[]; stati
               </td>
               <td className="px-3 py-3">
                 <WhenItAirs ad={ad} />
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums">
+                <SevenDayNumber ad={ad} value={ad.lastSevenDays.heard} />
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums">
+                <SevenDayNumber ad={ad} value={ad.lastSevenDays.buttonTaps} />
               </td>
               <td className="whitespace-nowrap px-3 py-3 text-muted">{formatRelativeTime(ad.updatedAt)}</td>
               <td className="px-3 py-2">
@@ -147,6 +173,11 @@ export function AdCards({ ads, stationId, canChange }: { ads: AdSummary[]; stati
             <SetupLink ad={ad} stationId={stationId} canChange={canChange} />
             <div className="flex flex-col gap-0.5 text-label text-ink">
               <WhenItAirs ad={ad} />
+              {hasBeenPublished(ad) ? (
+                <span className="text-caption tabular-nums">
+                  {ad.lastSevenDays.heard} heard · {ad.lastSevenDays.buttonTaps} {ad.lastSevenDays.buttonTaps === 1 ? 'tap' : 'taps'} · last 7 days
+                </span>
+              ) : null}
               <span className="text-caption text-muted">Changed {formatRelativeTime(ad.updatedAt)}</span>
             </div>
           </article>

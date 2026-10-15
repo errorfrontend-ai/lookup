@@ -1,4 +1,4 @@
-import type { ActionCard, AdCampaignSummary, AdDetail, AdHistoryEvent, AdListViewCounts, AdSchedule, AdSummary, StationOverview } from '@lookup/contracts';
+import type { ActionCard, AdCampaignSummary, AdDetail, AdHistoryEvent, AdListViewCounts, AdSchedule, AdSummary, ListenerFigures, StationOverview } from '@lookup/contracts';
 
 let adCounter = 0;
 
@@ -29,12 +29,28 @@ export function adSummary(overrides: Partial<AdSummary> = {}): AdSummary {
     hasActionCard: true,
     attentionReasons: [],
     updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    lastSevenDays: { heard: 0, heardSentLater: 0, buttonTaps: 0 },
     ...overrides,
   };
 }
 
 export function viewCounts(overrides: Partial<AdListViewCounts> = {}): AdListViewCounts {
   return { all: 0, live: 0, scheduled: 0, drafts: 0, attention: 0, ended: 0, ...overrides };
+}
+
+/** The station's listener figures: none by default. Override what a test cares about. */
+export function listenerFigures(overrides: Partial<ListenerFigures> = {}): ListenerFigures {
+  return {
+    range: 'last7Days',
+    firstDay: '2026-10-09',
+    lastDay: '2026-10-15',
+    recognitionsToday: 0,
+    recognitions: 0,
+    recognitionsSentLater: 0,
+    buttonTaps: 0,
+    recognitionsByHour: Array<number>(24).fill(0),
+    ...overrides,
+  };
 }
 
 /** An overview for a set of ads: counts worked out from their own state. */

@@ -1,5 +1,5 @@
 import type { AdSummary } from '@lookup/contracts';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Button, ButtonLink } from '../../components/button';
 import { ClientAvatar } from '../../components/client-avatar';
 import { ErrorNotice } from '../../components/error-notice';
@@ -13,6 +13,7 @@ import { attentionLink } from '../ads/attention-links';
 import { useClients } from '../clients/use-clients';
 import { canChangeStationContent, useRequiredCurrentStation } from '../stations/use-current-station';
 import { useStationOverview } from '../stations/use-station-overview';
+import { isListenerFiguresRange, ListenerFiguresSection } from './listener-figures-section';
 
 function CountTile({ label, count, to, icon, isAlert = false }: { label: string; count: number; to: string; icon: IconName; isAlert?: boolean }) {
   const alertClasses = isAlert && count > 0 ? 'border-danger bg-danger-soft' : 'border-line-soft bg-surface';
@@ -104,14 +105,20 @@ export function OverviewPage() {
   const clients = useClients(station.id);
   const adsPath = `/stations/${station.id}/ads`;
   const canUpload = canChangeStationContent(station);
+  // The date range lives in the address, so back, refresh and a shared link show the same numbers.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedRange = searchParams.get('range');
+  const range = isListenerFiguresRange(requestedRange) ? requestedRange : 'last7Days';
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Overview"
-        description="What is on air, and what needs you."
+        description="How listeners are responding to your ads"
         actions={canUpload ? <ButtonLink to={`/stations/${station.id}/ads/new`}>Upload ad</ButtonLink> : undefined}
       />
+
+      <ListenerFiguresSection stationId={station.id} range={range} onRangeChange={(chosen) => setSearchParams({ range: chosen }, { replace: true })} />
 
       {overview.isPending ? <Skeleton className="h-64 w-full" /> : null}
       {overview.isError ? (
@@ -167,17 +174,6 @@ export function OverviewPage() {
             </section>
           </div>
 
-          <section aria-label="Recognition" className="flex items-start gap-4 rounded-lg border border-line-soft bg-surface p-5">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-pill bg-accent-soft text-accent">
-              <Icon name="music" size={20} />
-            </span>
-            <div className="flex flex-col gap-1">
-              <h2 className="text-heading">How listeners respond</h2>
-              <p className="text-body text-muted">
-                Once listeners can identify your ads in the Look Up app, you will see how many heard each one and tapped its buttons.
-              </p>
-            </div>
-          </section>
         </>
       ) : null}
     </div>

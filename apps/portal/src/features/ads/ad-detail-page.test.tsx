@@ -65,6 +65,24 @@ describe('Ad page', () => {
       expect(within(preview).getByText('Call Brand A')).toBeInTheDocument();
     });
 
+    it('P5B-AD-DETAIL-06: shows what listeners did with this ad over the last 7 days, and a dash for a share of nothing', async () => {
+      const { adPath } = installAdPage({ ad: adDetail({ title: 'Summer service offer', lastSevenDays: { heard: 40, heardSentLater: 10, buttonTaps: 9 } }) });
+      const first = renderPortalAt(adPath);
+      const figures = await screen.findByRole('region', { name: 'Last 7 days' });
+      expect([...figures.querySelectorAll('dl > div')].map((tile) => [...tile.children].map((part) => part.textContent))).toEqual([
+        ['Heard · 7 days', '40', 'Times listeners identified it'],
+        ['Button taps · 7 days', '9', 'Calls, chats, directions and links'],
+        ['Sent later (no signal)', '25 %', 'Heard with no signal, sent once there was'],
+      ]);
+      first.unmount();
+      queryClient.clear();
+
+      const quiet = installAdPage({ ad: adDetail({ title: 'Quiet offer' }) });
+      renderPortalAt(quiet.adPath);
+      const quietFigures = await screen.findByRole('region', { name: 'Last 7 days' });
+      expect(within(quietFigures).getByText('—')).toBeInTheDocument();
+    });
+
     it('says plainly what is missing: no buttons, no schedule', async () => {
       const { adPath } = installAdPage({ ad: adDetail({ title: 'Bare ad', actionCard: null, schedule: null, campaign: null }) });
       renderPortalAt(adPath);

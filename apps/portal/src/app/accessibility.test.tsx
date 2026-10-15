@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearAllUploads } from '../features/new-ad/ad-upload-store';
 import { findAccessibilityProblems } from '../test/accessibility';
-import { adDetail, adSummary, campaignSummary, historyEvent, overviewFor, scheduleFixture } from '../test/ad-fixtures';
+import { adDetail, adSummary, campaignSummary, historyEvent, listenerFigures, overviewFor, scheduleFixture } from '../test/ad-fixtures';
 import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '../test/fake-api';
 import { renderPortalAt } from '../test/render-portal';
 import { setScreenWidth } from '../test/screen-size';
@@ -33,6 +33,8 @@ beforeEach(() => {
     'GET /auth/me': () => jsonResponse(200, owner),
     [`GET /stations/${stationId}`]: () => jsonResponse(200, { id: stationId, name: 'Radio Phoenix', frequencyLabel: '89.5 FM', province: 'Lusaka', city: 'Lusaka', timeZone: 'Africa/Lusaka', status: 'ACTIVE' }),
     [`GET /stations/${stationId}/overview`]: () => jsonResponse(200, overviewFor([liveAd, refused])),
+    [`GET /stations/${stationId}/listener-figures`]: () =>
+      jsonResponse(200, listenerFigures({ recognitionsToday: 2, recognitions: 14, recognitionsSentLater: 3, buttonTaps: 5, recognitionsByHour: Array.from({ length: 24 }, (_unused, hour) => hour % 4) })),
     [`GET /stations/${stationId}/clients`]: () => jsonResponse(200, [brandA]),
     [`GET /stations/${stationId}/ads`]: () => jsonResponse(200, { ads: [liveAd, draftAd, refused], nextCursor: null }),
     ...Object.fromEntries(
@@ -78,6 +80,10 @@ describe('accessibility: what axe finds on each screen', () => {
   it('the overview', async () => {
     renderPortalAt(`/stations/${stationId}/overview`);
     await screen.findByRole('region', { name: 'Needs attention' });
+    await screen.findByLabelText('Key numbers');
+    await expectNoProblems();
+    // The hourly numbers as a table, too.
+    await userEvent.setup({ delay: null }).click(screen.getByRole('button', { name: 'Table' }));
     await expectNoProblems();
   });
 

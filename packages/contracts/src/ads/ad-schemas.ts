@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AdListenerFigures } from '../stations/listener-figures-schemas.js';
 
 /** The audio types a station may upload, in their canonical form (the only Content-Type the API signs for). */
 export const AD_UPLOAD_CONTENT_TYPES = ['audio/mpeg', 'audio/wav', 'audio/mp4'] as const;
@@ -142,6 +143,8 @@ export interface AdSummary {
   attentionReasons: AdAttentionReason[];
   /** When the ad, its buttons or its schedule last changed. */
   updatedAt: string;
+  /** What listeners did with it over the station's last 7 days. */
+  lastSevenDays: AdListenerFigures;
 }
 
 export interface AdListPage {

@@ -48,7 +48,25 @@ export interface AdRecord {
   is_upload_not_finished: boolean;
   is_start_date_passed: boolean;
   is_ending_soon: boolean;
+  /** What listeners did with the ad over the station's last 7 days (see LAST_SEVEN_DAYS_STARTED_AT). */
+  heard_last_seven_days: number;
+  heard_sent_later_last_seven_days: number;
+  button_taps_last_seven_days: number;
 }
+
+/**
+ * The start of the station's last 7 days: midnight, station time, six days before today. A scalar subquery, so it
+ * is worked out once per query and the recognitions' (station_id, captured_at) index can range over it.
+ */
+export const LAST_SEVEN_DAYS_STARTED_AT = `(SELECT (((now() AT TIME ZONE week_station.time_zone)::date - 6)::timestamp AT TIME ZONE week_station.time_zone)
+                                             FROM app.stations AS week_station WHERE week_station.id = app.current_station_id())`;
+
+/**
+ * A recognition counts for a station when the listener was shown one of its cards: a match, the client's usual
+ * buttons, or a "Which station?" the listener answered with it (row-level security shows a station only its own,
+ * and an unanswered chooser names no station).
+ */
+export const COUNTED_RECOGNITION_OUTCOMES = `('MATCH', 'MATCH_DEFAULT', 'CHOOSE_STATION')`;
 
 /**
  * Every column the portal needs about an ad, read through row-level security (so only the current
@@ -85,7 +103,10 @@ export const AD_RECORD_SELECT = `
          coalesce(campaign.status = 'DRAFT' AND lower(campaign.active_period) <= now(), false) AS is_start_date_passed,
          coalesce(campaign.status = 'ACTIVE' AND upper(campaign.active_period) > now()
             AND ((upper(campaign.active_period) AT TIME ZONE station.time_zone)::date - 1)
-                - (now() AT TIME ZONE station.time_zone)::date BETWEEN 0 AND ${ENDING_SOON_DAYS}, false) AS is_ending_soon
+                - (now() AT TIME ZONE station.time_zone)::date BETWEEN 0 AND ${ENDING_SOON_DAYS}, false) AS is_ending_soon,
+         coalesce(heard.heard_count, 0) AS heard_last_seven_days,
+         coalesce(heard.heard_sent_later_count, 0) AS heard_sent_later_last_seven_days,
+         coalesce(tapped.button_tap_count, 0) AS button_taps_last_seven_days
     FROM app.ads
     JOIN app.clients ON clients.id = ads.client_id AND clients.station_id = ads.station_id
     JOIN app.stations AS station ON station.id = ads.station_id
@@ -98,7 +119,30 @@ export const AD_RECORD_SELECT = `
        WHERE latest.ad_id = ads.id AND latest.station_id = ads.station_id
        ORDER BY latest.created_at DESC
        LIMIT 1
-    ) AS campaign ON true`;
+    ) AS campaign ON true
+    -- Each grouped once per query for the whole station, then joined by ad (P5B-D2).
+    LEFT JOIN (
+      SELECT heard_campaign.ad_id, count(*)::integer AS heard_count,
+             count(*) FILTER (WHERE heard_event.is_deferred)::integer AS heard_sent_later_count
+        FROM app.recognition_events AS heard_event
+        JOIN app.campaigns AS heard_campaign
+          ON heard_campaign.id = heard_event.campaign_id AND heard_campaign.station_id = heard_event.station_id
+       WHERE heard_event.station_id = app.current_station_id()
+         AND heard_event.outcome IN ${COUNTED_RECOGNITION_OUTCOMES}
+         AND heard_event.captured_at >= ${LAST_SEVEN_DAYS_STARTED_AT}
+         -- A clip arrives at most 24 hours after it was heard and never 2 minutes before: this bounds the months read.
+         AND heard_event.received_at >= ${LAST_SEVEN_DAYS_STARTED_AT} - interval '2 minutes'
+       GROUP BY heard_campaign.ad_id
+    ) AS heard ON heard.ad_id = ads.id
+    LEFT JOIN (
+      SELECT tapped_campaign.ad_id, count(*)::integer AS button_tap_count
+        FROM app.engagement_events AS tap
+        JOIN app.campaigns AS tapped_campaign ON tapped_campaign.id = tap.campaign_id AND tapped_campaign.station_id = tap.station_id
+       WHERE tap.station_id = app.current_station_id()
+         AND tap.occurred_at >= ${LAST_SEVEN_DAYS_STARTED_AT}
+         AND tap.received_at >= ${LAST_SEVEN_DAYS_STARTED_AT}
+       GROUP BY tapped_campaign.ad_id
+    ) AS tapped ON tapped.ad_id = ads.id`;
 
 /** The ad with this id at the current station; NOT_FOUND for another station's ad or none. */
 export async function findAdRecord(database: EntityManager, adId: string): Promise<AdRecord> {
@@ -125,6 +169,7 @@ export function toAdSummary(ad: AdRecord): AdSummary {
     hasActionCard: ad.current_action_card_id !== null,
     attentionReasons: attentionReasonsOf(ad),
     updatedAt: ad.updated_at_text,
+    lastSevenDays: { heard: ad.heard_last_seven_days, heardSentLater: ad.heard_sent_later_last_seven_days, buttonTaps: ad.button_taps_last_seven_days },
   };
 }
 

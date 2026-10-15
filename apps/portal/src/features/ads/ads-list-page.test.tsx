@@ -56,7 +56,7 @@ describe('Ads list', () => {
       renderPortalAt(adsPath);
 
       const table = await screen.findByRole('table', { name: 'Your ads' });
-      expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Ad', 'Campaign', 'Audio', 'When it airs', 'Changed', 'Play']);
+      expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Ad', 'Campaign', 'Audio', 'When it airs', 'Heard · 7d', 'Taps · 7d', 'Changed', 'Play']);
       const [summerRow, weekendRow] = within(table).getAllByRole('row').slice(1) as HTMLElement[];
       expect(within(summerRow as HTMLElement).getByRole('rowheader')).toHaveTextContent('Summer service offerBrand A');
       expect(within(summerRow as HTMLElement).getByText('On air now')).toBeInTheDocument();
@@ -69,6 +69,29 @@ describe('Ads list', () => {
       expect(within(weekendRow as HTMLElement).getByText('4 – 26 Nov')).toBeInTheDocument();
       expect(within(weekendRow as HTMLElement).getByText('yesterday')).toBeInTheDocument();
       expect(screen.getByText('Showing 2 ads')).toBeInTheDocument();
+    });
+
+    it('P5B-ADS-LIST-11, -13, -14: shows what listeners did with each ad over 7 days, right-aligned in tabular figures, and a dash for an ad never published', async () => {
+      setWideScreen(true);
+      const heardOften = adSummary({ title: 'Summer service offer', lastSevenDays: { heard: 48, heardSentLater: 6, buttonTaps: 13 } });
+      const neverHeard = adSummary({ title: 'Quiet offer', campaign: campaignSummary({ displayStatus: 'SCHEDULED' }) });
+      const draft = adSummary({ title: 'Draft offer', campaign: campaignSummary({ displayStatus: 'DRAFT' }) });
+      const unscheduled = adSummary({ title: 'Unscheduled offer', campaign: null });
+      installAds([{ ads: [heardOften, neverHeard, draft, unscheduled], nextCursor: null }]);
+      renderPortalAt(adsPath);
+
+      const table = await screen.findByRole('table', { name: 'Your ads' });
+      const numbersOf = (title: string) => {
+        const row = within(table).getByText(title).closest('tr') as HTMLElement;
+        return within(row).getAllByRole('cell').filter((cell) => cell.classList.contains('text-right'));
+      };
+      expect(numbersOf('Summer service offer').map((cell) => cell.textContent)).toEqual(['48', '13']);
+      for (const cell of numbersOf('Summer service offer')) expect(cell).toHaveClass('tabular-nums');
+      expect(numbersOf('Quiet offer').map((cell) => cell.textContent)).toEqual(['0', '0']);
+      expect(numbersOf('Draft offer').map((cell) => cell.textContent)).toEqual(['—Not published yet', '—Not published yet']);
+      expect(numbersOf('Unscheduled offer').map((cell) => cell.textContent)).toEqual(['—Not published yet', '—Not published yet']);
+      const headers = within(table).getAllByRole('columnheader').filter((header) => header.textContent?.endsWith('· 7d'));
+      for (const header of headers) expect(header).toHaveClass('text-right');
     });
   });
 
@@ -87,6 +110,18 @@ describe('Ads list', () => {
       expect(within(card).getByText('Mon–Fri · 07:00–09:00')).toBeInTheDocument();
       expect(within(card).getByText('Changed 2 hours ago')).toBeInTheDocument();
       expect(within(card).getByRole('button', { name: 'Play Summer service offer' })).toBeInTheDocument();
+    });
+
+    it('P5B-ADS-LIST-21: a card says how many heard it and tapped over the last 7 days, once it is published', async () => {
+      setWideScreen(false);
+      const heard = adSummary({ title: 'Summer service offer', lastSevenDays: { heard: 12, heardSentLater: 1, buttonTaps: 1 } });
+      const draft = adSummary({ title: 'Draft offer', campaign: campaignSummary({ displayStatus: 'DRAFT' }) });
+      installAds([{ ads: [heard, draft], nextCursor: null }]);
+      renderPortalAt(adsPath);
+      const card = (await screen.findByText('Summer service offer')).closest('article') as HTMLElement;
+      expect(within(card).getByText('12 heard · 1 tap · last 7 days')).toBeInTheDocument();
+      const draftCard = screen.getByText('Draft offer').closest('article') as HTMLElement;
+      expect(within(draftCard).queryByText(/heard ·/)).not.toBeInTheDocument();
     });
 
     it('says in words why an ad needs attention, and offers no Play for audio that never arrived', async () => {
