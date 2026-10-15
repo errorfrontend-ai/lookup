@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Navigate, useParams } from 'react-router';
 import { SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
+import { Badge, type BadgeTone } from '../../components/badge';
 import { ButtonLink } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { Icon } from '../../components/icons';
@@ -12,7 +13,8 @@ import { useStationApplication } from './use-station-application';
 
 const WHEN_FORMAT = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 
-type StageState = 'done' | 'current' | 'future';
+/** "finished" is the last stage once the application has reached it: ticked like a done stage, and the current one. */
+type StageState = 'done' | 'current' | 'finished' | 'future';
 interface Stage {
   name: string;
   note: string | null;
@@ -20,21 +22,32 @@ interface Stage {
 }
 
 /** The three stages of AppStatus (P5A design §4.3), or "Rejected" with the reviewer's words. */
-export function applicationStages(application: Pick<StationApplication, 'status' | 'submittedAt' | 'rejectionReason'>): Stage[] {
+export function applicationStages(application: Pick<StationApplication, 'status' | 'submittedAt' | 'reviewedAt' | 'rejectionReason'>): Stage[] {
   const submitted: Stage = {
     name: 'Submitted',
     note: application.submittedAt ? WHEN_FORMAT.format(new Date(application.submittedAt)) : null,
     state: 'done',
   };
+  const reviewed = application.reviewedAt ? `Reviewed ${WHEN_FORMAT.format(new Date(application.reviewedAt))}` : null;
   if (application.status === 'REJECTED') {
-    return [submitted, { name: 'Under review', note: null, state: 'done' }, { name: 'Rejected', note: application.rejectionReason, state: 'current' }];
+    return [submitted, { name: 'Under review', note: reviewed, state: 'done' }, { name: 'Rejected', note: application.rejectionReason, state: 'current' }];
   }
-  const isApproved = application.status === 'ACTIVE';
+  if (application.status === 'ACTIVE') {
+    return [submitted, { name: 'Under review', note: reviewed, state: 'done' }, { name: 'Approved', note: "We've sent you a text and an email", state: 'finished' }];
+  }
   return [
     submitted,
-    { name: 'Under review', note: `Usually within ${APPLICATION_REVIEW_TIME_TEXT}`, state: isApproved ? 'done' : 'current' },
-    { name: 'Approved', note: "We'll text and email you", state: isApproved ? 'current' : 'future' },
+    { name: 'Under review', note: `Usually within ${APPLICATION_REVIEW_TIME_TEXT}`, state: 'current' },
+    { name: 'Approved', note: "We'll text and email you", state: 'future' },
   ];
+}
+
+/** Where the application stands, in one word beside the station's name, so nobody has to read it off the stages. */
+export function applicationStatusLabel(status: StationApplication['status']): { text: string; tone: BadgeTone } | null {
+  if (status === 'PENDING_REVIEW') return { text: 'Under review', tone: 'warning' };
+  if (status === 'ACTIVE') return { text: 'Approved', tone: 'success' };
+  if (status === 'REJECTED') return { text: 'Rejected', tone: 'danger' };
+  return null;
 }
 
 /**
@@ -64,6 +77,7 @@ export function ApplicationStatusPage() {
   if (saved.nextStep !== 'submitted') return <Navigate to={`/stations/${stationId}/application/${saved.nextStep}`} replace />;
   const isRejected = saved.status === 'REJECTED';
   const isApproved = saved.status === 'ACTIVE';
+  const statusLabel = applicationStatusLabel(saved.status);
 
   return (
     <div className="flex min-h-dvh flex-col bg-ground">
@@ -75,9 +89,17 @@ export function ApplicationStatusPage() {
       </header>
       <main id="main-content" className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6">
         <div className="flex flex-col gap-1">
-          <h1 className="text-display">{isApproved ? 'Your station is approved' : 'Thanks — your application is in'}</h1>
-          <p className="text-body text-muted">
-            {saved.details.name} · {saved.details.frequencyLabel}
+          <h1 className="text-display">{isApproved ? 'Your station is approved' : isRejected ? 'Your application needs changes' : 'Thanks — your application is in'}</h1>
+          <p className="flex flex-wrap items-center gap-2 text-body text-muted">
+            <span>
+              {saved.details.name} · {saved.details.frequencyLabel}
+            </span>
+            {statusLabel ? (
+              <Badge tone={statusLabel.tone}>
+                <span className="sr-only">Status: </span>
+                {statusLabel.text}
+              </Badge>
+            ) : null}
           </p>
         </div>
         {isApproved ? (
@@ -90,22 +112,25 @@ export function ApplicationStatusPage() {
             Application progress
           </h2>
           <ol className="mt-4 flex flex-col gap-4">
-            {applicationStages(saved).map((stage) => (
-              <li key={stage.name} aria-current={stage.state === 'current' ? 'step' : undefined} className="flex gap-3">
-                <span
-                  aria-hidden="true"
-                  className={`mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-pill border ${
-                    stage.state === 'done' ? 'border-success bg-success text-on-accent' : stage.state === 'current' ? (isRejected ? 'border-danger' : 'border-accent') : 'border-line'
-                  }`}
-                >
-                  {stage.state === 'done' ? <Icon name="check" size={14} /> : null}
-                </span>
-                <div className="flex flex-col">
-                  <span className={`text-label ${stage.name === 'Rejected' ? 'text-danger' : ''}`}>{stage.name}</span>
-                  {stage.note ? <span className={stage.name === 'Rejected' ? 'whitespace-pre-line text-body' : 'text-caption text-muted'}>{stage.note}</span> : null}
-                </div>
-              </li>
-            ))}
+            {applicationStages(saved).map((stage) => {
+              const isTicked = stage.state === 'done' || stage.state === 'finished';
+              return (
+                <li key={stage.name} aria-current={stage.state === 'current' || stage.state === 'finished' ? 'step' : undefined} className="flex gap-3">
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-pill border ${
+                      isTicked ? 'border-success bg-success text-on-accent' : stage.state === 'current' ? (isRejected ? 'border-danger' : 'border-accent') : 'border-line'
+                    }`}
+                  >
+                    {isTicked ? <Icon name="check" size={14} /> : null}
+                  </span>
+                  <div className="flex flex-col">
+                    <span className={`text-label ${stage.name === 'Rejected' ? 'text-danger' : ''}`}>{stage.name}</span>
+                    {stage.note ? <span className={stage.name === 'Rejected' ? 'whitespace-pre-line text-body' : 'text-caption text-muted'}>{stage.note}</span> : null}
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         </section>
         {isApproved ? null : (

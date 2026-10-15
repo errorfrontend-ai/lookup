@@ -257,7 +257,7 @@ describe('application status and the email link', () => {
     expect(await screen.findByRole('heading', { name: 'Thanks — your application is in' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe(`/stations/${STATION_ID}/application`);
     expect(screen.getByText('Sunrise FM · 98.1 FM')).toBeInTheDocument();
-    const current = screen.getByText('Under review').closest('li');
+    const current = within(screen.getByRole('region', { name: 'Application progress' })).getByText('Under review').closest('li');
     expect(current).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('link', { name: 'Edit application' })).toHaveAttribute('href', `/stations/${STATION_ID}/application/details`);
   });
@@ -269,7 +269,7 @@ describe('application status and the email link', () => {
     });
     renderPortalAt(`/stations/${STATION_ID}/application`);
     expect(await screen.findByText('The licence document is for another station.')).toBeInTheDocument();
-    expect(screen.getByText('Rejected').closest('li')).toHaveAttribute('aria-current', 'step');
+    expect(within(screen.getByRole('region', { name: 'Application progress' })).getByText('Rejected').closest('li')).toHaveAttribute('aria-current', 'step');
     expect(screen.getByRole('link', { name: 'Fix and submit again' })).toBeInTheDocument();
   });
 
@@ -323,6 +323,6 @@ describe('the rules behind the pages', () => {
     expect(tidyFrequencyLabel(' 98.1fm ')).toBe('98.1 FM');
     expect(tidyFrequencyLabel('Radio 1')).toBe('Radio 1');
     expect(timeZoneChoices('Africa/Harare')).toEqual(expect.arrayContaining(['Africa/Lusaka', 'Africa/Harare']));
-    expect(applicationStages({ status: 'ACTIVE', submittedAt: null, rejectionReason: null }).map((stage) => stage.state)).toEqual(['done', 'done', 'current']);
+    expect(applicationStages({ status: 'ACTIVE', submittedAt: null, reviewedAt: null, rejectionReason: null }).map((stage) => stage.state)).toEqual(['done', 'done', 'finished']);
   });
 });

@@ -41,7 +41,8 @@ describe.each([375, 1280])('accessibility of sign-up at %i px', (width) => {
     ['verify', 'Check your phone', applicationWith()],
     ['details', 'About your station', applicationWith({ nextStep: 'details', verification: { isPhoneVerified: true } })],
     ['licence', 'Your broadcasting licence', applicationWith({ nextStep: 'licence', verification: { isPhoneVerified: true } })],
-    ['', 'Thanks — your application is in', applicationWith({ status: 'REJECTED', nextStep: 'submitted', rejectionReason: 'The licence document is for another station.', details: { name: 'Sunrise FM', frequencyLabel: '98.1 FM' } })],
+    ['', 'Your application needs changes', applicationWith({ status: 'REJECTED', nextStep: 'submitted', rejectionReason: 'The licence document is for another station.', details: { name: 'Sunrise FM', frequencyLabel: '98.1 FM' } })],
+    ['', 'Your station is approved', applicationWith({ status: 'ACTIVE', nextStep: 'submitted', submittedAt: '2026-10-14T07:30:00.000Z', reviewedAt: '2026-10-15T04:33:00.000Z', details: { name: 'Sunrise FM', frequencyLabel: '98.1 FM' } })],
   ])('the "%s" page', async (path, heading, application) => {
     installFakeApi({
       'GET /auth/me': () => jsonResponse(200, applicant),

@@ -335,7 +335,7 @@ describe('Application status', () => {
     });
     return { api, ...renderPortalAt(`/stations/${STATION_ID}/application`) };
   };
-  const stage = (name: string) => screen.getByText(name, { selector: 'span' }).closest('li') as HTMLElement;
+  const stage = (name: string) => within(screen.getByRole('region', { name: 'Application progress' })).getByText(name, { selector: 'span' }).closest('li') as HTMLElement;
 
   it('P5A-APPLICATION-STATUS-05, -06, -10: the heading with the station, the three stages with their lines, and the closing line', async () => {
     renderStatus();
@@ -360,19 +360,38 @@ describe('Application status', () => {
     expect(stage('Approved').querySelector('svg')).toBeNull();
   });
 
-  it('P5A-APPLICATION-STATUS-02, -08: rejected, "Rejected" takes Approved’s place with the reviewer’s words; approved, Approved is current', async () => {
-    const rejected = renderStatus(submitted({ status: 'REJECTED', rejectionReason: 'The licence photo is too blurry.\nPlease upload a clearer copy.' }));
+  it('P5A-APPLICATION-STATUS-02, -08: rejected, "Rejected" takes Approved’s place with the reviewer’s words; approved, every stage is ticked and nothing reads as still to come', async () => {
+    const reviewedAt = '2026-10-15T04:33:00.000Z';
+    const reviewedLine = `Reviewed ${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(reviewedAt))}`;
+    const rejected = renderStatus(submitted({ status: 'REJECTED', reviewedAt, rejectionReason: 'The licence photo is too blurry.\nPlease upload a clearer copy.' }));
     await screen.findByRole('region', { name: 'Application progress' });
     expect(stage('Rejected')).toHaveAttribute('aria-current', 'step');
     expect(stage('Rejected')).toHaveTextContent('The licence photo is too blurry. Please upload a clearer copy.');
+    expect(stage('Under review')).toHaveTextContent(reviewedLine);
     expect(screen.queryByText('Approved', { selector: 'span' })).not.toBeInTheDocument();
     rejected.unmount();
     queryClient.clear();
 
-    renderStatus(submitted({ status: 'ACTIVE' }));
+    renderStatus(submitted({ status: 'ACTIVE', reviewedAt }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Your station is approved' })).toBeInTheDocument();
     expect(stage('Approved')).toHaveAttribute('aria-current', 'step');
-    expect(stage('Under review').querySelector('svg')).not.toBeNull();
+    for (const name of ['Submitted', 'Under review', 'Approved']) expect(stage(name).querySelector('svg')).not.toBeNull();
+    expect(stage('Under review')).toHaveTextContent(`Under review${reviewedLine}`);
+    expect(stage('Approved')).toHaveTextContent("ApprovedWe've sent you a text and an email");
+    const progress = screen.getByRole('region', { name: 'Application progress' });
+    expect(progress).not.toHaveTextContent(/Usually within|We'll text/);
+  });
+
+  it.each([
+    ['PENDING_REVIEW', 'Thanks — your application is in', 'Under review', 'text-warning'],
+    ['ACTIVE', 'Your station is approved', 'Approved', 'text-success'],
+    ['REJECTED', 'Your application needs changes', 'Rejected', 'text-danger'],
+  ] as const)('P5A-APPLICATION-STATUS-12: %s says where the application stands in the heading and in one word beside the name', async (status, heading, word, colour) => {
+    renderStatus(submitted({ status, reviewedAt: status === 'PENDING_REVIEW' ? null : '2026-10-15T04:33:00.000Z', rejectionReason: status === 'REJECTED' ? 'The licence number is missing.' : null }));
+    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+    const label = screen.getByText('Sunrise FM · 98.1 FM').parentElement?.lastElementChild as HTMLElement;
+    expect(label).toHaveTextContent(`Status: ${word}`);
+    expect(label).toHaveClass(colour);
   });
 
   it('P5A-APPLICATION-STATUS-04, -09: "Look Up" and "Sign out", which ends the session; "While you wait" offers "Edit application"', async () => {

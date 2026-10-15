@@ -10,7 +10,7 @@ build follows it, and a decision that changes during the build is changed here f
 - **Team.** Invitations and removing members.
 - **Notifications.** SMS and email sent through a queue.
 
-**Requirements.** Every `P5A-` item in `docs/requirements/checklist-4-portal-registration-dashboards.md` — **187 items** — is mapped in §10. Bound by:
+**Requirements.** Every `P5A-` item in `docs/requirements/checklist-4-portal-registration-dashboards.md` — **188 items** (187 at the gate, one added in the walkthrough of 15 October 2026) — is mapped in §10. Bound by:
 - the conflicts 1–23 and gaps 1–21 of that file;
 - `docs/conventions.md`;
 - `docs/security-baseline.md`;
@@ -520,7 +520,8 @@ Every limit below refuses when the counter store is down; where a limit is per a
 ### 4.3 Application status (AppStatus wireframe)
 
 - **Header:** "Look Up" and "Sign out".
-- **Heading:** "Thanks — your application is in", then "<name> · <frequency>".
+- **Heading:** "Thanks — your application is in", then "<name> · <frequency>" with a status label beside it: "Under review",
+  "Approved" or "Rejected" (P5A-APPLICATION-STATUS-12). When rejected, the heading is "Your application needs changes".
 - **"Application progress"** is an ordered list:
   - "Submitted", with the date and time;
   - "Under review", with "Usually within 2 working days";
@@ -531,6 +532,9 @@ Every limit below refuses when the counter store is down; where a limit is per a
 - **"While you wait":** "You can still change your details. Uploading ads unlocks once your station is approved." and "Edit application", which opens step 3 with the saved answers. When rejected, the panel instead says "Fix what the reviewer asked, then submit again." and offers "Fix and submit again".
 - **Footer:** "If anything is missing we'll tell you exactly what to fix — nothing is lost."
 - **When approved** (seen if the page is open at that moment): "Your station is approved" with "Go to your station".
+  Every stage then has a check: "Under review" reads "Reviewed <date and time>" and "Approved" reads "We've sent you a
+  text and an email". (Before 15 October 2026 "Approved" kept an empty circle and the stages kept their waiting words,
+  so an approved station could not tell from the list that it was approved.)
 
 ### 4.4 Two-factor and the admin console
 
@@ -742,7 +746,7 @@ Every P5A item, by area, with the section that builds it. Items marked **open** 
 | STATION-DETAILS-01..11 | §3.2, §4.2 | Logo optional; 2 MB; WebP 512 |
 | LICENCE-01..09 | §3.2, §4.2 | |
 | SIGNUP-SCREENS-01..28 | §4.2 | -15 also has a manual Android autofill check: **open** until the phone check |
-| APPLICATION-STATUS-01..11 | §4.3, §3.3 | |
+| APPLICATION-STATUS-01..12 | §4.3, §3.3 | |
 | STATION-STATUS-01..04 | §2.1, §2.8, §4.4 | -01: built as six moves; O2 is a change request (user, 10 Oct 2026) |
 | ADMIN-ACCESS-01..10 | §3.3, §4.4, §5.4 | |
 | ADMIN-QUEUE-01..21 | §3.3, §4.4, §9 | -04/-07: the pill names the matched station's status (gap 21 default: every station except rejected and unsubmitted) |
@@ -913,3 +917,13 @@ log line, and the line's own timestamp (1791977041355) once held them. It now ch
 and the whole line for the full number.
 
 **Next:** the golden images' own commit (droppable); then the user's walkthroughs (§7) and the choices above.
+
+### After the gate: the sign-up walkthrough (15 October 2026)
+
+The user signed up a station ("Hot fm") on the PC and approved it from the console. The status page showed "Your
+station is approved", but its list still drew "Approved" as an empty circle with "We'll text and email you", and
+"Under review" still said "Usually within 2 working days", so the station could not tell it was approved. The user
+asked for the page to say clearly whether the application is under review or approved. Fixed: every stage is ticked
+once approved, the notes give the review date and say the text and email were sent, and a status label ("Under review",
+"Approved", "Rejected") sits beside the station's name; a rejected application's heading is "Your application needs
+changes". New item P5A-APPLICATION-STATUS-12, ticked with its test: 179 of 188 P5A items ticked.
