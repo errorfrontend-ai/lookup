@@ -7,10 +7,12 @@ export type DatabaseTlsMode = (typeof DATABASE_TLS_MODES)[number];
 
 /**
  * How SMS goes out (P5A design §3.1, O16). `development` delivers each SMS as an email to the development inbox;
- * `none` sends none, so station sign-up stays closed. No real provider is built before O16's checks are recorded, and
- * production refuses `development`, so production can never start a sign-up whose code would not arrive.
+ * `email-stand-in` (the showcase, the user's choice of 15 October 2026) emails each SMS, marked as a stand-in, to the
+ * person it is for: the applicant, or the station's owner; `none` sends none, so station sign-up stays closed. No
+ * real provider is built before O16's checks are recorded, and production refuses `development`, so production can
+ * never start a sign-up whose code would not arrive.
  */
-export const SMS_SENDERS = ['development', 'none'] as const;
+export const SMS_SENDERS = ['development', 'email-stand-in', 'none'] as const;
 export type SmsSenderKind = (typeof SMS_SENDERS)[number];
 
 /** Cloudflare's published Turnstile test secrets (always pass, always fail, "already used"): never in production. */
@@ -81,6 +83,8 @@ const AppConfigSchema = z
     TWO_FACTOR_ENCRYPTION_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
     /** The portal's own address, for the links in emails (an email link, an invitation). */
     PORTAL_PUBLIC_ORIGIN: z.url({ protocol: /^https?$/ }).default('http://localhost:5180'),
+    /** The built portal (apps/portal/dist), served from the API's own address when set (the showcase on Render). */
+    PORTAL_STATIC_DIRECTORY: z.string().min(1).optional(),
     /** Where email goes out: Mailpit on this machine in development; smtps:// (or STARTTLS required) in production. */
     EMAIL_SMTP_URL: z.url({ protocol: /^smtps?$/ }).default('smtp://127.0.0.1:1025'),
     /** With an smtp:// address: refuse to send unless the server upgrades the connection to TLS, with its certificate checked. */

@@ -13,11 +13,19 @@
  */
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
-import { type ApplicationRolePasswords, loadDatabaseSetupConfig } from './database-setup-config.js';
+import { type ApplicationRolePasswords, loadDatabaseSetupConfig, setupConnectionTls } from './database-setup-config.js';
 
 const LOGIN_ROLE_ATTRIBUTES = 'LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT';
 const OWNER_ROLE_ATTRIBUTES = 'NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
 const SCHEMAS = ['app', 'fingerprints', 'recognition'];
+
+/** The attributes a CREATEROLE user that is no superuser may name in ALTER ROLE; the others are checked instead. */
+function attributesANonSuperuserMayAlter(attributes: string): string {
+  return attributes
+    .split(' ')
+    .filter((attribute) => !['NOSUPERUSER', 'NOBYPASSRLS', 'NOREPLICATION', 'NOCREATEDB'].includes(attribute))
+    .join(' ');
+}
 
 /**
  * Server-side limits per role, so a runaway query or a transaction left open by a bug can't
@@ -37,18 +45,32 @@ const SEARCH_PATH_BY_ROLE: Record<keyof ApplicationRolePasswords, string> = {
 };
 
 export async function createDatabaseRoles(setupUrl: string, rolePasswords: ApplicationRolePasswords): Promise<void> {
-  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-database-roles' });
+  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-database-roles', ssl: setupConnectionTls() });
   await client.connect();
   try {
     const databaseName: string = (await client.query('SELECT current_database() AS name')).rows[0].name;
     await client.query('BEGIN');
 
+    // A managed database's admin user (Render) has CREATEROLE but is no superuser. Such a user may create roles with
+    // every NO… attribute, but may not even name SUPERUSER, BYPASSRLS or REPLICATION when altering one afterwards
+    // (PostgreSQL 16), so a second run alters only what it may, and then checks the rest instead.
+    const isSuperuser = (await client.query('SELECT rolsuper FROM pg_roles WHERE rolname = current_user')).rows[0]?.rolsuper === true;
     const createOrUpdateRole = async (roleName: string, attributes: string, password?: string) => {
       const roleExists = ((await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roleName])).rowCount ?? 0) > 0;
       const passwordClause = password ? ` PASSWORD ${client.escapeLiteral(password)}` : '';
-      await client.query(`${roleExists ? 'ALTER' : 'CREATE'} ROLE ${client.escapeIdentifier(roleName)} ${attributes}${passwordClause}`);
+      const allowedAttributes = roleExists && !isSuperuser ? attributesANonSuperuserMayAlter(attributes) : attributes;
+      await client.query(`${roleExists ? 'ALTER' : 'CREATE'} ROLE ${client.escapeIdentifier(roleName)} ${allowedAttributes}${passwordClause}`);
+      const [actual] = (
+        await client.query('SELECT rolsuper, rolbypassrls, rolreplication, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = $1', [roleName])
+      ).rows as Array<Record<string, boolean>>;
+      const dangerous = Object.entries(actual ?? {}).filter(([, isOn]) => isOn).map(([attribute]) => attribute);
+      if (dangerous.length > 0) throw new Error(`role ${roleName} has ${dangerous.join(', ')}; a superuser must take it away`);
     };
     await createOrUpdateRole('lookup_schema_owner', OWNER_ROLE_ATTRIBUTES);
+    // The admin user may switch to the schema owner only once granted it, and both CREATE SCHEMA … AUTHORIZATION below
+    // and the migrations (role=lookup_schema_owner) switch to it. It never inherits the owner's rights: it must switch on
+    // purpose.
+    if (!isSuperuser) await client.query('GRANT lookup_schema_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE');
     for (const [roleName, password] of Object.entries(rolePasswords)) {
       await createOrUpdateRole(roleName, LOGIN_ROLE_ATTRIBUTES, password);
     }

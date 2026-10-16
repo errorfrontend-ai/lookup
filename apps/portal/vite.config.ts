@@ -17,9 +17,20 @@ export default defineConfig({
     },
   },
   preview: { port: 5180, strictPort: true },
-  // Source maps are written for our own debugging but not linked from the bundle, so browsers
-  // never download the original source and file paths.
-  build: { sourcemap: 'hidden' },
+  build: {
+    // Source maps are written for our own debugging but not linked from the bundle, so browsers
+    // never download the original source and file paths.
+    sourcemap: 'hidden',
+    rolldownOptions: {
+      output: {
+        advancedChunks: {
+          // zod and the setting that keeps it from probing for eval travel in one chunk, the setting straight after
+          // zod, so it is in force before any schema is created (the portal's security policy refuses eval).
+          groups: [{ name: 'validation', test: /node_modules[\\/]zod[\\/]|validation-without-eval/ }],
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],

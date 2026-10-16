@@ -36,6 +36,8 @@ Test files are in `apps/api/test/` unless another folder is given.
 | One error envelope `{ error: { code, message, request_id, fields? } }` (shared contract `ErrorEnvelope`); no exception text, SQL, paths or stacks ever reach a caller, on any route and for any kind of failure; full detail logged privately under the request id | `common/errors/`, `packages/contracts` | `error-responses.test.ts`, `step-two-route-failures.test.ts`, `health-when-database-is-down.test.ts`, `source-scan.test.ts` | Built |
 | Security headers (HSTS, content security policy, no sniffing, frame options), no framework header, responses never cached | `configure-http-application.ts` | `request-security.test.ts` | Built |
 | Cross-origin access only for exact allowed origins; https only in production | `configure-http-application.ts`, `app-config.ts` | `request-security.test.ts`, `startup-checks.test.ts` | Built |
+| The portal served from the API's own address (the showcase): its own content security policy (scripts from itself and the human check only, no `eval`, object storage only for uploads, audio, logos and documents, no framing); hashed files cached, the page never; no dotfile, source map or path outside its folder served | `common/http/serve-portal.ts`, `apps/portal/vite.config.ts` | `serve-portal.test.ts`; Chrome check with no policy violation (16 October 2026) | Built |
+| A path outside `/api/v1` gets the error envelope with its request id, never Express's "Cannot GET" page | `common/http/refuse-paths-outside-the-api.ts` | `error-responses.test.ts`, `serve-portal.test.ts` | Built |
 | Cross-site request forgery: a cookie-carrying write must come from an allowed origin; sign-in routes always need one (login CSRF) | `common/http/reject-cross-site-cookie-requests.ts` | `request-security.test.ts`, `authentication.test.ts` | Built |
 | Rate limits: a baseline per client address on every URL, stricter limits per route; counters shared across instances; sign-in refuses when the counter store is down, session refresh keeps working (design S2-D17) | `common/rate-limiting/` | `request-security.test.ts`, `authentication-when-key-value-store-is-down.test.ts` | Built |
 | Input validation with strict schemas; unknown fields rejected; errors name fields and reasons, never values | `common/validation/zod-validation.pipe.ts` | `request-security.test.ts`, `action-card-fixtures.test.ts` | Built |
@@ -131,7 +133,8 @@ Test files are in `apps/api/test/` unless another folder is given.
 | Local Postgres, Valkey and object storage listen on 127.0.0.1 only; Valkey requires a password | `infra/docker-compose.yml` | review | Built |
 | Exact dependency versions and a committed lockfile; no script swallows a failing exit code | `package.json` files | `source-scan.test.ts` | Built |
 | Continuous integration runs every test suite with no skips or bypasses, plus dependency audits and secret scanning | — | — | Planned (after the slice) |
-| Private networking between services on Render; TLS on every public endpoint | — | — | Planned (deploy) |
+| Render showcase: images built in stages, run as non-root; nothing secret built in (`.dockerignore`); the database reached on its public host with TLS (Render's private addresses offer none) by role-specific logins built at start; the API never holds the database admin's login; the job queue on the private network only | `render.yaml`, `infra/docker/`, `services/fingerprinter/worker.Dockerfile` | rehearsal of roles and migrations as a non-superuser on PostgreSQL 16 (16 October 2026); `startup-checks.test.ts` | Built (not yet deployed) |
+| Showcase texts: until an SMS provider is chosen, each text goes by email, marked, to the person it is for and nobody else (`SMS_SENDER=email-stand-in`) | `features/notifications/notification-senders.ts` | `sms-email-stand-in.test.ts` | Built |
 
 ## 10. The listener app (`apps/mobile`)
 
@@ -152,7 +155,7 @@ Test files are in `apps/api/test/` unless another folder is given.
 1. Render allows `CREATE ROLE` for the setup user (otherwise fall back as described in
    [ADR-002](adr/ADR-002-database-roles-and-row-level-security.md)).
 2. The number of proxy hops in front of the API, so `TRUSTED_PROXY_COUNT` is exact.
-3. TLS on the internal database connection (`DATABASE_TLS_MODE`), and authentication on the Key Value store.
+3. TLS on the database connection (`DATABASE_TLS_MODE=require`, through the database's public host: see `docs/runbooks/deploying-to-render.md`), and the Key Value store reachable from Look Up's services only (`ipAllowList: []`).
 4. The R2 bucket for ad uploads allows cross-origin `PUT` with a `Content-Type` header from the portal's production origin, and from no other origin (design S2-D32); without it every upload from the portal fails.
 5. The Key Value store rewrites its append-only file regularly (automatic rewrite on, or a scheduled
    `BGREWRITEAOF`), so listener clips from finished recognize jobs do not stay on its disk; and it runs

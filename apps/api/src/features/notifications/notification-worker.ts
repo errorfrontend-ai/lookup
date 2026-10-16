@@ -113,7 +113,7 @@ export class NotificationWorker implements OnApplicationBootstrap, OnApplication
     if (channel === 'sms') {
       const text = smsTextOf(message, this.config.PORTAL_PUBLIC_ORIGIN);
       if (text === null) throw new Error(`the ${message.template} template has no SMS`);
-      await this.smsSender.send({ to: recipient, text }).catch((error: unknown) => {
+      await this.smsSender.send({ to: recipient, text, standInEmail: job.data.smsStandInEmail }).catch((error: unknown) => {
         throw new SendFailure(error);
       });
     } else {

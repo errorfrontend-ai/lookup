@@ -1,0 +1,117 @@
+# Look Up on Render: the showcase (the user's choice of 15 October 2026). See docs/runbooks/deploying-to-render.md.
+# Frankfurt (D2). About US$30 a month: the API with the portal, the fingerprint workers, Postgres and Key Value.
+# Values marked "sync: false" are asked for when the Blueprint is created; never write a secret into this file.
+
+databases:
+  - name: lookup-database
+    region: frankfurt
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    databaseName: lookup
+    # Reached on its public host with TLS (production refuses an unencrypted connection), by password.
+
+services:
+  - type: keyvalue
+    name: lookup-key-value
+    region: frankfurt
+    plan: starter            # paid: kept on disk, so queued jobs survive a restart
+    maxmemoryPolicy: noeviction   # a queued job must never be evicted silently
+    ipAllowList: []          # reachable only from Look Up's own services
+
+  - type: web
+    name: lookup-api
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./infra/docker/api.Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    preDeployCommand: sh /app/infra/docker/prepare-database.sh
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # The database, in parts; infra/docker/database-addresses.sh builds each role's address from them.
+      - key: DATABASE_HOST
+        fromDatabase: { name: lookup-database, property: host }
+      - key: DATABASE_PORT
+        fromDatabase: { name: lookup-database, property: port }
+      - key: DATABASE_NAME
+        fromDatabase: { name: lookup-database, property: database }
+      - key: DATABASE_ADMIN_USER
+        fromDatabase: { name: lookup-database, property: user }
+      - key: DATABASE_ADMIN_PASSWORD
+        fromDatabase: { name: lookup-database, property: password }
+      - key: DATABASE_HOST_SUFFIX
+        value: .frankfurt-postgres.render.com
+      - key: DATABASE_TLS_MODE
+        value: require
+      - key: LOOKUP_API_DATABASE_PASSWORD
+        generateValue: true
+      - key: LOOKUP_ADMIN_API_DATABASE_PASSWORD
+        generateValue: true
+      - key: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD
+        generateValue: true
+      - key: KEY_VALUE_STORE_URL
+        fromService: { type: keyvalue, name: lookup-key-value, property: connectionString }
+      # Secrets made by `npm run deploy:new-secrets` on your own computer, pasted in when asked.
+      - key: AUTHENTICATION_SECRET
+        sync: false
+      - key: TWO_FACTOR_ENCRYPTION_SECRET
+        sync: false
+      - key: LISTENER_INSTALL_TOKEN_SECRET
+        sync: false
+      - key: LISTENER_INSTALL_ID_PEPPER
+        sync: false
+      # The portal is served by this service, so its address is this service's own (https://….onrender.com).
+      - key: PORTAL_PUBLIC_ORIGIN
+        sync: false
+      - key: ALLOWED_BROWSER_ORIGINS
+        sync: false
+      # Cloudflare R2: the S3 address of your account (https://<account id>.r2.cloudflarestorage.com) and a token.
+      - key: OBJECT_STORAGE_ENDPOINT
+        sync: false
+      - key: OBJECT_STORAGE_PUBLIC_ENDPOINT
+        sync: false
+      - key: OBJECT_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: OBJECT_STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: OBJECT_STORAGE_AD_UPLOADS_BUCKET
+        value: lookup-ad-uploads
+      # Email (for example Brevo's SMTP relay); texts go by email until an SMS provider is chosen (ADR-004).
+      - key: EMAIL_SMTP_URL
+        sync: false
+      - key: EMAIL_SMTP_REQUIRE_TLS
+        value: "true"
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: SMS_SENDER
+        value: email-stand-in
+      # Cloudflare Turnstile, the human check on sign-up: the site key goes into the portal when it is built.
+      - key: VITE_HUMAN_CHECK_SITE_KEY
+        sync: false
+      - key: HUMAN_CHECK_SECRET_KEY
+        sync: false
+
+  - type: worker
+    name: lookup-fingerprint-worker
+    runtime: docker
+    region: frankfurt
+    plan: starter            # if it runs out of memory, choose "standard" (2 GB) in its settings
+    dockerfilePath: ./services/fingerprinter/worker.Dockerfile
+    dockerContext: ./services/fingerprinter
+    envVars:
+      - key: DATABASE_HOST
+        fromDatabase: { name: lookup-database, property: host }
+      - key: DATABASE_PORT
+        fromDatabase: { name: lookup-database, property: port }
+      - key: DATABASE_NAME
+        fromDatabase: { name: lookup-database, property: database }
+      - key: DATABASE_HOST_SUFFIX
+        value: .frankfurt-postgres.render.com
+      - key: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD
+        fromService: { type: web, name: lookup-api, envVarKey: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD }
+      - key: KEY_VALUE_STORE_URL
+        fromService: { type: keyvalue, name: lookup-key-value, property: connectionString }
+      - key: WORKER_CONCURRENCY
+        value: "1"

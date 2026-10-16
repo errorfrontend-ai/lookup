@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./validation-without-eval": {
+      "types": "./dist/validation-without-eval.d.ts",
+      "default": "./dist/validation-without-eval.js"
+    },
     "./schemas/*": "./schemas/*",
     "./fixtures/*": "./fixtures/*"
   },

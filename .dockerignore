@@ -1,0 +1,19 @@
+# The API image is built from the repository root (infra/docker/api.Dockerfile). Nothing secret and nothing it does
+# not need may reach the build: no .env files, no installed packages, no build output, no audio, no phone app.
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/dist
+**/dist-tools
+**/coverage
+**/test-results
+**/playwright-report
+**/*.log
+.git
+.claude
+apps/mobile
+services
+spike
+docs
+infra/ngrok

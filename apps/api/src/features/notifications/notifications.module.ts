@@ -1,7 +1,7 @@
 import { Global, Inject, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { NotificationQueue } from './notification-queue.js';
-import { ClosedSmsSender, DevelopmentSmsSender, EMAIL_SENDER, SMS_SENDER, SmtpEmailSender, type EmailSender } from './notification-senders.js';
+import { ClosedSmsSender, DevelopmentSmsSender, EMAIL_SENDER, EmailStandInSmsSender, SMS_SENDER, type SmsSender, SmtpEmailSender, type EmailSender } from './notification-senders.js';
 import { NotificationWorker } from './notification-worker.js';
 
 /**
@@ -17,8 +17,11 @@ import { NotificationWorker } from './notification-worker.js';
     {
       provide: SMS_SENDER,
       inject: [APP_CONFIG, EMAIL_SENDER],
-      useFactory: (config: AppConfig, emailSender: EmailSender) =>
-        config.SMS_SENDER === 'development' ? new DevelopmentSmsSender(emailSender) : new ClosedSmsSender(),
+      useFactory: (config: AppConfig, emailSender: EmailSender): SmsSender => {
+        if (config.SMS_SENDER === 'development') return new DevelopmentSmsSender(emailSender);
+        if (config.SMS_SENDER === 'email-stand-in') return new EmailStandInSmsSender(emailSender);
+        return new ClosedSmsSender();
+      },
     },
   ],
   exports: [NotificationQueue],

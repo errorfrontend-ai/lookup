@@ -83,6 +83,15 @@ describe('error responses never expose internals', () => {
     expectErrorEnvelope(await client().get('/api/v1/does-not-exist'), 404, 'NOT_FOUND');
   });
 
+  it('a path outside the API gets the 404 envelope too, never Express’s "Cannot GET" page', async () => {
+    const requests = [() => client().get('/'), () => client().get('/not-the-api'), () => client().post('/stations/x').send({}), () => client().get('/apiv1/health')];
+    for (const send of requests) {
+      const response = await send();
+      expectErrorEnvelope(response, 404, 'NOT_FOUND');
+      expect(response.text).not.toMatch(/Cannot (GET|POST)|<html/i);
+    }
+  });
+
   it('valid JSON still works', async () => {
     const response = await client().post('/api/v1/test-only/echo').send({ hello: 'world' }).expect(201);
     expect(response.body).toEqual({ hello: 'world' });

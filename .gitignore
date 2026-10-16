@@ -7,6 +7,7 @@ __pycache__/
 # Node / builds
 node_modules/
 dist/
+dist-tools/
 
 # Browser test output (traces and screenshots of failures)
 test-results/

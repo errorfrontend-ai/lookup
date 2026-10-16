@@ -15,6 +15,18 @@ export interface DatabaseSetupConfig {
 }
 
 const MINIMUM_PASSWORD_LENGTH = 16;
+const TLS_MODES = ['disable', 'require', 'verify-full'] as const;
+
+/**
+ * How the setup scripts encrypt their connection, from DATABASE_TLS_MODE exactly as the API reads it: a managed
+ * database reached over its public address refuses an unencrypted one (`require`, or `verify-full` to check its
+ * certificate too); the local Docker database has none (`disable`, the default).
+ */
+export function setupConnectionTls(): false | { rejectUnauthorized: boolean } {
+  const mode = process.env.DATABASE_TLS_MODE ?? 'disable';
+  if (!(TLS_MODES as readonly string[]).includes(mode)) throw new Error(`DATABASE_TLS_MODE must be one of: ${TLS_MODES.join(', ')}`);
+  return mode === 'disable' ? false : { rejectUnauthorized: mode === 'verify-full' };
+}
 
 /**
  * Configuration for the setup scripts only (roles and migrations), read from apps/api/.env

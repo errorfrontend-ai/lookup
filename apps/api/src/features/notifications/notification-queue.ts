@@ -20,6 +20,8 @@ export interface NotificationJobData {
   channel: NotificationChannel;
   /** An E.164 number or an email address; the job is removed once sent or given up. */
   recipient: string;
+  /** For an SMS: the email of the person it is for, used only when SMS_SENDER is `email-stand-in`. */
+  smsStandInEmail?: string;
   message: NotificationMessage;
   requestId: string;
   deadlineEpochMilliseconds: number;
@@ -54,10 +56,21 @@ export class NotificationQueue implements OnApplicationShutdown {
     await this.connection.quit().catch(() => this.connection.disconnect());
   }
 
-  async enqueue(channel: NotificationChannel, recipient: string, message: NotificationMessage, requestId: string): Promise<void> {
+  /**
+   * Queues one message. An SMS names the email of the person it is for (`smsStandInEmail`) whenever the caller knows
+   * it, so the showcase's stand-in can email it to them; any other sender ignores it.
+   */
+  async enqueue(
+    channel: NotificationChannel,
+    recipient: string,
+    message: NotificationMessage,
+    requestId: string,
+    options: { smsStandInEmail?: string | null } = {},
+  ): Promise<void> {
     const deadline = Date.now() + (message.template === 'phone_verification_code' ? PHONE_CODE_DEADLINE_MILLISECONDS : OTHER_DEADLINE_MILLISECONDS);
+    const standIn = channel === 'sms' && options.smsStandInEmail ? { smsStandInEmail: options.smsStandInEmail } : {};
     try {
-      await this.queue.add(message.template, { channel, recipient, message, requestId, deadlineEpochMilliseconds: deadline }, {
+      await this.queue.add(message.template, { channel, recipient, ...standIn, message, requestId, deadlineEpochMilliseconds: deadline }, {
         attempts: NOTIFICATION_ATTEMPTS,
         backoff: { type: 'exponential', delay: this.retryDelayMilliseconds },
         removeOnComplete: true,

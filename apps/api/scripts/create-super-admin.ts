@@ -24,7 +24,7 @@ import { TwoFactorSecretBox } from '../src/common/security/two-factor-secret-box
 import { normalizeEmail } from '../src/features/authentication/authentication.service.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
 import { PasswordPolicy } from '../src/features/authentication/password-policy.js';
-import { loadDatabaseSetupConfig } from './database-setup-config.js';
+import { loadDatabaseSetupConfig, setupConnectionTls } from './database-setup-config.js';
 
 export class SuperAdminProblem extends Error {}
 
@@ -106,7 +106,7 @@ async function enrol(
 }
 
 async function withSetupClient<Result>(setupUrl: string, work: (client: pg.Client) => Promise<Result>): Promise<Result> {
-  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-create-super-admin' });
+  const client = new pg.Client({ connectionString: setupUrl, application_name: 'lookup-create-super-admin', ssl: setupConnectionTls() });
   await client.connect();
   try {
     await client.query('BEGIN');

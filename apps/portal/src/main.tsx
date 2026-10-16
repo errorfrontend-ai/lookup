@@ -1,3 +1,5 @@
+// First of all: the portal's security policy refuses eval, so validation must never compile code or probe for it.
+import '@lookup/contracts/validation-without-eval';
 import '@fontsource-variable/bricolage-grotesque';
 import '@fontsource-variable/public-sans';
 import './styles.css';

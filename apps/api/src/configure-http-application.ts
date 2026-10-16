@@ -6,7 +6,9 @@ import type { AppConfig } from './config/app-config.js';
 import { assignRequestId } from './common/http/assign-request-id.js';
 import { mapBodyParserErrors } from './common/http/map-body-parser-errors.js';
 import { preventResponseCaching } from './common/http/prevent-response-caching.js';
+import { refusePathsOutsideTheApi } from './common/http/refuse-paths-outside-the-api.js';
 import { rejectCrossSiteCookieRequests } from './common/http/reject-cross-site-cookie-requests.js';
+import { portalContentSecurityPolicy, servePortal } from './common/http/serve-portal.js';
 import { limitRequestsPerClientAddress } from './common/rate-limiting/limit-requests-per-client-address.js';
 import { RateLimiter } from './common/rate-limiting/rate-limiter.js';
 
@@ -24,7 +26,13 @@ export function configureHttpApplication(application: NestExpressApplication, co
   application.disable('x-powered-by');
   application.use(assignRequestId);
   application.use(helmet());
+  // The built portal, when this API serves it (before the no-store and rate-limit steps, which are for the API).
+  if (config.PORTAL_STATIC_DIRECTORY) {
+    const policy = portalContentSecurityPolicy(new URL(config.OBJECT_STORAGE_PUBLIC_ENDPOINT).origin, config.PORTAL_PUBLIC_ORIGIN.startsWith('https://'));
+    application.use(servePortal(config.PORTAL_STATIC_DIRECTORY, policy));
+  }
   application.enableCors({ origin: [...config.ALLOWED_BROWSER_ORIGINS], credentials: true, maxAge: 600 });
+  application.use(refusePathsOutsideTheApi);
   application.use(preventResponseCaching);
   application.use(
     limitRequestsPerClientAddress(application.get(RateLimiter), config.RATE_LIMIT_REQUESTS_PER_MINUTE, config.LISTENER_REQUESTS_PER_CLIENT_ADDRESS_PER_MINUTE),

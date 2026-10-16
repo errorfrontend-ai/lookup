@@ -163,7 +163,7 @@ export class RegistrationService {
       registered.new_refresh_token_expires_at,
     );
     const scope = { stationId, userId: portalUserId };
-    await this.sendPhoneCodeNow(stationId, input.mobileNumber, request.requestId).catch((problem: unknown) => {
+    await this.sendPhoneCodeNow(stationId, input.mobileNumber, email, request.requestId).catch((problem: unknown) => {
       this.logger.warn({ err: problem, requestId: request.requestId }, 'the first phone code was not queued; the applicant can send another');
     });
     await this.sendEmailLinkNow(scope, input.fullName, request.requestId).catch((problem: unknown) => {
@@ -252,7 +252,7 @@ export class RegistrationService {
     const stationId = this.currentStationId();
     if (changed.is_phone_number_changed) {
       await this.phoneCodes.forget(stationId);
-      await this.sendPhoneCodeNow(stationId, input.mobileNumber, request.requestId);
+      await this.sendPhoneCodeNow(stationId, input.mobileNumber, email, request.requestId);
     }
     if (changed.is_email_changed) {
       await this.forgetEmailLinkCooldown(stationId);
@@ -271,7 +271,7 @@ export class RegistrationService {
     if (row.phone_verified_at !== null || row.contact_phone_number_e164 === null) return null;
     await this.rateLimiter.countRequest(PHONE_CODES_SENT_PER_STATION, stationId, response);
     try {
-      const issued = await this.sendPhoneCodeNow(stationId, row.contact_phone_number_e164, request.requestId);
+      const issued = await this.sendPhoneCodeNow(stationId, row.contact_phone_number_e164, row.owner_email, request.requestId);
       return { sentAt: issued.sentAt.toISOString(), resendAvailableAt: issued.resendAvailableAt.toISOString() };
     } catch (problem) {
       if (problem instanceof ResendTooSoon) response.setHeader('Retry-After', String(problem.retryAfterSeconds));
@@ -401,9 +401,10 @@ export class RegistrationService {
     return row;
   }
 
-  private async sendPhoneCodeNow(stationId: string, phoneNumberE164: string, requestId: string) {
+  /** Issues a code and queues its SMS; `applicantEmail` is where the showcase's stand-in emails it (SMS_SENDER=email-stand-in). */
+  private async sendPhoneCodeNow(stationId: string, phoneNumberE164: string, applicantEmail: string | null, requestId: string) {
     const issued = await this.phoneCodes.issue(stationId, phoneNumberE164);
-    await this.notifications.enqueue('sms', phoneNumberE164, { template: 'phone_verification_code', code: issued.code }, requestId);
+    await this.notifications.enqueue('sms', phoneNumberE164, { template: 'phone_verification_code', code: issued.code }, requestId, { smsStandInEmail: applicantEmail });
     return issued;
   }
 

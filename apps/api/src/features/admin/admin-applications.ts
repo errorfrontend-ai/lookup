@@ -269,7 +269,9 @@ export class AdminApplications {
   /** The SMS and the email of a decision (P5A design §3.6). A queueing failure is logged: the decision stands. */
   async tellStation(station: StationForDecision, message: NotificationMessage, requestId: string): Promise<void> {
     const sends: Array<Promise<void>> = [];
-    if (station.contact_phone_number_e164) sends.push(this.notifications.enqueue('sms', station.contact_phone_number_e164, message, requestId));
+    if (station.contact_phone_number_e164) {
+      sends.push(this.notifications.enqueue('sms', station.contact_phone_number_e164, message, requestId, { smsStandInEmail: station.owner_email }));
+    }
     if (station.owner_email) sends.push(this.notifications.enqueue('email', station.owner_email, message, requestId));
     for (const outcome of await Promise.allSettled(sends)) {
       if (outcome.status === 'rejected') this.logger.warn({ err: outcome.reason, requestId, template: message.template }, 'a decision notification was not queued');

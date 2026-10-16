@@ -23,6 +23,7 @@
     "test": "npm test --workspaces",
     "typecheck": "npm run typecheck --workspaces",
     "check:requirements": "node scripts/check-requirement-evidence.mjs",
-    "workers": "node scripts/run-fingerprint-workers.mjs"
+    "workers": "node scripts/run-fingerprint-workers.mjs",
+    "deploy:new-secrets": "node scripts/make-deploy-secrets.mjs"
   }
 }
