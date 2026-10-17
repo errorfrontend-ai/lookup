@@ -153,7 +153,8 @@ Test files are in `apps/api/test/` unless another folder is given.
 ## Checks to make at first deploy
 
 1. Render allows `CREATE ROLE` for the setup user (otherwise fall back as described in
-   [ADR-002](adr/ADR-002-database-roles-and-row-level-security.md)).
+   [ADR-002](adr/ADR-002-database-roles-and-row-level-security.md)). **Confirmed at the first deploy, 17 October
+   2026:** the pre-deploy step created the roles and applied every migration.
 2. The number of proxy hops in front of the API, so `TRUSTED_PROXY_COUNT` is exact.
 3. TLS on the database connection (`DATABASE_TLS_MODE=require`, through the database's public host: see `docs/runbooks/deploying-to-render.md`), and the Key Value store reachable from Look Up's services only (`ipAllowList: []`).
 4. The R2 bucket for ad uploads allows cross-origin `PUT` with a `Content-Type` header from the portal's production origin, and from no other origin (design S2-D32); without it every upload from the portal fails.

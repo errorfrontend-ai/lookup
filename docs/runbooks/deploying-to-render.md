@@ -125,9 +125,12 @@ Microsoft Authenticator), then clear the shell. Sign in at the portal address; i
 
 - **Database roles.** The pre-deploy step creates `lookup_api`, `lookup_admin_api`, `lookup_fingerprint_worker` and
   the owner `lookup_schema_owner` with Render's database user, which can create roles but is no superuser. This was
-  rehearsed on PostgreSQL 16 with such a user (16 October 2026): both the first run and every later one work. If Render
-  ever refuses (`permission denied to create role`), the deploy stops before anything starts; ADR-002 names the
-  fallback.
+  rehearsed on PostgreSQL 16 with such a user (16 October 2026), and **confirmed on Render at the first deploy (17
+  October 2026): the roles were created and all ten migrations applied**. If Render ever refuses (`permission denied
+  to create role`), the deploy stops before anything starts; ADR-002 names the fallback.
+- **A setting left empty stops the start.** At the first deploy the API refused to start with `EMAIL_FROM_ADDRESS`
+  and `HUMAN_CHECK_SECRET_KEY` still empty (production refuses the placeholder sender and Cloudflare's test key).
+  Fill them, then **Save, rebuild, and deploy** (the Turnstile site key is built into the portal).
 - **Encrypted database connections.** Render's private addresses offer no TLS and production refuses an unencrypted
   database connection, so the services use the database's public host (`…frankfurt-postgres.render.com`) with TLS,
   inside the same region. The job queue is reached on Render's private network.
