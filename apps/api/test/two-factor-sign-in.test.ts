@@ -3,7 +3,7 @@ import { computeTwoFactorCode, decodeBase32, twoFactorTimeStepAt } from '@lookup
 import type pg from 'pg';
 import supertest from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createSuperAdmin, resetSuperAdminTwoFactor, SuperAdminProblem } from '../scripts/create-super-admin.js';
+import { createSuperAdmin, describeForOperator, resetSuperAdminTwoFactor, SuperAdminProblem } from '../scripts/create-super-admin.js';
 import { loadDatabaseSetupConfig } from '../scripts/database-setup-config.js';
 import { TwoFactorSecretBox } from '../src/common/security/two-factor-secret-box.js';
 import { CLOCK } from '../src/common/time/clock.js';
@@ -167,5 +167,17 @@ describe('the super admin\'s second factor', () => {
     await expect(createSuperAdmin(setupUrl, { email: `weak.${randomUUID().slice(0, 8)}@example.com`, fullName: 'Weak Admin', password: 'short' }, encryptionSecret)).rejects.toBeInstanceOf(SuperAdminProblem);
     await expect(createSuperAdmin(setupUrl, { email: 'not an email', fullName: 'Admin', password }, encryptionSecret)).rejects.toThrow(/SUPER_ADMIN_EMAIL/);
     await expect(resetSuperAdminTwoFactor(setupUrl, `nobody.${randomUUID().slice(0, 8)}@example.com`, encryptionSecret)).rejects.toThrow(/No super admin has that email/);
+  });
+});
+
+describe('the super-admin command when it fails', () => {
+  it('tells the operator why in their own terminal, with any password in an address hidden', () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED postgresql://render_admin:Secret123@dpg-x.frankfurt-postgres.render.com:5432/lookup'), { code: 'ECONNREFUSED' });
+    expect(describeForOperator(refused)).toBe('Error ECONNREFUSED: connect ECONNREFUSED postgresql://…@dpg-x.frankfurt-postgres.render.com:5432/lookup');
+    expect(describeForOperator(refused)).not.toContain('Secret123');
+    const missingFile = Object.assign(new Error("ENOENT: no such file or directory, open '/app/apps/api/dist-tools/x.gz'"), { code: 'ENOENT' });
+    expect(describeForOperator(missingFile)).toBe("Error ENOENT: ENOENT: no such file or directory, open '/app/apps/api/dist-tools/x.gz'");
+    expect(describeForOperator('not an error')).toBe('an unknown error');
+    expect(describeForOperator(new Error(`long ${'x'.repeat(500)}`)).length).toBeLessThan(320);
   });
 });

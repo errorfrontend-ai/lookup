@@ -11,7 +11,7 @@
     "build:contracts": "npm run build --workspace=@lookup/contracts",
     "prebuild": "npm run build:contracts",
     "build": "nest build",
-    "build:tools": "tsc -p tsconfig.tools.json",
+    "build:tools": "tsc -p tsconfig.tools.json && node scripts/copy-tool-assets.mjs",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "prestart:watch": "npm run build:contracts",
     "start:watch": "nest start --watch --exec \"node --env-file-if-exists=.env\"",

@@ -110,6 +110,9 @@ async function withSetupClient<Result>(setupUrl: string, work: (client: pg.Clien
   await client.connect();
   try {
     await client.query('BEGIN');
+    // The tables belong to the schema owner. A managed database's admin user (Render) is no superuser: it may only
+    // switch to the owner (granted by create-database-roles), so it writes as the owner, for this transaction only.
+    await client.query('SET LOCAL ROLE lookup_schema_owner');
     const result = await work(client);
     await client.query('COMMIT');
     return result;
@@ -119,6 +122,17 @@ async function withSetupClient<Result>(setupUrl: string, work: (client: pg.Clien
   } finally {
     await client.end();
   }
+}
+
+/**
+ * Why the command failed, for the operator running it in their own terminal (the private side, like a log line):
+ * the kind of error, its code and its message, with any password in an address hidden, and cut to one short line.
+ */
+export function describeForOperator(problem: unknown): string {
+  if (!(problem instanceof Error)) return 'an unknown error';
+  const code = (problem as { code?: unknown }).code;
+  const message = problem.message.replace(/\/\/[^\s/@]*@/g, '//…@').replace(/\s+/g, ' ').slice(0, 300);
+  return `${problem.name}${typeof code === 'string' ? ` ${code}` : ''}: ${message}`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -150,7 +164,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`Secret, to type in instead: ${enrolment.secretBase32}`);
     })
     .catch((problem: unknown) => {
-      console.error(problem instanceof SuperAdminProblem ? problem.message : `Could not enrol the super admin (${problem instanceof Error ? problem.name : 'unknown error'}).`);
+      console.error(problem instanceof SuperAdminProblem ? problem.message : `Could not enrol the super admin: ${describeForOperator(problem)}`);
       process.exit(1);
     });
 }
