@@ -8,12 +8,12 @@ an SMS provider is chosen (ADR-004).
 
 | Render service | What it is | Plan | About |
 |---|---|---|---|
-| `lookup-api` | The API, which also serves the station portal | Starter | US$7 a month |
-| `lookup-fingerprint-worker` | Prepares uploaded ads and recognises listeners' clips | Starter (Standard, 2 GB, if it runs out of memory) | US$7 (or 25) |
-| `lookup-database` | PostgreSQL 16 | Basic 256 MB | about US$6 |
-| `lookup-key-value` | The job queue (Valkey), kept on disk | Starter | US$10 |
+| `lookup-api` | The API, which also serves the station portal | `0.5c-512mb` | about US$7 a month |
+| `lookup-fingerprint-worker` | Prepares uploaded ads and recognises listeners' clips | `0.5c-512mb` (`1c-2g` if it runs out of memory) | about US$7 (or 25) |
+| `lookup-database` | PostgreSQL 16 | `0.1c-256mb` | about US$6 |
+| `lookup-key-value` | The job queue (Valkey), kept on disk | `256mb` | about US$10 |
 
-About **US$30 a month**. Audio files, logos and licence documents are kept in **Cloudflare R2** (free up to 10 GB).
+About **US$30 a month** (check each plan's price on Render's pricing page when you create the Blueprint). Audio files, logos and licence documents are kept in **Cloudflare R2** (free up to 10 GB).
 Everything is described in `render.yaml` at the top of the repository; Render reads it when the Blueprint is made.
 
 The portal and the API share one address, `https://lookup-api.onrender.com` (Render adds a few letters if the name
@@ -117,7 +117,7 @@ Microsoft Authenticator), then clear the shell. Sign in at the portal address; i
 2. Sign up a station on a phone: the "text message" arrives by email, marked "sent by email for now"; the email link
    arrives; the super admin approves; the approval email arrives.
 3. The station uploads an ad: it turns **Ready** within a minute or two (the worker). If it stays "Preparing", read
-   the worker's logs; if Render reports it ran out of memory, change its plan to Standard.
+   the worker's logs; if Render reports it ran out of memory, change its plan to `1c-2g`.
 4. The listener app (a build pointed at the address) identifies the ad; the Overview's numbers count it.
 5. `lookup-key-value` → Info: **Max memory policy** is `noeviction`.
 

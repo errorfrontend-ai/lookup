@@ -2,10 +2,20 @@
 # Frankfurt (D2). About US$30 a month: the API with the portal, the fingerprint workers, Postgres and Key Value.
 # Values marked "sync: false" are asked for when the Blueprint is created; never write a secret into this file.
 
+# Plan IDs are Render's current ones (its Blueprint reference, 17 October 2026).
+
+envVarGroups:
+  # The fingerprint worker's database password: made once by Render, shared by the API (whose pre-deploy step gives
+  # the worker's role this password) and the worker (which logs in with it).
+  - name: lookup-worker-database-login
+    envVars:
+      - key: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD
+        generateValue: true
+
 databases:
   - name: lookup-database
     region: frankfurt
-    plan: basic-256mb
+    plan: 0.1c-256mb
     postgresMajorVersion: "16"
     databaseName: lookup
     # Reached on its public host with TLS (production refuses an unencrypted connection), by password.
@@ -14,7 +24,7 @@ services:
   - type: keyvalue
     name: lookup-key-value
     region: frankfurt
-    plan: starter            # paid: kept on disk, so queued jobs survive a restart
+    plan: 256mb              # paid: kept on disk, so queued jobs survive a restart
     maxmemoryPolicy: noeviction   # a queued job must never be evicted silently
     ipAllowList: []          # reachable only from Look Up's own services
 
@@ -22,7 +32,7 @@ services:
     name: lookup-api
     runtime: docker
     region: frankfurt
-    plan: starter
+    plan: 0.5c-512mb
     dockerfilePath: ./infra/docker/api.Dockerfile
     dockerContext: .
     healthCheckPath: /api/v1/health
@@ -30,17 +40,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # The database, in parts; infra/docker/database-addresses.sh builds each role's address from them.
-      - key: DATABASE_HOST
-        fromDatabase: { name: lookup-database, property: host }
-      - key: DATABASE_PORT
-        fromDatabase: { name: lookup-database, property: port }
-      - key: DATABASE_NAME
-        fromDatabase: { name: lookup-database, property: database }
-      - key: DATABASE_ADMIN_USER
-        fromDatabase: { name: lookup-database, property: user }
-      - key: DATABASE_ADMIN_PASSWORD
-        fromDatabase: { name: lookup-database, property: password }
+      # The database's private address with its admin login; infra/docker/database-addresses.sh builds each role's
+      # own address from it, on the public host (private host + suffix) with TLS.
+      - key: DATABASE_ADMIN_URL
+        fromDatabase: { name: lookup-database, property: connectionString }
       - key: DATABASE_HOST_SUFFIX
         value: .frankfurt-postgres.render.com
       - key: DATABASE_TLS_MODE
@@ -49,8 +52,7 @@ services:
         generateValue: true
       - key: LOOKUP_ADMIN_API_DATABASE_PASSWORD
         generateValue: true
-      - key: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD
-        generateValue: true
+      - fromGroup: lookup-worker-database-login
       - key: KEY_VALUE_STORE_URL
         fromService: { type: keyvalue, name: lookup-key-value, property: connectionString }
       # Secrets made by `npm run deploy:new-secrets` on your own computer, pasted in when asked.
@@ -97,20 +99,16 @@ services:
     name: lookup-fingerprint-worker
     runtime: docker
     region: frankfurt
-    plan: starter            # if it runs out of memory, choose "standard" (2 GB) in its settings
+    plan: 0.5c-512mb         # if it runs out of memory, choose 1c-2g (2 GB) in its settings
     dockerfilePath: ./services/fingerprinter/worker.Dockerfile
     dockerContext: ./services/fingerprinter
     envVars:
-      - key: DATABASE_HOST
-        fromDatabase: { name: lookup-database, property: host }
-      - key: DATABASE_PORT
-        fromDatabase: { name: lookup-database, property: port }
-      - key: DATABASE_NAME
-        fromDatabase: { name: lookup-database, property: database }
+      # Only the host and the database's name are taken from this; start-workers.sh drops the admin login.
+      - key: DATABASE_ADMIN_URL
+        fromDatabase: { name: lookup-database, property: connectionString }
       - key: DATABASE_HOST_SUFFIX
         value: .frankfurt-postgres.render.com
-      - key: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD
-        fromService: { type: web, name: lookup-api, envVarKey: LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD }
+      - fromGroup: lookup-worker-database-login
       - key: KEY_VALUE_STORE_URL
         fromService: { type: keyvalue, name: lookup-key-value, property: connectionString }
       - key: WORKER_CONCURRENCY

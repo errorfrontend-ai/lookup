@@ -4,11 +4,17 @@
 # password URL-encoded; locally FINGERPRINT_DATABASE_URL is given as it is. If either worker stops, the other is
 # stopped too and the service exits, so Render starts both again.
 set -eu
-if [ -n "${DATABASE_HOST:-}" ]; then
-  password=$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD")
-  FINGERPRINT_DATABASE_URL="postgresql://lookup_fingerprint_worker:${password}@${DATABASE_HOST}${DATABASE_HOST_SUFFIX:-}:${DATABASE_PORT:-5432}/${DATABASE_NAME}?sslmode=require"
+if [ -n "${DATABASE_ADMIN_URL:-}" ]; then
+  # Only the host and the database's name are taken from the admin's address; its login is dropped.
+  FINGERPRINT_DATABASE_URL=$(python -c '
+import os, urllib.parse
+admin = urllib.parse.urlsplit(os.environ["DATABASE_ADMIN_URL"])
+password = urllib.parse.quote(os.environ["LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD"], safe="")
+host = admin.hostname + os.environ.get("DATABASE_HOST_SUFFIX", "")
+print(f"postgresql://lookup_fingerprint_worker:{password}@{host}:{admin.port or 5432}{admin.path}?sslmode=require")
+')
   export FINGERPRINT_DATABASE_URL
-  unset LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD password
+  unset DATABASE_ADMIN_URL LOOKUP_FINGERPRINT_WORKER_DATABASE_PASSWORD
 fi
 python -m workers.ingest &
 ingest=$!
