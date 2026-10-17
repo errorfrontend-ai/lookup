@@ -24,6 +24,7 @@
     "typecheck": "npm run typecheck --workspaces",
     "check:requirements": "node scripts/check-requirement-evidence.mjs",
     "workers": "node scripts/run-fingerprint-workers.mjs",
-    "deploy:new-secrets": "node scripts/make-deploy-secrets.mjs"
+    "deploy:new-secrets": "node scripts/make-deploy-secrets.mjs",
+    "deploy:email-address": "node scripts/make-email-address.mjs"
   }
 }
