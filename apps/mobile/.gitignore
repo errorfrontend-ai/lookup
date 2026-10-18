@@ -46,3 +46,5 @@ app.*.map.json
 
 # The user's own phone set-up (their ngrok address): copied from config/development-phone.example.json.
 /config/development-phone.json
+# The showcase build on Render (its address and the support WhatsApp number): kept on this computer.
+/config/showcase.json
