@@ -40,3 +40,10 @@ per-ad numbers in the list and on the ad's page, nothing of another station or o
 generic 500 with the stack in the log); `packages/contracts/test/listener-figures-schemas.test.ts`; the Overview,
 ads list, ad page and accessibility tests in the portal. Two deliberate breaks were caught: hours counted in UTC
 instead of station time, and the ads' 7 days widened to 9.
+
+## Asked on the live showcase (18 October 2026)
+
+- **Choosing the part of a longer recording** (P5B-WIZARD-18): the user chose that a station may upload up to about
+  10 minutes and pick the part that is the ad, with a preview, rather than keeping the 2-minute limit or cutting
+  automatically. To be designed and built after the showcase (portal: the chooser; API and worker: store and
+  fingerprint only the chosen part).
