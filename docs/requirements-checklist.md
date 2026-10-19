@@ -4,7 +4,7 @@ Every requirement from the blueprint, the approved plan, the wireframes, the sec
 standing rules, as one item each, with where it comes from and what proves it. A phase is not done
 until its items are ticked with evidence or set aside with a reason shown to the user.
 
-The items live in five parts, in the order the system is built:
+The items live in six parts, in the order the system is built:
 
 | Part | Phases | File |
 |---|---|---|
@@ -13,6 +13,7 @@ The items live in five parts, in the order the system is built:
 | 3 | S4 Listener app; P6 the full app (offline capture, history, settings) | [checklist-3-listener-app.md](requirements/checklist-3-listener-app.md) |
 | 4 | P5A Registration and admin; P5B Station dashboard; P5C Client viewers | [checklist-4-portal-registration-dashboards.md](requirements/checklist-4-portal-registration-dashboards.md) |
 | 5 | P7 Analytics; P8 Hardening and pilot; P9 later; ALL rules that apply to every phase | [checklist-5-analytics-hardening-and-every-phase.md](requirements/checklist-5-analytics-hardening-and-every-phase.md) |
+| 6 | LA Listener accounts (email, gender and age gate the result of an ad scan; ADR-005, written 20 October 2026) | [checklist-6-listener-accounts.md](requirements/checklist-6-listener-accounts.md) |
 
 How to read a line is explained at the top of part 1. In short:
 
