@@ -154,6 +154,19 @@ describe('applications', () => {
     await person.click(screen.getByRole('button', { name: 'Approve station' }));
     expect(await screen.findByText('Approved. The station gets an SMS and email.')).toBeInTheDocument();
     expect(api.calls.some((call) => call.method === 'POST' && call.path === `/admin/applications/${STATION}/approval`)).toBe(true);
+    // The list is asked for again; the application just decided is not (nothing waits there now: the API answers 404).
+    const getsOf = (path: string) => api.calls.filter((call) => call.method === 'GET' && call.path === path);
+    await waitFor(() => expect(getsOf('/admin/applications')).toHaveLength(2));
+    expect(getsOf(`/admin/applications/${STATION}`)).toHaveLength(1);
+  });
+
+  it('an application with nothing waiting for review (already decided, or an old link) says so in plain words', async () => {
+    consoleApi({ [`GET /admin/applications/${STATION}`]: () => errorResponse(404, 'NOT_FOUND', 'Not found.') });
+    renderPortalAt(`/admin/applications/${STATION}`);
+    expect(await screen.findByRole('heading', { level: 2, name: 'Nothing is waiting for review here' })).toBeInTheDocument();
+    expect(screen.getByText('This application has already been approved or rejected, or the link is out of date.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'See the station in Stations' })).toHaveAttribute('href', '/admin/stations');
+    expect(screen.queryByText("We couldn't load this application")).not.toBeInTheDocument();
   });
 
   it('P5A-ADMIN-QUEUE-02..09, -12, -16, -17, -19, -21: the queue and an application as the reviewer sees them', async () => {

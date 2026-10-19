@@ -2,6 +2,7 @@ import { type ApplicationDetail, type ApplicationQueue, type ApplicationQueueEnt
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
+import { ApiError } from '../../api/api-client';
 import { portalApi } from '../../app/portal-api';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -79,6 +80,22 @@ function QueueEntryButton({ entry, isSelected, onSelect }: { entry: ApplicationQ
   );
 }
 
+/** An old link, or a tab left open after the decision: the station has nothing waiting for review. */
+function NothingWaiting({ isOnItsOwn }: { isOnItsOwn: boolean }) {
+  const Heading = isOnItsOwn ? 'h1' : 'h2';
+  return (
+    <section aria-labelledby="nothing-waiting-heading" className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-5">
+      <Heading id="nothing-waiting-heading" className="text-title">
+        Nothing is waiting for review here
+      </Heading>
+      <p className="text-body">This application has already been approved or rejected, or the link is out of date.</p>
+      <Link to="/admin/stations" className="inline-flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
+        See the station in Stations
+      </Link>
+    </section>
+  );
+}
+
 /** On a phone the application is a page of its own, so its headings start at level one. */
 function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnItsOwn: boolean }) {
   const Heading = isOnItsOwn ? 'h1' : 'h2';
@@ -87,7 +104,12 @@ function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnIt
   const navigate = useNavigate();
   const [reason, setReason] = useState('');
   const [done, setDone] = useState<string | null>(null);
-  const detail = useQuery({ queryKey: ['admin', 'applications', stationId], queryFn: () => portalApi.get<ApplicationDetail>(`/admin/applications/${stationId}`) });
+  // Once decided, nothing is waiting here any more (the API answers 404), so the application is never asked for again.
+  const detail = useQuery({
+    queryKey: ['admin', 'applications', stationId],
+    queryFn: () => portalApi.get<ApplicationDetail>(`/admin/applications/${stationId}`),
+    enabled: done === null,
+  });
   const data = detail.data;
   const changeRequestId = data?.kind === 'DETAIL_CHANGE' ? data.changeRequestId : null;
   const documentToShow = data ? (changeRequestId ? data.proposedChange?.licenceDocument ?? null : data.licenceDocument) : null;
@@ -102,7 +124,8 @@ function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnIt
   });
   const afterDecision = async (words: string) => {
     setDone(words);
-    await queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY });
+    // Only the list: a prefix match would also ask again for the application just decided.
+    await queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY, exact: true });
     await queryClient.invalidateQueries({ queryKey: ADMIN_SUMMARY_QUERY_KEY });
   };
   const base = changeRequestId ? `/admin/change-requests/${changeRequestId}` : `/admin/applications/${stationId}`;
@@ -121,6 +144,7 @@ function ApplicationPanel({ stationId, isOnItsOwn }: { stationId: string; isOnIt
     );
   }
   if (detail.isPending) return <p className="text-body text-muted">Loading the application…</p>;
+  if (detail.error instanceof ApiError && detail.error.httpStatus === 404) return <NothingWaiting isOnItsOwn={isOnItsOwn} />;
   if (detail.isError || !data) return <ErrorNotice error={detail.error} title="We couldn't load this application" />;
   const canReject = reason.trim().length >= MINIMUM_DECISION_REASON_LENGTH;
 
