@@ -64,6 +64,11 @@ services:
         sync: false
       - key: LISTENER_INSTALL_ID_PEPPER
         sync: false
+      # Listener accounts (ADR-005): seals listeners' emails. Never change it once accounts exist.
+      - key: LISTENER_EMAIL_ENCRYPTION_SECRET
+        sync: false
+      - key: LISTENER_ACCOUNT_REQUIRED
+        value: 'false'
       # The portal is served by this service, so its address is this service's own (https://….onrender.com).
       - key: PORTAL_PUBLIC_ORIGIN
         sync: false

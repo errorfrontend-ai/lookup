@@ -7,6 +7,7 @@ import { PinoLogger } from 'nestjs-pino';
 import type CircuitBreaker from 'opossum';
 import { AppError } from '../../common/errors/app-error.js';
 import { uuidVersion7 } from '../../common/identifiers/uuid-version-7.js';
+import { isAccountRequiredAndMissing } from '../../common/listener-authentication/account-required.js';
 import { LISTENER_INSTALL_ID } from '../../common/listener-authentication/install-token.guard.js';
 import type { RateLimitRule } from '../../common/rate-limiting/rate-limit-rule.js';
 import { RateLimiter } from '../../common/rate-limiting/rate-limiter.js';
@@ -14,7 +15,7 @@ import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.j
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { RecognizeJobFailed, RecognizeQueue, RecognizeWaitTimedOut } from '../../infrastructure/job-queues/recognize-queue.js';
 import { assertClipSignature, correctCaptureTime } from './clip-checks.js';
-import { type AnswerBasics, answerNoMatch, answerReplay, answerResolution } from './recognition-answers.js';
+import { type AnswerBasics, answerNoMatch, answerReplay, answerResolution, withholdAdResult } from './recognition-answers.js';
 import { createRecognitionBreaker } from './recognition-breaker.js';
 import { type Claim, type FinishedRecognition, RecognitionRecords } from './recognition-records.js';
 import { resolveStation } from './resolve-station.js';
@@ -254,7 +255,7 @@ export class RecognitionService {
       response.setHeader('Retry-After', String(IN_PROGRESS_RETRY_AFTER_SECONDS));
       throw new AppError('RECOGNITION_IN_PROGRESS', { internalDetail: `recognition ${claim.recognitionId} is still being worked on` });
     }
-    if (claim.claimOutcome === 'FINISHED') return this.replay(claim, listenerInstallId, requestId, hasStationHint);
+    if (claim.claimOutcome === 'FINISHED') return this.holdBackAdResult(await this.replay(claim, listenerInstallId, requestId, hasStationHint));
 
     let isFinished = false;
     const finish: FinishAttempt = async (finished) => {
@@ -271,7 +272,7 @@ export class RecognitionService {
       }
     };
     try {
-      return await this.answerClaimedRecognition(fields, audio, claim, requestId, hasStationHint, finish, response, sendKind);
+      return this.holdBackAdResult(await this.answerClaimedRecognition(fields, audio, claim, requestId, hasStationHint, finish, response, sendKind));
     } catch (error) {
       // Whatever went wrong, the attempt is finished, so it is never left PENDING (S3-RECORDING-08);
       // a repeat of the same key then starts a new attempt at once.
@@ -282,6 +283,45 @@ export class RecognitionService {
       }
       throw error;
     }
+  }
+
+  /**
+   * The one place an ad's result is held back (ADR-005, LA-GATE-01..04): while accounts are required, an install with
+   * no account gets ACCOUNT_REQUIRED instead of a match or a chooser. It runs after the outcome is recorded (the scan
+   * still counts) and on both paths that answer a clip, the fresh one and the replay of a finished key, so sending
+   * a clip again never gets the card. A no-match and every error are not ad results and pass through.
+   */
+  private holdBackAdResult(answer: RecognizeResponse): RecognizeResponse {
+    if (!isAccountRequiredAndMissing(this.config, this.requestContext)) return answer;
+    const heldBack = withholdAdResult(answer);
+    if (heldBack !== answer) this.logger.info({ requestId: this.requestContext.getId(), recognitionId: answer.recognition_id }, 'ad result held back until the listener has an account');
+    return heldBack;
+  }
+
+  /**
+   * The result of a recognition this install made, once it has an account (ADR-005, LA-GATE-06): the same answer the
+   * scan would have had, as it is replayed from what was stored. An install with no account still gets
+   * ACCOUNT_REQUIRED; an unknown id, another install's and one that was not an ad's result are all 404.
+   */
+  async reveal(recognitionId: string): Promise<RecognizeResponse> {
+    const listenerInstallId = this.requestContext.get<string>(LISTENER_INSTALL_ID);
+    const receivedAt = await this.records.findReceivedAtOfOwnRecognition(recognitionId, listenerInstallId);
+    const rows = receivedAt ? await this.records.describeForReplay({ recognitionId, receivedAt }, listenerInstallId) : [];
+    const first = rows[0];
+    if (!first || !['MATCH', 'MATCH_DEFAULT', 'CHOOSE_STATION'].includes(first.outcome)) {
+      throw new AppError('NOT_FOUND', { internalDetail: 'no finished ad recognition of this install has that id' });
+    }
+    const answer = answerReplay({ recognitionId, requestId: this.requestContext.getId() }, rows);
+    this.logAnswer({
+      requestId: this.requestContext.getId(),
+      recognitionId,
+      outcome: answer.status,
+      resolution: null,
+      candidateCount: answer.status === 'CHOOSE_STATION' ? answer.candidates.length : answer.status === 'MATCH' ? 1 : 0,
+      hasStationHint: false,
+      isReplay: true,
+    });
+    return this.holdBackAdResult(answer);
   }
 
   private async answerClaimedRecognition(

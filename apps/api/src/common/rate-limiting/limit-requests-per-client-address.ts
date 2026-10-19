@@ -7,8 +7,10 @@ import type { RateLimiter } from './rate-limiter.js';
  * ceiling instead. `GET /stations` exactly: the portal's `/stations/<id>/…` routes keep the portal's baseline. A
  * choice or report names its recognition in the path, so those two are matched by a pattern.
  */
-const LISTENER_ROUTES = new Set(['/api/v1/installs', '/api/v1/recognize', '/api/v1/stations', '/api/v1/engagements']);
-const LISTENER_ROUTE_PATTERNS = [/^\/api\/v1\/recognitions\/[0-9a-f-]{36}\/(choice|report)$/];
+const LISTENER_ROUTES = new Set(['/api/v1/installs', '/api/v1/recognize', '/api/v1/stations', '/api/v1/engagements', '/api/v1/listener-account']);
+// A choice or report names its recognition in the path, and so does the reveal of a withheld result (ADR-005); the
+// listener's account has a few sub-routes of its own.
+const LISTENER_ROUTE_PATTERNS = [/^\/api\/v1\/recognitions\/[0-9a-f-]{36}(\/(choice|report))?$/, /^\/api\/v1\/listener-account\/(code|verify|sign-out)$/];
 
 export function isListenerRoute(path: string): boolean {
   const routePath = path.replace(/\/+$/, '');

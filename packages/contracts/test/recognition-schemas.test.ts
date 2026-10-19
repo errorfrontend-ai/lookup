@@ -160,6 +160,8 @@ describe('the recognize response', () => {
 
   it('has fixtures for every status it allows, every kind of chooser, and the cases it must refuse', () => {
     expect(valid.map(({ name }) => name).sort()).toEqual([
+      'account-required',
+      'account-required-deferred',
       'choose-station',
       'choose-station-deferred',
       'choose-station-four-candidates',
@@ -174,6 +176,8 @@ describe('the recognize response', () => {
       'no-match-deferred-with-offset',
     ]);
     expect(invalid.map(({ name }) => name).sort()).toEqual([
+      'account-required-with-result',
+      'account-required-with-station-name',
       'ambiguous-status',
       'audio-asset-number',
       'candidate-with-campaign-id',

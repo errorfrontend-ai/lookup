@@ -18,6 +18,7 @@ import { CampaignsModule } from './features/campaigns/campaigns.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { HealthModule } from './features/health/health.module.js';
 import { ListenerInstallsModule } from './features/listener-installs/listener-installs.module.js';
+import { ListenerAccountsModule } from './features/listener-accounts/listener-accounts.module.js';
 import { ListenerStationsModule } from './features/listener-stations/listener-stations.module.js';
 import { MembersModule } from './features/members/members.module.js';
 import { NotificationsModule } from './features/notifications/notifications.module.js';
@@ -73,6 +74,8 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     ClientErrorsModule,
     // The listener app (Step 3; the "My station" list and "Report this" from P4).
     ListenerInstallsModule,
+    // Listener accounts (ADR-005): an email proved by a code, a gender and an age.
+    ListenerAccountsModule,
     RecognitionModule,
     ListenerStationsModule,
     RecognitionReportsModule,

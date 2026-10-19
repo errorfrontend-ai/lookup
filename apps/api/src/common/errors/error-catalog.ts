@@ -53,6 +53,14 @@ export const ERROR_CATALOG = {
   RESEND_TOO_SOON: { httpStatus: 429, message: 'You can ask for a new one in a minute.' },
   EMAIL_LINK_EXPIRED: { httpStatus: 400, message: 'This link has expired. Ask for a new one on the sign-up page.' },
   EMAIL_LINK_NOT_VALID: { httpStatus: 400, message: "This link doesn't work any more. Ask for a new one on the sign-up page." },
+  // Listener accounts (ADR-005): the app shows its own words for each code, so these messages are for the log and the
+  // error envelope's reader. A wrong, old or locked code is never told apart from the email it was sent to.
+  LISTENER_CODE_INCORRECT: { httpStatus: 400, message: "That code isn't right. Check your email and try again." },
+  LISTENER_CODE_EXPIRED: { httpStatus: 400, message: 'This code has expired. Ask for a new one.' },
+  LISTENER_CODE_LOCKED: { httpStatus: 400, message: 'Too many wrong tries. Ask for a new code.' },
+  ACCOUNT_TICKET_NOT_VALID: { httpStatus: 400, message: 'This step has timed out. Please start again from your email.' },
+  ACCOUNT_AGE_TOO_YOUNG: { httpStatus: 422, message: 'You need to be at least 13 to create an account.' },
+  ALREADY_SIGNED_IN: { httpStatus: 409, message: 'This phone already has an account. Sign out first to use another.' },
   APPLICATION_INCOMPLETE: { httpStatus: 409, message: "Your application isn't finished yet." },
   APPLICATION_NOT_EDITABLE: { httpStatus: 409, message: "This can't be changed at the moment." },
   CHANGE_REQUEST_ALREADY_OPEN: { httpStatus: 409, message: 'You already have a change waiting for review.' },

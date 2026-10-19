@@ -1,0 +1,11 @@
+{
+  "description": "This phone already has a different account: the app asks the listener to sign out first",
+  "http_status": 409,
+  "body": {
+    "error": {
+      "code": "ALREADY_SIGNED_IN",
+      "message": "This phone already has an account. Sign out first to use another.",
+      "request_id": "62cd2f50-8b14-43cf-a0a2-1f2a3b4c5d6e"
+    }
+  }
+}

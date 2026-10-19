@@ -9,6 +9,15 @@ import { pathToFileURL } from 'node:url';
 import { emitActionCardJsonSchema } from '../src/action-card/action-card-schema.js';
 import { emitClientErrorReportJsonSchema } from '../src/client-errors/client-error-schemas.js';
 import { emitErrorEnvelopeJsonSchema } from '../src/errors/error-envelope-schema.js';
+import {
+  emitCreateListenerAccountInputJsonSchema,
+  emitListenerAccountCodeSentJsonSchema,
+  emitListenerAccountSignedInJsonSchema,
+  emitListenerAccountSummaryJsonSchema,
+  emitRequestListenerAccountCodeInputJsonSchema,
+  emitVerifyListenerAccountCodeAnswerJsonSchema,
+  emitVerifyListenerAccountCodeInputJsonSchema,
+} from '../src/listener-accounts/listener-account-schemas.js';
 import { emitRecordEngagementInputJsonSchema } from '../src/recognition/engagement-schemas.js';
 import {
   emitIngestJobDataJsonSchema,
@@ -42,6 +51,13 @@ export const JSON_SCHEMA_FILES = {
   'ingest-job-result.schema.json': emitIngestJobResultJsonSchema,
   'refingerprint-job-data.schema.json': emitRefingerprintJobDataJsonSchema,
   'refingerprint-job-result.schema.json': emitRefingerprintJobResultJsonSchema,
+  'request-listener-account-code-input.schema.json': emitRequestListenerAccountCodeInputJsonSchema,
+  'verify-listener-account-code-input.schema.json': emitVerifyListenerAccountCodeInputJsonSchema,
+  'create-listener-account-input.schema.json': emitCreateListenerAccountInputJsonSchema,
+  'listener-account-code-sent.schema.json': emitListenerAccountCodeSentJsonSchema,
+  'verify-listener-account-code-answer.schema.json': emitVerifyListenerAccountCodeAnswerJsonSchema,
+  'listener-account-signed-in.schema.json': emitListenerAccountSignedInJsonSchema,
+  'listener-account-summary.schema.json': emitListenerAccountSummaryJsonSchema,
 };
 
 export function formatJsonSchema(schema: Record<string, unknown>): string {

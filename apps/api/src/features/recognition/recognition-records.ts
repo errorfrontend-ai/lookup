@@ -138,6 +138,17 @@ export class RecognitionRecords {
     ) as Promise<StationCandidateRow[]>;
   }
 
+  /**
+   * The partition key of a finished recognition this install made, found from its id; null for an unknown id,
+   * another install's or one still being worked on (all look the same). For the reveal route (ADR-005).
+   */
+  async findReceivedAtOfOwnRecognition(recognitionId: string, listenerInstallId: string): Promise<Date | null> {
+    const rows = (await this.stationScopedTransaction.run((database) =>
+      database.query('SELECT recognition.find_received_at_of_own_recognition($1, $2) AS received_at', [recognitionId, listenerInstallId]),
+    )) as Array<{ received_at: Date | null }>;
+    return rows[0]?.received_at ?? null;
+  }
+
   /** What a finished recognition showed, for the install that made it (no rows for any other install). */
   describeForReplay(claim: Pick<Claim, 'recognitionId' | 'receivedAt'>, listenerInstallId: string): Promise<ReplayRow[]> {
     return this.stationScopedTransaction.run((database) =>

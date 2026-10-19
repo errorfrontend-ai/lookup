@@ -86,6 +86,22 @@ export function answerNoMatch(basics: AnswerBasics): RecognizeResponse {
   return checkedAnswer(basics, { status: 'NO_MATCH' });
 }
 
+/**
+ * The ad's result held back until the listener has an account (ADR-005, LA-GATE-01): only the common fields of the
+ * answer it replaces, so nothing about the ad, the station or the advertiser leaves the server. Anything that is not an
+ * ad's result (no match) is returned as it is.
+ */
+export function withholdAdResult(answer: RecognizeResponse): RecognizeResponse {
+  if (answer.status !== 'MATCH' && answer.status !== 'CHOOSE_STATION') return answer;
+  return RecognizeResponse.parse({
+    status: 'ACCOUNT_REQUIRED',
+    recognition_id: answer.recognition_id,
+    request_id: answer.request_id,
+    is_deferred: answer.is_deferred,
+    captured_at: answer.captured_at,
+  });
+}
+
 /** The answer to a clip that was just resolved: a match, a chooser with every shown station's card inline, or no match. */
 export function answerResolution(basics: AnswerBasics, resolution: StationResolution): RecognizeResponse {
   switch (resolution.outcome) {

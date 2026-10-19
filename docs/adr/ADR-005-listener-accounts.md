@@ -48,9 +48,9 @@ dashboard can show groups.
 | S4-PERMISSION-10 and the Privacy screen | "Radio stations see how many people used their buttons — never who you are." | Stations see how many people used their buttons and the mix of ages and genders, never a name or an email (LA-PRIVACY-02). |
 | ALL-PRIVACY-01 | Stations and client viewers see counts, never who a listener is | Counts and groups of genders and age bands, never a person (LA-PRIVACY-05). |
 
-S3-PRIVACY-01 ("the only binary columns are keyed hashes, checksums and the encrypted two-factor secret") stays true
-for clips; its test's list of allowed binary columns gains the account's keyed email hash and sealed email
-(LA-DATABASE-04).
+S3-PRIVACY-01 ("the only binary columns are keyed hashes, checksums, the encrypted two-factor secret and a listener's
+sealed email") stays true for clips; its test's list of allowed binary columns gains the account's keyed email hash and
+sealed email (LA-DATABASE-04).
 
 ## Consequences
 

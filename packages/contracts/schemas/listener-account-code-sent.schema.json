@@ -1,0 +1,21 @@
+{
+  "$id": "https://contracts.lookup.invalid/listener-account-code-sent/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ListenerAccountCodeSent",
+  "$defs": {
+    "ListenerAccountCodeSent": {
+      "type": "object",
+      "properties": {
+        "resend_after_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        }
+      },
+      "required": [
+        "resend_after_seconds"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

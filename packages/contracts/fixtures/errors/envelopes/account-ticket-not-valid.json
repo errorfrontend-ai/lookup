@@ -1,0 +1,11 @@
+{
+  "description": "The ticket for finishing the account has timed out or does not belong to this phone and email: the app starts the email step again",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "code": "ACCOUNT_TICKET_NOT_VALID",
+      "message": "This step has timed out. Please start again from your email.",
+      "request_id": "40ab0d3e-6f92-41ad-8e80-9d0e1f2a3b4c"
+    }
+  }
+}

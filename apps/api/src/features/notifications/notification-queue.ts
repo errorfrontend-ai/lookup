@@ -9,7 +9,7 @@ import type { NotificationMessage } from './notification-messages.js';
 export const NOTIFY_QUEUE_NAME = 'notify';
 /** Five tries in all, the waits growing from NOTIFICATION_RETRY_DELAY_MILLISECONDS (30 s by default). */
 export const NOTIFICATION_ATTEMPTS = 5;
-/** A phone code is useless once it has expired; everything else is still worth sending a day later. */
+/** A phone code or a listener's email code is useless once it has expired; everything else is still worth sending a day later. */
 const PHONE_CODE_DEADLINE_MILLISECONDS = 10 * 60_000;
 const OTHER_DEADLINE_MILLISECONDS = 24 * 60 * 60_000;
 
@@ -67,7 +67,8 @@ export class NotificationQueue implements OnApplicationShutdown {
     requestId: string,
     options: { smsStandInEmail?: string | null } = {},
   ): Promise<void> {
-    const deadline = Date.now() + (message.template === 'phone_verification_code' ? PHONE_CODE_DEADLINE_MILLISECONDS : OTHER_DEADLINE_MILLISECONDS);
+    const isShortLived = message.template === 'phone_verification_code' || message.template === 'listener_email_code';
+    const deadline = Date.now() + (isShortLived ? PHONE_CODE_DEADLINE_MILLISECONDS : OTHER_DEADLINE_MILLISECONDS);
     const standIn = channel === 'sms' && options.smsStandInEmail ? { smsStandInEmail: options.smsStandInEmail } : {};
     try {
       await this.queue.add(message.template, { channel, recipient, ...standIn, message, requestId, deadlineEpochMilliseconds: deadline }, {

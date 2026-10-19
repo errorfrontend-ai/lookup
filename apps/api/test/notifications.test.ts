@@ -172,6 +172,47 @@ describe('notifications', () => {
     await eventually(queuedJobCount, (count) => count === 0, 'the queue to empty');
   });
 
+  it('LA-ROUTES-05: a listener’s email code is an email only, worth sending for ten minutes, and nothing of it stays in Valkey once sent', async () => {
+    let openGate = () => undefined as void;
+    emailSender.gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    try {
+      const queuedAt = Date.now();
+      await testApplication.application.get(NotificationQueue).enqueue('email', email, { template: 'listener_email_code', code: '042817' }, randomUUID());
+      const [job] = await eventually(
+        () => rawQueue.getJobs(['waiting', 'active', 'delayed', 'prioritized']),
+        (jobs) => jobs.length === 1,
+        'the code to be queued',
+      );
+      expect(job?.opts.attempts).toBe(5);
+      const secondsToDeadline = ((job?.data.deadlineEpochMilliseconds ?? 0) - queuedAt) / 1000;
+      expect(secondsToDeadline).toBeGreaterThan(9 * 60);
+      expect(secondsToDeadline).toBeLessThanOrEqual(10 * 60 + 5);
+    } finally {
+      openGate();
+      emailSender.gate = null;
+    }
+    const [delivered] = await eventually(() => emailSender.sent, (sent) => sent.length === 1, 'the email');
+    expect(delivered).toMatchObject({ to: email, subject: 'Your Look Up code is 042817' });
+    expect(delivered?.text).toContain('042817');
+    expect(delivered?.text).toContain('10 minutes');
+    expect(smsTextOf({ template: 'listener_email_code', code: '042817' }, config.PORTAL_PUBLIC_ORIGIN)).toBeNull();
+    await eventually(queuedJobCount, (count) => count === 0, 'the queue to empty');
+    for (const key of await keyValueStore.keys(`${config.QUEUE_KEY_PREFIX}:${NOTIFY_QUEUE_NAME}:*`)) {
+      const type = await keyValueStore.type(key);
+      const content =
+        type === 'string' ? await keyValueStore.get(key)
+          : type === 'hash' ? JSON.stringify(await keyValueStore.hgetall(key))
+            : type === 'stream' ? JSON.stringify(await keyValueStore.xrange(key, '-', '+'))
+              : type === 'zset' ? JSON.stringify(await keyValueStore.zrange(key, 0, -1))
+                : type === 'list' ? JSON.stringify(await keyValueStore.lrange(key, 0, -1))
+                  : JSON.stringify(await keyValueStore.smembers(key).catch(() => []));
+      expect(content ?? '', key).not.toContain(email);
+      expect(content ?? '', key).not.toContain('042817');
+    }
+  });
+
   it('a job past its deadline is dropped, not sent late', async () => {
     const requestId = randomUUID();
     await rawQueue.add('phone_verification_code', {

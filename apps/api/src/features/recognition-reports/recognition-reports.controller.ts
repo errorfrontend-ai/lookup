@@ -1,12 +1,14 @@
 import { ReportRecognitionInput } from '@lookup/contracts';
-import { Body, Controller, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, Inject, Param, Post, UseGuards } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { PinoLogger } from 'nestjs-pino';
 import { AppError } from '../../common/errors/app-error.js';
+import { isAccountRequiredAndMissing } from '../../common/listener-authentication/account-required.js';
 import { InstallTokenGuard, LISTENER_INSTALL_HASH, LISTENER_INSTALL_ID } from '../../common/listener-authentication/install-token.guard.js';
 import { ListenerFollowUpLimitGuard } from '../../common/rate-limiting/listener-follow-up-limits.js';
 import { RecognitionIdPipe } from '../../common/validation/recognition-id.pipe.js';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.js';
+import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { PublicRoute } from '../authentication/public-route.decorator.js';
 import { RecognitionReports } from './recognition-reports.js';
 
@@ -31,6 +33,7 @@ export class RecognitionReportsController {
     private readonly reports: RecognitionReports,
     private readonly requestContext: ClsService,
     private readonly logger: PinoLogger,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {
     this.logger.setContext('recognition-reports');
   }
@@ -40,6 +43,10 @@ export class RecognitionReportsController {
   async report(@Param('recognitionId') recognitionIdInPath: unknown, @Body() body: unknown): Promise<void> {
     const recognitionId = this.recognitionIdPipe.transform(recognitionIdInPath);
     const report = this.reportPipe.transform(body);
+    // An install with no account was shown nothing (ADR-005): answered like an unknown recognition (LA-GATE-08).
+    if (isAccountRequiredAndMissing(this.config, this.requestContext)) {
+      throw new AppError('NOT_FOUND', { internalDetail: 'a report from an install with no listener account' });
+    }
     const requestId = this.requestContext.getId();
     const answer = await this.reports.record({
       recognitionId,

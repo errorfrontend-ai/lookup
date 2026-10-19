@@ -114,7 +114,7 @@ code).
 - Mail: `NotificationQueue` template `listener_email_code` ("Your Look Up code is 123456. It works for 10 minutes. If
   you didn't ask for it, ignore this email."). Five tries, a 10-minute delivery deadline like the station codes.
 
-## 5. Database (one migration, `1791900000000-ListenerAccounts`)
+## 5. Database (migration `1791900000000-ListenerAccounts`; the audience figures of §7 get their own, later migration)
 
 - `app.listener_accounts`: `id`, `email_hash bytea` (32-byte HMAC, unique), `email_sealed bytea`, `gender`,
   `birth_year smallint`, `consent_text_version`, `consent_given_at`, `created_at`, `last_signed_in_at`. Checks on gender
@@ -133,7 +133,8 @@ code).
 - Two layers (the standing rule): callers see short plain messages from the catalogue and the request id; the private log
   has the detail and stack. No `error.message` ever reaches a response.
 - Never logged anywhere: the email, the code, the ticket, gender, age or birth year. The redaction list gains
-  `*.gender`, `*.age`, `*.birthYear`, `*.code`, `*.ticket`; the log `actor` stays the keyed hash of the install.
+  `*.gender`, `*.age`, `*.birthYear`, `*.ticket`, `*.typedCode` and `*.emailAddress` (not `*.code`, which would hide a database
+  error's SQLSTATE from the developers); the log `actor` stays the keyed hash of the install.
 - The sealed email is bound to the account id (an attacker who can write rows cannot move a sealed email to another
   account). The key comes from `LISTENER_EMAIL_ENCRYPTION_SECRET`, validated at start-up like the install pepper
   (missing, short, placeholder or reused → the API will not start, and the message never prints the value). The email

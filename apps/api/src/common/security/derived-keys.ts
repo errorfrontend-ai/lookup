@@ -12,6 +12,8 @@ export class DerivedKeys {
   readonly trustedDeviceKey: Buffer;
   /** Keys the hash a phone code is kept as, so a copy of the key-value store cannot be searched for codes offline. */
   readonly oneTimeCodeKey: Buffer;
+  /** Signs the ticket a listener gets for finishing an account after a right email code (ADR-005); lasts 10 minutes. */
+  readonly listenerAccountTicketKey: Buffer;
   private readonly identifierHashingKey: Buffer;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
@@ -20,6 +22,7 @@ export class DerivedKeys {
     this.accessTokenSigningKey = new Uint8Array(derive('access token signing'));
     this.trustedDeviceKey = derive('trusted device cookie');
     this.oneTimeCodeKey = derive('one-time codes');
+    this.listenerAccountTicketKey = derive('listener account tickets');
     this.identifierHashingKey = derive('identifier hashing');
   }
 

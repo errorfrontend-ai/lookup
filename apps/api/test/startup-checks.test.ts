@@ -46,6 +46,7 @@ describe('production configuration fails closed', () => {
     LISTENER_INSTALL_ID_PEPPER: 'Hb3Kq8Wz1Pn6Ty4Rc9Mv2Xs7Lj5Df0Ga1Ue8Io3YtNq',
     ADMIN_DATABASE_URL: 'postgresql://lookup_admin_api:password@database.internal:5432/lookup',
     TWO_FACTOR_ENCRYPTION_SECRET: 'Tf6Ns1Qb8Kw3Jx5Pm0Vr7Ld2Hc9Gz4Ya1Ue6Wo3XiRk',
+    LISTENER_EMAIL_ENCRYPTION_SECRET: 'Lm4Dq9Yx2Rb7Ws1Nk6Gv0Cj3Hf8Ta5Pe2Uo9ZiBxMsKd',
     PORTAL_PUBLIC_ORIGIN: 'https://portal.example.com',
     EMAIL_SMTP_URL: 'smtps://sender:password@smtp.example.com:465',
     EMAIL_FROM_ADDRESS: 'Look Up <no-reply@example.com>',
@@ -135,6 +136,35 @@ describe('production configuration fails closed', () => {
     expect(() => loadAppConfig({ ...developmentConfig, ADMIN_DATABASE_URL: developmentConfig.DATABASE_URL })).toThrow(
       /ADMIN_DATABASE_URL: must be the super-admin role's own address/,
     );
+  });
+
+  it('LA-ROLLOUT-02: the listener email key is required, random and its own, and the message never prints it', () => {
+    const developmentConfig = { ...soundProductionConfig, NODE_ENV: 'development' };
+    for (const badValue of [undefined, 'too-short', 'CHANGE_ME_LISTENER_EMAIL_SECRET_43_CHARACTERS_OR_MORE', developmentConfig.AUTHENTICATION_SECRET, developmentConfig.TWO_FACTOR_ENCRYPTION_SECRET, developmentConfig.LISTENER_INSTALL_ID_PEPPER]) {
+      let message = '';
+      try {
+        loadAppConfig({ ...developmentConfig, LISTENER_EMAIL_ENCRYPTION_SECRET: badValue });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message, String(badValue)).toMatch(/LISTENER_EMAIL_ENCRYPTION_SECRET|must all be different/);
+      if (badValue) expect(message).not.toContain(badValue);
+    }
+    // In production too: the key is never optional, so a deployment cannot start without it.
+    expect(() => loadAppConfig({ ...soundProductionConfig, LISTENER_EMAIL_ENCRYPTION_SECRET: undefined })).toThrow(/LISTENER_EMAIL_ENCRYPTION_SECRET/);
+  });
+
+  it('LA-ROLLOUT-01: the account gate is off unless it is switched on, and the code and creation limits have safe defaults', () => {
+    const developmentConfig = { ...soundProductionConfig, NODE_ENV: 'development' };
+    expect(loadAppConfig(developmentConfig)).toMatchObject({
+      LISTENER_ACCOUNT_REQUIRED: false,
+      LISTENER_EMAIL_CODES_PER_EMAIL_PER_HOUR: 3,
+      LISTENER_EMAIL_CODES_PER_INSTALL_PER_DAY: 10,
+      LISTENER_EMAIL_CODE_CHECKS_PER_INSTALL_PER_HOUR: 20,
+      LISTENER_ACCOUNTS_CREATED_PER_INSTALL_PER_DAY: 5,
+    });
+    expect(loadAppConfig({ ...developmentConfig, LISTENER_ACCOUNT_REQUIRED: 'true' }).LISTENER_ACCOUNT_REQUIRED).toBe(true);
+    expect(() => loadAppConfig({ ...developmentConfig, LISTENER_ACCOUNT_REQUIRED: 'maybe' })).toThrow(/LISTENER_ACCOUNT_REQUIRED/);
   });
 
   it('refuses non-https browser origins', () => {

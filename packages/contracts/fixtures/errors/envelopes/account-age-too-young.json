@@ -1,0 +1,11 @@
+{
+  "description": "The age typed is under 13: the app says why and creates nothing",
+  "http_status": 422,
+  "body": {
+    "error": {
+      "code": "ACCOUNT_AGE_TOO_YOUNG",
+      "message": "You need to be at least 13 to create an account.",
+      "request_id": "51bc1e4f-7a03-42be-9f91-0e1f2a3b4c5d"
+    }
+  }
+}

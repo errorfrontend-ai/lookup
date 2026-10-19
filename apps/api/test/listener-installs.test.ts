@@ -154,7 +154,7 @@ describe('listener app installs', () => {
     expect(lastStatus).toBe(429);
   });
 
-  it('only health, sign-in, refresh, sign-out, station sign-up and its email link, an invitation link, client errors and the listener app’s routes (installs, recognize, a station choice, a button tap, a report, the station list) are open without signing in, and none lists ads', async () => {
+  it('only health, sign-in, refresh, sign-out, station sign-up and its email link, an invitation link, client errors and the listener app’s routes (installs, recognize, a station choice, a button tap, a report, a withheld result, the listener account, the station list) are open without signing in, and none lists ads', async () => {
     const discovery = testApplication.application.get(DiscoveryService);
     const scanner = new MetadataScanner();
     const openRoutes: string[] = [];
@@ -182,6 +182,14 @@ describe('listener app installs', () => {
       '/installs',
       '/invitations/acceptance-with-new-account',
       '/invitations/description',
+      // Listener accounts (ADR-005): POST creates, GET describes, DELETE erases; each is for an install token alone.
+      '/listener-account',
+      '/listener-account',
+      '/listener-account',
+      '/listener-account/code',
+      '/listener-account/sign-out',
+      '/listener-account/verify',
+      '/recognitions/:recognitionId',
       '/recognitions/:recognitionId/choice',
       '/recognitions/:recognitionId/report',
       '/recognize',

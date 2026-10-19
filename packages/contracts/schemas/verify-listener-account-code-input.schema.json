@@ -1,0 +1,26 @@
+{
+  "$id": "https://contracts.lookup.invalid/verify-listener-account-code-input/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/VerifyListenerAccountCodeInput",
+  "$defs": {
+    "VerifyListenerAccountCodeInput": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[0-9]{6}$"
+        }
+      },
+      "required": [
+        "email",
+        "code"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

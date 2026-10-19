@@ -1,0 +1,12 @@
+{
+  "description": "A new code was asked for within a minute of the last one: the app shows the countdown from Retry-After",
+  "http_status": 429,
+  "retry_after_seconds": 37,
+  "body": {
+    "error": {
+      "code": "RESEND_TOO_SOON",
+      "message": "You can ask for a new one in a minute.",
+      "request_id": "73de3061-9c25-44d0-b1b3-2a3b4c5d6e7f"
+    }
+  }
+}

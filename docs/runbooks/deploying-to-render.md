@@ -86,7 +86,7 @@ and three more), made on your computer and shown once. Keep the terminal open fo
 
    | Setting | Value |
    |---|---|
-   | `AUTHENTICATION_SECRET`, `TWO_FACTOR_ENCRYPTION_SECRET`, `LISTENER_INSTALL_TOKEN_SECRET`, `LISTENER_INSTALL_ID_PEPPER` | the four lines from step 4 |
+   | `AUTHENTICATION_SECRET`, `TWO_FACTOR_ENCRYPTION_SECRET`, `LISTENER_INSTALL_TOKEN_SECRET`, `LISTENER_INSTALL_ID_PEPPER`, `LISTENER_EMAIL_ENCRYPTION_SECRET` | the five lines from step 4 (the last seals listeners' emails: keep a copy somewhere safe, because losing it makes every listener account unreadable) |
    | `PORTAL_PUBLIC_ORIGIN` and `ALLOWED_BROWSER_ORIGINS` | `https://lookup-api.onrender.com` |
    | `OBJECT_STORAGE_ENDPOINT` and `OBJECT_STORAGE_PUBLIC_ENDPOINT` | `https://<Account ID>.r2.cloudflarestorage.com` |
    | `OBJECT_STORAGE_ACCESS_KEY_ID`, `OBJECT_STORAGE_SECRET_ACCESS_KEY` | from step 1.4 |

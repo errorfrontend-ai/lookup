@@ -1,0 +1,11 @@
+{
+  "description": "The code typed at the account step is not the one sent: the app says so and lets the listener try again",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "code": "LISTENER_CODE_INCORRECT",
+      "message": "That code isn't right. Check your email and try again.",
+      "request_id": "1d4e7a0b-3c6f-4e8a-9b5d-6a7b8c9d0e1f"
+    }
+  }
+}

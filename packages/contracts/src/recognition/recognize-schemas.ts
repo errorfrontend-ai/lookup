@@ -127,11 +127,16 @@ const commonResponseFields = {
  * CHOOSE_STATION: several stations could answer and none could be picked for the listener; it carries
  * every candidate's card inline, each station once, in the order the app must show them, and never a
  * `result`. How a MATCH was decided (one owner, the schedule, the hint) is never sent.
+ * ACCOUNT_REQUIRED (ADR-005): the clip was recognised as an ad, but the install has no listener account yet,
+ * so the server holds the result back: this answer carries nothing but the common fields (no station, client,
+ * title or card). The app asks the listener to create an account, then fetches the result with
+ * `GET /api/v1/recognitions/{recognition_id}`, which answers with the MATCH or CHOOSE_STATION it withheld.
  */
 export const RecognizeResponse = z
   .discriminatedUnion('status', [
     z.strictObject({ status: z.literal('MATCH'), ...commonResponseFields, result: RecognitionResult }),
     z.strictObject({ status: z.literal('NO_MATCH'), ...commonResponseFields }),
+    z.strictObject({ status: z.literal('ACCOUNT_REQUIRED'), ...commonResponseFields }),
     z.strictObject({
       status: z.literal('CHOOSE_STATION'),
       ...commonResponseFields,

@@ -34,6 +34,7 @@ const TABLES_WITH_NO_POLICY: Record<string, string> = {
   'app.portal_sessions': 'only the sign-in functions touch it',
   'app.recognition_idempotency_keys': 'only the recognition functions touch it',
   'app.refresh_tokens': 'only the sign-in functions touch it',
+  'app.listener_accounts': 'listeners’ emails, genders and ages (ADR-005); only the account functions and the audience figures touch it',
 };
 /** Tables whose ids the API makes (UUID version 7, time-ordered for the busiest tables), or that number their rows. */
 const TABLES_WITHOUT_AN_ID_DEFAULT = ['migrations', 'recognition_events', 'audit_events', 'engagement_events'];
@@ -77,6 +78,7 @@ describe('database catalogue', () => {
         'app.ads', 'app.campaigns', 'app.campaign_time_windows', 'fingerprints.audio_assets', 'fingerprints.hashes_version_1',
         'fingerprints.hashes_version_2', 'app.listener_installs', 'app.recognition_events', 'app.audit_events',
         'app.recognition_candidates', 'app.engagement_events', 'app.engagement_deduplication_keys', 'app.campaign_counters', 'app.recognition_reports',
+        'app.listener_accounts',
         'app.email_verification_links', 'app.station_change_requests', 'app.invitations', 'fingerprints.asset_overlaps',
       ]) {
         expect(tableNames).toContain(expected);
@@ -253,14 +255,15 @@ describe('database catalogue', () => {
       }
     });
 
-    it('S3-PRIVACY-01: no table can hold a clip: the only binary columns are keyed hashes, checksums and the encrypted two-factor secret', async () => {
+    it('S3-PRIVACY-01: no table can hold a clip: the only binary columns are keyed hashes, checksums, the encrypted two-factor secret and a listener’s sealed email', async () => {
       const binaryColumns = await rows<{ name: string }>(
         `SELECT table_schema || '.' || table_name || '.' || column_name AS name FROM information_schema.columns
           WHERE table_schema NOT IN ('pg_catalog', 'information_schema') AND data_type = 'bytea' ORDER BY 1`,
       );
       expect(binaryColumns.map((column) => column.name)).toEqual([
         'app.ads.upload_content_sha256', 'app.email_verification_links.token_hash', 'app.invitations.token_hash',
-        'app.listener_installs.install_id_hash', 'app.portal_users.two_factor_secret_ciphertext', 'app.refresh_tokens.token_hash',
+        'app.listener_accounts.email_hash', 'app.listener_accounts.email_sealed', 'app.listener_installs.install_id_hash',
+        'app.portal_users.two_factor_secret_ciphertext', 'app.refresh_tokens.token_hash',
         'fingerprints.audio_assets.content_sha256',
       ]);
     });

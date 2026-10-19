@@ -1,0 +1,26 @@
+{
+  "$id": "https://contracts.lookup.invalid/listener-account-signed-in/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ListenerAccountSignedIn",
+  "$defs": {
+    "ListenerAccountSignedIn": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "SIGNED_IN"
+        },
+        "email_masked": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254
+        }
+      },
+      "required": [
+        "status",
+        "email_masked"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

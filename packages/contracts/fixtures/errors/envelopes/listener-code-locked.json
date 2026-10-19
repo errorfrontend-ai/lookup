@@ -1,0 +1,11 @@
+{
+  "description": "Five wrong tries locked the code: the app offers a new one",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "code": "LISTENER_CODE_LOCKED",
+      "message": "Too many wrong tries. Ask for a new code.",
+      "request_id": "3f6a9c2d-5e81-409c-9d7f-8c9d0e1f2a3b"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$id": "https://contracts.lookup.invalid/request-listener-account-code-input/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/RequestListenerAccountCodeInput",
+  "$defs": {
+    "RequestListenerAccountCodeInput": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

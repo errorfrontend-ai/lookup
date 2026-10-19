@@ -58,6 +58,14 @@ const CODES_THE_APP_MAPS = [
   'STATION_ALREADY_CHOSEN',
   'ACTION_NOT_ON_CARD',
   'NOT_FOUND',
+  // Listener accounts (ADR-005): the steps of creating or signing in to an account.
+  'LISTENER_CODE_INCORRECT',
+  'LISTENER_CODE_EXPIRED',
+  'LISTENER_CODE_LOCKED',
+  'ACCOUNT_TICKET_NOT_VALID',
+  'ACCOUNT_AGE_TOO_YOUNG',
+  'ALREADY_SIGNED_IN',
+  'RESEND_TOO_SOON',
 ];
 
 describe('the error envelopes the listener app maps', () => {
@@ -83,7 +91,7 @@ describe('the error envelopes the listener app maps', () => {
 
   it.each(envelopes.map(({ name, fixture }) => [name, fixture] as const))('%s has the Retry-After the API sends with it', (_name, fixture) => {
     const code = fixture.body.error.code;
-    if (code === 'RATE_LIMITED') {
+    if (code === 'RATE_LIMITED' || code === 'RESEND_TOO_SOON') {
       expect(Number.isInteger(fixture.retry_after_seconds) && (fixture.retry_after_seconds ?? 0) >= 1).toBe(true);
     } else if (code in FIXED_RETRY_AFTER_SECONDS) {
       expect(FIXED_RETRY_AFTER_SECONDS[code]).toBeGreaterThan(0);

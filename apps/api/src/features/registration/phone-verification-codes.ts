@@ -15,11 +15,14 @@ import { KEY_VALUE_STORE } from '../../infrastructure/key-value-store/key-value-
 const KEY_LIFETIME_MILLISECONDS = (PHONE_CODE_LIFETIME_SECONDS + 60) * 1000;
 
 /**
+ * The two Lua scripts below are shared with the listener's email codes (features/listener-accounts), which work the
+ * same way: 6 digits, a cooldown, a lifetime and a limit of wrong tries.
+ *
  * Stores a new code unless one was sent less than the cooldown ago. Atomic, so two sends at once cannot both pass.
  * KEYS[1] the station's code; ARGV: the code's hash, now, the cooldown, the code's lifetime and the key's, all in ms.
  * Returns {"SENT", sentAt} or {"TOO_SOON", the ms until another may be sent}.
  */
-const ISSUE_SCRIPT = `local stored = redis.call('GET', KEYS[1])
+export const ISSUE_CODE_SCRIPT = `local stored = redis.call('GET', KEYS[1])
 local now = tonumber(ARGV[2])
 if stored then
   local previous = cjson.decode(stored)
@@ -34,7 +37,7 @@ return {'SENT', now}`;
  * hash, now, the attempt limit. Expired → EXPIRED; already at the limit → LOCKED; wrong → counted, LOCKED at the limit,
  * INCORRECT before it; right → deleted, CORRECT. No code at all is EXPIRED: the applicant sends a new one either way.
  */
-const CHECK_SCRIPT = `local stored = redis.call('GET', KEYS[1])
+export const CHECK_CODE_SCRIPT = `local stored = redis.call('GET', KEYS[1])
 if not stored then return 'EXPIRED' end
 local code = cjson.decode(stored)
 if tonumber(ARGV[2]) >= code.expiresAt then return 'EXPIRED' end
@@ -81,7 +84,7 @@ export class PhoneVerificationCodes {
   async issue(stationId: string, phoneNumberE164: string): Promise<IssuedPhoneCode> {
     const code = newPhoneVerificationCode();
     const now = this.clock.now().getTime();
-    const [outcome, value] = (await this.runScript(ISSUE_SCRIPT, stationId, [
+    const [outcome, value] = (await this.runScript(ISSUE_CODE_SCRIPT, stationId, [
       this.hashOf(phoneNumberE164, code),
       now,
       PHONE_CODE_RESEND_COOLDOWN_SECONDS * 1000,
@@ -101,7 +104,7 @@ export class PhoneVerificationCodes {
 
   /** Checks a typed code against the one sent to this phone, counting a wrong one. */
   async check(stationId: string, phoneNumberE164: string, typedCode: string): Promise<PhoneCodeCheck> {
-    return (await this.runScript(CHECK_SCRIPT, stationId, [
+    return (await this.runScript(CHECK_CODE_SCRIPT, stationId, [
       this.hashOf(phoneNumberE164, typedCode),
       this.clock.now().getTime(),
       PHONE_CODE_ATTEMPT_LIMIT,

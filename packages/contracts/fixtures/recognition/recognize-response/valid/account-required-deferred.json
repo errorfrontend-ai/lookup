@@ -1,0 +1,10 @@
+{
+  "description": "A clip sent later from the outbox, recognised as an ad, for an install with no account yet",
+  "response": {
+    "status": "ACCOUNT_REQUIRED",
+    "recognition_id": "0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70",
+    "request_id": "6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f",
+    "is_deferred": true,
+    "captured_at": "2026-10-07T06:30:00+02:00"
+  }
+}

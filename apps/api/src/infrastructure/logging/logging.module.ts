@@ -45,6 +45,14 @@ export const REDACTED_LOG_PATHS = [
   '*.licenceNumber',
   '*.reason',
   '*.downloadUrl',
+  // Listener accounts (ADR-005): what a listener says about themselves, the code typed for their email and the ticket
+  // for finishing the account. Not `*.code` (it would hide a database error's SQLSTATE).
+  '*.gender',
+  '*.age',
+  '*.birthYear',
+  '*.ticket',
+  '*.typedCode',
+  '*.emailAddress',
 ];
 
 @Module({

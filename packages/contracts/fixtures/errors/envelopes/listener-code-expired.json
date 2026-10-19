@@ -1,0 +1,11 @@
+{
+  "description": "The code typed at the account step has expired: the app offers a new one",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "code": "LISTENER_CODE_EXPIRED",
+      "message": "This code has expired. Ask for a new one.",
+      "request_id": "2e5f8b1c-4d70-4f9b-8c6e-7b8c9d0e1f2a"
+    }
+  }
+}

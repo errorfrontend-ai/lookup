@@ -57,6 +57,7 @@ describe('SMS by email, the showcase stand-in', () => {
       KEY_VALUE_STORE_URL: 'redis://:password@key-value.internal:6379',
       AUTHENTICATION_SECRET: 'q4P1k5o8zXhN3wVt7RmYb2LcJ9sUeA6GdF0iHnKjTpW',
       TWO_FACTOR_ENCRYPTION_SECRET: 'Tf6Ns1Qb8Kw3Jx5Pm0Vr7Ld2Hc9Gz4Ya1Ue6Wo3XiRk',
+      LISTENER_EMAIL_ENCRYPTION_SECRET: 'Lm4Dq9Yx2Rb7Ws1Nk6Gv0Cj3Hf8Ta5Pe2Uo9ZiBxMsKd',
       LISTENER_INSTALL_TOKEN_SECRET: 'Zr7m0Qx2Lk9VpT4cWb6NyH1jS8dGfA3uEoI5aMnRtYv',
       LISTENER_INSTALL_ID_PEPPER: 'Hb3Kq8Wz1Pn6Ty4Rc9Mv2Xs7Lj5Df0Ga1Ue8Io3YtNq',
       OBJECT_STORAGE_ENDPOINT: 'https://account.r2.cloudflarestorage.com',

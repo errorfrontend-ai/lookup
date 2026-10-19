@@ -140,6 +140,12 @@ describe('the listener routes’ per-address ceiling', () => {
       '/api/v1/recognize',
       `/api/v1/recognitions/${recognitionId}/choice`,
       `/api/v1/recognitions/${recognitionId}/report`,
+      // The result a listener without an account was held back from, and the listener's account (ADR-005).
+      `/api/v1/recognitions/${recognitionId}`,
+      '/api/v1/listener-account',
+      '/api/v1/listener-account/code',
+      '/api/v1/listener-account/verify',
+      '/api/v1/listener-account/sign-out',
       '/api/v1/stations',
       '/api/v1/engagements',
     ]) {
@@ -155,7 +161,9 @@ describe('the listener routes’ per-address ceiling', () => {
       `/api/v1/stations/${recognitionId}/ads`,
       '/api/v1/stations-and-more',
       '/api/v1/engagements/extra',
-      `/api/v1/recognitions/${recognitionId}`,
+      '/api/v1/listener-account/other',
+      '/api/v1/listener-account/code/extra',
+      `/api/v2/recognitions/${recognitionId}`,
       `/api/v1/recognitions/${recognitionId}/choices`,
       `/api/v1/recognitions/${recognitionId}/choice/extra`,
       '/api/v1/recognitions/not-a-recognition-id-of-36-characters/choice',

@@ -1,0 +1,54 @@
+{
+  "$id": "https://contracts.lookup.invalid/verify-listener-account-code-answer/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/VerifyListenerAccountCodeAnswer",
+  "$defs": {
+    "VerifyListenerAccountCodeAnswer": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ListenerAccountSignedIn"
+        },
+        {
+          "$ref": "#/$defs/ListenerAccountDetailsNeeded"
+        }
+      ]
+    },
+    "ListenerAccountSignedIn": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "SIGNED_IN"
+        },
+        "email_masked": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254
+        }
+      },
+      "required": [
+        "status",
+        "email_masked"
+      ],
+      "additionalProperties": false
+    },
+    "ListenerAccountDetailsNeeded": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "DETAILS_NEEDED"
+        },
+        "ticket": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{20,300}$"
+        }
+      },
+      "required": [
+        "status",
+        "ticket"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

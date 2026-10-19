@@ -1,4 +1,4 @@
-import { APPLICATION_REVIEW_TIME_TEXT, PHONE_CODE_LIFETIME_SECONDS } from '@lookup/contracts';
+import { APPLICATION_REVIEW_TIME_TEXT, LISTENER_EMAIL_CODE_LIFETIME_SECONDS, PHONE_CODE_LIFETIME_SECONDS } from '@lookup/contracts';
 
 /**
  * Every SMS and email Look Up sends (P5A design §3.6): plain text from named parameters, never HTML. A link is the
@@ -7,6 +7,8 @@ import { APPLICATION_REVIEW_TIME_TEXT, PHONE_CODE_LIFETIME_SECONDS } from '@look
  */
 export type NotificationMessage =
   | { template: 'phone_verification_code'; code: string }
+  // A listener's sign-in code (ADR-005): email only, sent to whoever typed the address.
+  | { template: 'listener_email_code'; code: string }
   | { template: 'email_verification_link'; linkToken: string; fullName: string }
   | { template: 'application_submitted'; stationName: string }
   | { template: 'application_approved'; stationName: string }
@@ -53,6 +55,11 @@ export function smsTextOf(message: NotificationMessage, portalOrigin: string): s
 export function emailTextOf(message: NotificationMessage, portalOrigin: string): EmailText | null {
   const signIn = `Sign in: ${portalOrigin}/sign-in`;
   switch (message.template) {
+    case 'listener_email_code':
+      return {
+        subject: `Your Look Up code is ${message.code}`,
+        text: `Your Look Up code is ${message.code}\n\nIt works for ${LISTENER_EMAIL_CODE_LIFETIME_SECONDS / 60} minutes. Don't share it with anyone.\n\nIf you didn't ask for this code, you can ignore this email.`,
+      };
     case 'email_verification_link':
       return {
         subject: 'Confirm your email for Look Up',

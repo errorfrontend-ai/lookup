@@ -176,15 +176,42 @@ const AppConfigSchema = z
     LISTENER_INSTALL_TOKEN_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
     /** Keys the hash of an app's install id, so the raw id is never stored. 32+ random bytes, base64url. */
     LISTENER_INSTALL_ID_PEPPER: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
+
+    // ---- listener accounts (ADR-005, docs/design/listener-accounts.md) -----------------------------------------
+    /**
+     * Whether the result of an ad scan waits for the listener to create an account. Off by default: the account
+     * routes work either way, but nothing is held back until this is turned on (the rollout order of design §8).
+     */
+    LISTENER_ACCOUNT_REQUIRED: z.stringbool().default(false),
+    /**
+     * Seals listeners' emails (AES-256-GCM) and keys the hash they are found by. 32+ random bytes, base64url, different
+     * from every other secret. Losing or changing it makes every stored email unreadable and every account unfindable,
+     * so it is kept like a database backup key and never rotated casually.
+     */
+    LISTENER_EMAIL_ENCRYPTION_SECRET: z.string().regex(/^[A-Za-z0-9_-]{43,}$/),
+    /** Codes sent to one email address per hour, whatever install asks: bounds mail to a victim's inbox (LA-ROUTES-02). */
+    LISTENER_EMAIL_CODES_PER_EMAIL_PER_HOUR: z.coerce.number().int().min(1).max(100).default(3),
+    /** Codes one install may ask for per day: installs are cheap, so this is a nuisance limit, not an abuse control. */
+    LISTENER_EMAIL_CODES_PER_INSTALL_PER_DAY: z.coerce.number().int().min(1).max(1_000).default(10),
+    /** Codes one install may check per hour, on top of a code locking after 5 wrong tries. */
+    LISTENER_EMAIL_CODE_CHECKS_PER_INSTALL_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(20),
+    /** Accounts one install may create per day. */
+    LISTENER_ACCOUNTS_CREATED_PER_INSTALL_PER_DAY: z.coerce.number().int().min(1).max(1_000).default(5),
   })
   .superRefine((config, context) => {
     // The template's placeholder has the right shape, so refuse it by name in every environment.
-    for (const secretName of ['AUTHENTICATION_SECRET', 'LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER', 'TWO_FACTOR_ENCRYPTION_SECRET'] as const) {
+    for (const secretName of ['AUTHENTICATION_SECRET', 'LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER', 'TWO_FACTOR_ENCRYPTION_SECRET', 'LISTENER_EMAIL_ENCRYPTION_SECRET'] as const) {
       if (config[secretName].includes('CHANGE_ME')) {
         context.addIssue({ code: 'custom', path: [secretName], message: 'must be replaced with a random value' });
       }
     }
-    const secrets = [config.AUTHENTICATION_SECRET, config.LISTENER_INSTALL_TOKEN_SECRET, config.LISTENER_INSTALL_ID_PEPPER, config.TWO_FACTOR_ENCRYPTION_SECRET];
+    const secrets = [
+      config.AUTHENTICATION_SECRET,
+      config.LISTENER_INSTALL_TOKEN_SECRET,
+      config.LISTENER_INSTALL_ID_PEPPER,
+      config.TWO_FACTOR_ENCRYPTION_SECRET,
+      config.LISTENER_EMAIL_ENCRYPTION_SECRET,
+    ];
     if (new Set(secrets).size < secrets.length) {
       context.addIssue({ code: 'custom', path: ['LISTENER_INSTALL_TOKEN_SECRET'], message: 'the secrets must all be different' });
     }

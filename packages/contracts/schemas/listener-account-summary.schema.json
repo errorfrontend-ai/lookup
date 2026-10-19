@@ -1,0 +1,32 @@
+{
+  "$id": "https://contracts.lookup.invalid/listener-account-summary/1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/ListenerAccountSummary",
+  "$defs": {
+    "ListenerAccountSummary": {
+      "type": "object",
+      "properties": {
+        "is_signed_in": {
+          "type": "boolean"
+        },
+        "email_masked": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 254
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "is_signed_in",
+        "email_masked"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

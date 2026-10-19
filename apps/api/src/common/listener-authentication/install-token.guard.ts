@@ -19,6 +19,13 @@ export const LISTENER_INSTALL_ID = 'listenerInstallId';
 export const LISTENER_INSTALL_HASH = 'listenerInstallHash';
 
 /**
+ * Request-context key holding the listener account the install belongs to, or null when it has none (ADR-005). The
+ * recognition routes hold back an ad's result from an install with no account while LISTENER_ACCOUNT_REQUIRED is on.
+ * Only the account's id is kept here: it is a stand-in, not the person.
+ */
+export const LISTENER_ACCOUNT_ID = 'listenerAccountId';
+
+/**
  * The listener routes' check: a valid install token in `Authorization: Bearer …` for an install that
  * is not blocked. Anything else is 401 INSTALL_TOKEN_INVALID, before any other work (S3-REQUEST-16),
  * and the app registers again. Then the update gate: an install registered with an app version below
@@ -48,8 +55,8 @@ export class InstallTokenGuard implements CanActivate {
     this.logger.assign({ actor: listenerInstallHash });
 
     const rows = (await this.stationScopedTransaction.run((database) =>
-      database.query(`SELECT status, app_version FROM app.listener_installs WHERE id = $1`, [listenerInstallId]),
-    )) as Array<{ status: string; app_version: string }>;
+      database.query(`SELECT status, app_version, listener_account_id FROM app.listener_installs WHERE id = $1`, [listenerInstallId]),
+    )) as Array<{ status: string; app_version: string; listener_account_id: string | null }>;
     const install = rows[0];
     if (install?.status !== 'ACTIVE') {
       throw new AppError('INSTALL_TOKEN_INVALID', { internalDetail: install ? `install is ${install.status}` : 'install not found' });
@@ -59,6 +66,7 @@ export class InstallTokenGuard implements CanActivate {
     }
     this.requestContext.set(LISTENER_INSTALL_ID, listenerInstallId);
     this.requestContext.set(LISTENER_INSTALL_HASH, listenerInstallHash);
+    this.requestContext.set(LISTENER_ACCOUNT_ID, install.listener_account_id);
     return true;
   }
 }
