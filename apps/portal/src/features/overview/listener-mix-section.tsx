@@ -153,7 +153,7 @@ export function ListenerMixSection({
       ) : null}
       {mix.data ? (
         <>
-          <dl aria-label="Listeners" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <dl aria-label="Listeners" className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <FigureTile title="Listeners" value={String(mix.data.listeners)} note={`Different people who identified ${whose}`} />
             <FigureTile title="With an account" value={String(mix.data.knownListeners)} note="They told us their gender and age" />
             <FigureTile title="People we don't know yet" value={String(mix.data.notKnownYetListeners)} note="No account yet, or signed out" />

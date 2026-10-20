@@ -167,12 +167,16 @@ describe('Who is listening (LA-STATS-07)', () => {
     expect(tiles(section)[0]?.[1]).toBe('2');
   });
 
-  it('puts the two breakdowns side by side on a wide screen and one under the other on a phone', async () => {
+  it('puts the numbers and the two breakdowns side by side on a wide screen and one under the other on a phone', async () => {
     installOverview(() => jsonResponse(200, listenerMixWithGroups()));
     renderPortalAt(overviewPath);
     const section = await whoIsListening();
     const genders = await within(section).findByRole('region', { name: 'By gender' });
     expect(genders.parentElement).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-2');
+    // The three numbers too: the portal's "sm" is 375 px, a phone, so their columns start at "md" (768 px).
+    const numbers = within(section).getByLabelText('Listeners');
+    expect(numbers).toHaveClass('grid-cols-1', 'md:grid-cols-3');
+    expect(numbers.className).not.toMatch(/sm:grid-cols/);
   });
 
   it('has nothing axe can find wrong, as bars and as tables', async () => {
