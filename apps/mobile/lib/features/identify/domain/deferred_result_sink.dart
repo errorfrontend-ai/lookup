@@ -44,6 +44,21 @@ final class DeferredClipAwaitingChoice extends DeferredClipOutcome {
   final Map<String, Object?> answerBody;
 }
 
+/// An `ACCOUNT_REQUIRED` (ADR-005): the saved clip was recognised as an ad, but its result waits for the listener's
+/// account. History keeps a row that opens the account gate, and the notification (which says nothing of the ad)
+/// brings the listener to it.
+final class DeferredClipAwaitingAccount extends DeferredClipOutcome {
+  const DeferredClipAwaitingAccount({
+    required super.idempotencyKey,
+    required super.capturedAtOnPhone,
+    required this.recognitionId,
+    required this.answerBody,
+  });
+
+  final String recognitionId;
+  final Map<String, Object?> answerBody;
+}
+
 /// A clip that will never be identified: not recognised, or deleted unsent (P6 design §3.11).
 final class DeferredClipNotIdentified extends DeferredClipOutcome {
   const DeferredClipNotIdentified({

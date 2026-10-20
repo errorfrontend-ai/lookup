@@ -23,9 +23,10 @@ class PrivacyScreen extends StatelessWidget {
     words.privacyListensOnlyWhenYouTap(ClipSettings.standard.clipDurationSeconds),
     words.privacyClipNotKept,
     words.privacyClipWaitsOffline,
-    words.permissionPromiseNeverWhoYouAre,
+    words.permissionPromiseStationsSeeGroups,
     words.privacyHistoryStaysOnPhone,
     words.privacyReports,
+    words.privacyAccountDetails,
   ];
 
   @override

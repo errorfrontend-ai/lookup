@@ -254,11 +254,11 @@ abstract class AppLocalizations {
   /// **'Only when you tap Identify — never in the background.'**
   String get permissionPromiseOnlyWhenYouTap;
 
-  /// The second promise, after a tick: what stations learn.
+  /// The second promise, after a tick: what stations learn. Changed with the listener accounts (ADR-005, LA-PRIVACY-02): it was "never who you are".
   ///
   /// In en, this message translates to:
-  /// **'Radio stations see how many people used their buttons — never who you are.'**
-  String get permissionPromiseNeverWhoYouAre;
+  /// **'Radio stations see how many people used their buttons and the mix of ages and genders — never your name or email.'**
+  String get permissionPromiseStationsSeeGroups;
 
   /// Shown after the listener refused the microphone once.
   ///
@@ -1369,6 +1369,390 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tap an item to see it here.'**
   String get settingsPaneNote;
+
+  /// The account gate: the heading, shown instead of an ad result until the listener has an account.
+  ///
+  /// In en, this message translates to:
+  /// **'One more step to see your result'**
+  String get accountGateHeading;
+
+  /// The account gate: why an account is asked for.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a free account with your email, gender and age. Stations use this to see who their adverts reach. They never see your name or your email.'**
+  String get accountGateExplanation;
+
+  /// The account gate: starts creating an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Create account'**
+  String get accountGateCreateButton;
+
+  /// The account gate: signs in with an email that already has an account.
+  ///
+  /// In en, this message translates to:
+  /// **'I already have an account'**
+  String get accountGateSignInButton;
+
+  /// The account gate: leaves without an account; the scan stays in History.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get accountGateNotNowButton;
+
+  /// The email step: the heading when creating an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Create your account'**
+  String get accountCreateHeading;
+
+  /// The email step: the heading when signing in to an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get accountSignInHeading;
+
+  /// The email step: what the email is for.
+  ///
+  /// In en, this message translates to:
+  /// **'We send you a 6-digit code to check it is yours. We use your email for nothing else.'**
+  String get accountEmailExplanation;
+
+  /// The email step: the label of the email field.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get accountEmailLabel;
+
+  /// The email step: emails the code.
+  ///
+  /// In en, this message translates to:
+  /// **'Send me a code'**
+  String get accountSendCodeButton;
+
+  /// The code step: the heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the code'**
+  String get accountCodeHeading;
+
+  /// The code step: where the code was sent. {email} is the address the listener typed.
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a 6-digit code to {email}. It works for 10 minutes.'**
+  String accountCodeSentTo(String email);
+
+  /// The code step: the label of the code field.
+  ///
+  /// In en, this message translates to:
+  /// **'6-digit code'**
+  String get accountCodeLabel;
+
+  /// The code step: checks the typed code.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the code'**
+  String get accountCheckCodeButton;
+
+  /// The code step: asks for another code, once a minute has passed.
+  ///
+  /// In en, this message translates to:
+  /// **'Send a new code'**
+  String get accountResendCodeButton;
+
+  /// The code step: the wait before another code may be asked for. {seconds} counts down.
+  ///
+  /// In en, this message translates to:
+  /// **'Send a new code in {seconds} s'**
+  String accountResendCodeWait(int seconds);
+
+  /// The code step: said after another code was asked for.
+  ///
+  /// In en, this message translates to:
+  /// **'A new code is on its way.'**
+  String get accountNewCodeOnItsWay;
+
+  /// The code step: goes back to the email step.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a different email'**
+  String get accountUseDifferentEmailButton;
+
+  /// The last step: the heading, over gender and age.
+  ///
+  /// In en, this message translates to:
+  /// **'About you'**
+  String get accountAboutYouHeading;
+
+  /// The last step: what gender and age are used for.
+  ///
+  /// In en, this message translates to:
+  /// **'Stations only see groups of listeners, like women aged 25 to 34. They never see you.'**
+  String get accountAboutYouExplanation;
+
+  /// The last step: the label over the gender choices.
+  ///
+  /// In en, this message translates to:
+  /// **'Gender'**
+  String get accountGenderLabel;
+
+  /// A gender choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Female'**
+  String get accountGenderFemale;
+
+  /// A gender choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Male'**
+  String get accountGenderMale;
+
+  /// A gender choice.
+  ///
+  /// In en, this message translates to:
+  /// **'Another'**
+  String get accountGenderAnother;
+
+  /// A gender choice for a listener who does not want to say.
+  ///
+  /// In en, this message translates to:
+  /// **'Prefer not to say'**
+  String get accountGenderPreferNotToSay;
+
+  /// The last step: the label of the age field.
+  ///
+  /// In en, this message translates to:
+  /// **'Your age'**
+  String get accountAgeLabel;
+
+  /// The last step: what the age field accepts. {minimum} and {maximum} are the smallest and largest age.
+  ///
+  /// In en, this message translates to:
+  /// **'A number from {minimum} to {maximum}'**
+  String accountAgeHelp(int minimum, int maximum);
+
+  /// The last step: the line the listener ticks to agree. Its wording is versioned (LISTENER_CONSENT_TEXT_VERSION).
+  ///
+  /// In en, this message translates to:
+  /// **'I agree that Look Up keeps my email, gender and age, and shows stations only groups of listeners, never me.'**
+  String get accountConsentLabel;
+
+  /// The last step: opens the longer explanation of how the details are used.
+  ///
+  /// In en, this message translates to:
+  /// **'How we use this'**
+  String get accountConsentReadMoreButton;
+
+  /// The last step: said under the button until the consent box is ticked.
+  ///
+  /// In en, this message translates to:
+  /// **'Tick the box to create your account.'**
+  String get accountConsentNeeded;
+
+  /// The explanation sheet: the heading.
+  ///
+  /// In en, this message translates to:
+  /// **'How we use your details'**
+  String get accountConsentSheetHeading;
+
+  /// The explanation sheet: how the details are used, in three short paragraphs.
+  ///
+  /// In en, this message translates to:
+  /// **'Your email is used to send you a sign-in code. It is kept safe and is never shown to a station or an advertiser.\n\nYour gender and age are used only to count listeners in groups, for example how many women aged 25 to 34 followed an advert. A station sees a group only when it has at least 10 listeners.\n\nYou can sign out or delete your account in Settings, under Account. Deleting erases your email, gender and age.'**
+  String get accountConsentSheetBody;
+
+  /// The last step: creates the account.
+  ///
+  /// In en, this message translates to:
+  /// **'Create account'**
+  String get accountCreateButton;
+
+  /// The email step: said when the address is not one.
+  ///
+  /// In en, this message translates to:
+  /// **'That does not look like an email address. Check it and try again.'**
+  String get accountProblemNotAnEmail;
+
+  /// An account step: said when nothing could be reached.
+  ///
+  /// In en, this message translates to:
+  /// **'No connection. Check your signal and try again.'**
+  String get accountProblemNoConnection;
+
+  /// An account step: said when this phone asked too often.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many tries. Please wait a moment and try again.'**
+  String get accountProblemTooManyTries;
+
+  /// The code step: said when the code is wrong.
+  ///
+  /// In en, this message translates to:
+  /// **'That code is not right. Check your email and try again.'**
+  String get accountProblemCodeIncorrect;
+
+  /// The code step: said when the code is too old.
+  ///
+  /// In en, this message translates to:
+  /// **'This code has expired. Ask for a new one.'**
+  String get accountProblemCodeExpired;
+
+  /// The code step: said when wrong tries locked the code.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong tries. Ask for a new code.'**
+  String get accountProblemCodeLocked;
+
+  /// An account step: said when the step timed out and the email must be given again.
+  ///
+  /// In en, this message translates to:
+  /// **'That took too long. Please start again with your email.'**
+  String get accountProblemStartAgain;
+
+  /// The last step: said when the age is under 13.
+  ///
+  /// In en, this message translates to:
+  /// **'You need to be at least 13 to create an account.'**
+  String get accountProblemTooYoung;
+
+  /// The last step: said when the age is not a number in range.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your age as a number from 13 to 99.'**
+  String get accountProblemAgeNotValid;
+
+  /// An account step: said when the phone is signed in to a different account.
+  ///
+  /// In en, this message translates to:
+  /// **'This phone already has an account. Sign out first to use another.'**
+  String get accountProblemAlreadySignedIn;
+
+  /// An account step: said when this version of the app is too old.
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app to continue.'**
+  String get accountProblemUpdateRequired;
+
+  /// An account step: said when the server could not do it.
+  ///
+  /// In en, this message translates to:
+  /// **'Something went wrong on our side. Please try again in a moment.'**
+  String get accountProblemServerFailure;
+
+  /// After the account is made: shown while the held-back result is fetched.
+  ///
+  /// In en, this message translates to:
+  /// **'Getting your result…'**
+  String get accountGettingResult;
+
+  /// After the account is made: said when the held-back result is gone.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not find that result any more. Tap Identify to try again.'**
+  String get accountResultNotFound;
+
+  /// After the account is made: asks for the result again.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
+  String get accountResultRetryButton;
+
+  /// The Settings row, and the heading of the account page.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get settingsAccount;
+
+  /// The Settings row: said when this phone has no account.
+  ///
+  /// In en, this message translates to:
+  /// **'Not signed in'**
+  String get settingsAccountNotSignedIn;
+
+  /// The account page: who this phone is signed in as. {email} is the masked address.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in as {email}'**
+  String accountSettingsSignedInAs(String email);
+
+  /// The account page: said when this phone has no account.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a free account to see the results of the ads you identify, or sign in if you already have one.'**
+  String get accountSettingsSignedOutIntro;
+
+  /// The account page: starts creating an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Create account'**
+  String get accountSettingsCreateButton;
+
+  /// The account page: starts signing in.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get accountSettingsSignInButton;
+
+  /// The account page: this phone leaves its account.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get accountSignOutButton;
+
+  /// Said briefly after signing out.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed out.'**
+  String get accountSignedOutMessage;
+
+  /// The account page: opens the confirmation to delete the account.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete my account'**
+  String get accountDeleteButton;
+
+  /// The deletion sheet: the heading.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete your account?'**
+  String get accountDeleteConfirmHeading;
+
+  /// The deletion sheet: what deleting does.
+  ///
+  /// In en, this message translates to:
+  /// **'This erases your email, gender and age from Look Up. You can create a new account any time.'**
+  String get accountDeleteConfirmBody;
+
+  /// The deletion sheet: deletes the account.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get accountDeleteConfirmButton;
+
+  /// Said briefly after deleting the account.
+  ///
+  /// In en, this message translates to:
+  /// **'Your account was deleted.'**
+  String get accountDeletedMessage;
+
+  /// The account page: said when the account could not be read.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not check your account right now.'**
+  String get accountSettingsReadFailed;
+
+  /// History: the second line of a scan whose result waits for an account.
+  ///
+  /// In en, this message translates to:
+  /// **'Create an account to see this result'**
+  String get historyAwaitingAccountDetail;
+
+  /// The Privacy page: what an account keeps.
+  ///
+  /// In en, this message translates to:
+  /// **'If you create an account, Look Up keeps your email, gender and age. Stations only ever see groups of listeners, never you.'**
+  String get privacyAccountDetails;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

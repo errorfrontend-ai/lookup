@@ -1,3 +1,4 @@
+import 'package:lookup_listener/features/identify/domain/account_result_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/presentation/recognition_flow.dart';
 
@@ -12,6 +13,9 @@ class RecordingRecognitionFlow extends RecognitionFlow {
 
   /// The names of the methods called, e.g. `['identify', 'backToHome']`.
   final List<String> calls = [];
+
+  /// What asking for the result held back by the account gate comes to (ADR-005).
+  AccountResultOutcome nextAccountResultOutcome = AccountResultOutcome.shown;
 
   @override
   RecognitionState build() => _firstState;
@@ -36,6 +40,16 @@ class RecordingRecognitionFlow extends RecognitionFlow {
 
   @override
   void backToHome() => calls.add('backToHome');
+
+  @override
+  Future<AccountResultOutcome> showResultAfterAccount() async {
+    calls.add('showResultAfterAccount');
+    return nextAccountResultOutcome;
+  }
+
+  @override
+  void openSavedAccountGate({required String recognitionId, required DateTime capturedAtOnPhone}) =>
+      calls.add('openSavedAccountGate($recognitionId)');
 
   /// Recorded with its station and the "Remember" tick, e.g.
   /// `chooseStation(0192a6c4-…-000000000002, remembered)`.

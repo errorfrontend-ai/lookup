@@ -362,6 +362,8 @@ void main() {
           ('Privacy', '/settings/privacy', PrivacyScreen),
           ('About Look Up', '/settings/about', AboutScreen),
         ]) {
+          await tester.ensureVisible(find.text(rowTitle));
+          await tester.pump();
           await tester.tap(find.text(rowTitle));
           await harness.pumpTransition(tester);
           expect(harness.location(tester), location);

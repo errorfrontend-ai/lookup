@@ -36,6 +36,7 @@ final class DeferredResultHandler implements DeferredResultSink {
     final entryId = switch (outcome) {
       DeferredClipMatched(:final recognitionId) => recognitionId,
       DeferredClipAwaitingChoice(:final recognitionId) => recognitionId,
+      DeferredClipAwaitingAccount(:final recognitionId) => recognitionId,
       DeferredClipNotIdentified(:final recognitionId, :final idempotencyKey) =>
         recognitionId ?? idempotencyKey,
     };
@@ -50,6 +51,14 @@ final class DeferredResultHandler implements DeferredResultSink {
         );
       case DeferredClipAwaitingChoice(:final answerBody):
         await _history.saveAwaitingChoice(
+          recognitionId: entryId,
+          answer: answerBody,
+          capturedAtOnPhone: outcome.capturedAtOnPhone,
+          deferredIdempotencyKey: outcome.idempotencyKey,
+          wasNotified: isNotified,
+        );
+      case DeferredClipAwaitingAccount(:final answerBody):
+        await _history.saveAwaitingAccount(
           recognitionId: entryId,
           answer: answerBody,
           capturedAtOnPhone: outcome.capturedAtOnPhone,
@@ -95,7 +104,7 @@ final class DeferredResultHandler implements DeferredResultSink {
   }
 
   static bool _isNotifiedKind(DeferredClipOutcome outcome) => switch (outcome) {
-    DeferredClipMatched() || DeferredClipAwaitingChoice() => true,
+    DeferredClipMatched() || DeferredClipAwaitingChoice() || DeferredClipAwaitingAccount() => true,
     DeferredClipNotIdentified(:final reason) => reason.isNotified,
   };
 

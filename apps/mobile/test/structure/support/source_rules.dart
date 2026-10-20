@@ -192,6 +192,9 @@ abstract final class SourceRules {
       'Remembering My station failed',
       'Saving the result to History failed',
       'Keeping the clip for later failed',
+      // The account gate (ADR-005): what a crash report says went wrong.
+      'Asking for the held-back result failed on the phone',
+      'Saving the waiting row to History failed',
     },
     'app/bootstrap.dart': {'Deleting old History entries at start failed'},
     // The crash report's description when a report cannot be queued (P6 design §2.14).
@@ -225,6 +228,8 @@ abstract final class SourceRules {
     '/settings/my-station',
     '/settings/privacy',
     '/settings/about',
+    '/settings/account',
+    '/account',
     '/r/:recognitionId',
     '/permission',
     '/listening',

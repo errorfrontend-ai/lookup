@@ -1,3 +1,4 @@
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_answer.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
@@ -84,6 +85,13 @@ final class SendPolicy {
             recognitionId: recognitionId,
             candidates: candidates,
             origin: ChooserOrigin.liveIdentify,
+          ),
+        ),
+        // ADR-005: the result waits for an account; the clip is no longer needed.
+        AccountRequiredAnswer(:final recognitionId) => FinishedOutcome(
+          AccountRequiredState(
+            recognitionId: recognitionId,
+            origin: AccountGateOrigin.liveIdentify,
           ),
         ),
         UnknownStatusAnswer() => const FinishedOutcome(

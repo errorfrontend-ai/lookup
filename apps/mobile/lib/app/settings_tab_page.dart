@@ -3,6 +3,7 @@ import 'package:lookup_listener/app/app_route.dart';
 import 'package:lookup_listener/app/two_panes.dart';
 import 'package:lookup_listener/core/layout/window_size_class.dart';
 import 'package:lookup_listener/core/time/clock.dart';
+import 'package:lookup_listener/features/account/presentation/account_settings_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/about_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/my_station_picker_screen.dart';
 import 'package:lookup_listener/features/settings/presentation/privacy_screen.dart';
@@ -35,6 +36,7 @@ class _SettingsTabPageState extends State<SettingsTabPage> {
     void open(AppRoute page) =>
         isExpanded ? setState(() => _openedPage = page) : widget.onOpenPage(page);
     final list = SettingsScreen(
+      onOpenAccount: () => open(AppRoute.settingsAccount),
       onOpenMyStation: () => open(AppRoute.myStation),
       onOpenPrivacy: () => open(AppRoute.privacy),
       onOpenAbout: () => open(AppRoute.about),
@@ -44,6 +46,7 @@ class _SettingsTabPageState extends State<SettingsTabPage> {
   }
 
   Widget _paneFor(AppRoute? page, AppLocalizations words) => switch (page) {
+    AppRoute.settingsAccount => AccountSettingsScreen(onBack: _close),
     AppRoute.myStation => MyStationPickerScreen(onDone: _close, now: widget.clock.now),
     AppRoute.privacy => PrivacyScreen(onBack: _close),
     AppRoute.about => AboutScreen(onBack: _close),

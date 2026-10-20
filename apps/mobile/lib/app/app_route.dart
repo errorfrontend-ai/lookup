@@ -22,6 +22,10 @@ enum AppRoute {
   /// About Look Up, over the tabs (P6 design §2.13).
   about('/settings/about', isFlowRoute: false),
 
+  /// Settings → Account, over the tabs (ADR-005): the account of this phone, and creating or signing in to one
+  /// without a result waiting.
+  settingsAccount('/settings/account', isFlowRoute: false),
+
   /// A result saved in History, opened again with no request (P6 design §2.10): an internal route,
   /// not a link anyone can open from outside the app (P6-D13).
   savedResult('/r/:recognitionId', isFlowRoute: false),
@@ -37,6 +41,10 @@ enum AppRoute {
 
   /// "Which station?", for `chooseStation` (P6 design §2.6).
   chooseStation('/choose-station', isFlowRoute: true),
+
+  /// The account gate, for `accountRequired` (ADR-005): "One more step to see your result", and the steps
+  /// of creating or signing in to an account, all on this one route.
+  accountRequired('/account', isFlowRoute: true),
 
   /// Saved offline, for `savedOffline` (P6 design §2.8).
   savedOffline('/saved-offline', isFlowRoute: true),
@@ -101,6 +109,7 @@ enum AppRoute {
     RecordingState() => listening,
     UploadingState() => identifying,
     ChooseStationState() => chooseStation,
+    AccountRequiredState() => accountRequired,
     SavedOfflineState() => savedOffline,
     MatchedState() || FallbackState() => result,
     NoMatchState() => noMatch,

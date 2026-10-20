@@ -38,6 +38,14 @@ final Map<String, Object> _stationAKept = {
 Finder _row(String title) =>
     find.ancestor(of: find.text(title), matching: find.byType(SettingsRow)).first;
 
+/// Taps a row after scrolling it into view: the list is taller than a small phone, as it grows with the account row
+/// (ADR-005), and scrolls.
+Future<void> _tapRow(WidgetTester tester, String title) async {
+  await tester.ensureVisible(_row(title));
+  await tester.pump();
+  await tester.tap(_row(title));
+}
+
 /// The Settings tab (P6 design §2.11; wireframe Settings; P6-SETTINGS-01 to -07).
 void main() {
   final opened = <String>[];
@@ -54,6 +62,7 @@ void main() {
     await harness.pump(
       tester,
       SettingsScreen(
+        onOpenAccount: () => opened.add('account'),
         onOpenMyStation: () => opened.add('my station'),
         onOpenPrivacy: () => opened.add('privacy'),
         onOpenAbout: () => opened.add('about'),
@@ -73,6 +82,13 @@ void main() {
       isTrue,
     );
     semantics.dispose();
+  });
+
+  testWidgets('an "Account" row opens Settings → Account, with its heading (ADR-005; LA-APP-11)', (tester) async {
+    await show(tester);
+    expect(find.text('Account'), findsWidgets);
+    await _tapRow(tester, 'Account');
+    expect(opened, ['account']);
   });
 
   group('Listening: My station (P6-SETTINGS-02 to -04)', () {
@@ -143,7 +159,7 @@ void main() {
         data.label,
         'My station\nStation A · 98.1 FM — used when an ad is on more than one station',
       );
-      await tester.tap(_row('My station'));
+      await _tapRow(tester, 'My station');
       expect(opened, ['my station']);
       semantics.dispose();
     });
@@ -171,13 +187,13 @@ void main() {
         find.descendant(of: _row('Privacy'), matching: find.byIcon(Icons.chevron_right)),
         findsOneWidget,
       );
-      await tester.tap(_row('Privacy'));
+      await _tapRow(tester, 'Privacy');
       expect(opened, ['privacy']);
     });
 
     testWidgets('"About Look Up" opens the about page (P6-SETTINGS-07)', (tester) async {
       await show(tester);
-      await tester.tap(_row('About Look Up'));
+      await _tapRow(tester, 'About Look Up');
       expect(opened, ['about']);
     });
   });
@@ -282,7 +298,7 @@ void main() {
       await show(tester);
       final title = tester.widget<Text>(find.text('Clear history'));
       expect(title.style!.color, LookUpTokens.light.colours.danger);
-      await tester.tap(_row('Clear history'));
+      await _tapRow(tester, 'Clear history');
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('Clear history?'), findsOneWidget);
@@ -304,9 +320,9 @@ void main() {
       ]);
       await harness.pump(
         tester,
-        SettingsScreen(onOpenMyStation: () {}, onOpenPrivacy: () {}, onOpenAbout: () {}),
+        SettingsScreen(onOpenAccount: () {}, onOpenMyStation: () {}, onOpenPrivacy: () {}, onOpenAbout: () {}),
       );
-      await tester.tap(_row('Clear history'));
+      await _tapRow(tester, 'Clear history');
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
@@ -326,10 +342,10 @@ void main() {
       await harness.pump(
         tester,
         Scaffold(
-          body: SettingsScreen(onOpenMyStation: () {}, onOpenPrivacy: () {}, onOpenAbout: () {}),
+          body: SettingsScreen(onOpenAccount: () {}, onOpenMyStation: () {}, onOpenPrivacy: () {}, onOpenAbout: () {}),
         ),
       );
-      await tester.tap(_row('Clear history'));
+      await _tapRow(tester, 'Clear history');
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Clear'));
       await tester.pumpAndSettle();
@@ -365,7 +381,7 @@ void main() {
       ) async {
         final semantics = tester.ensureSemantics();
         await show(tester, theme: theme);
-        await tester.tap(_row('Clear history'));
+        await _tapRow(tester, 'Clear history');
         await tester.pumpAndSettle();
         await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
         await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));

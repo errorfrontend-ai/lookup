@@ -43,6 +43,24 @@ abstract final class HistoryFixtures {
     chosenStationId: chosenStationId,
   );
 
+  /// A scan whose ad result waits for the listener's account (ADR-005), as History keeps it: the withheld answer, and
+  /// no card.
+  static StoredHistoryEntry storedAwaitingAccount({
+    required String recognitionId,
+    required DateTime capturedAtOnPhone,
+    String? deferredIdempotencyKey,
+    bool wasNotified = false,
+  }) => StoredHistoryEntry(
+    entryId: recognitionId,
+    kind: StoredHistoryEntry.awaitingAccountKind,
+    capturedAtOnPhone: capturedAtOnPhone.toUtc(),
+    savedAt: capturedAtOnPhone.toUtc().add(const Duration(seconds: 9)),
+    answer: answer('valid/account-required', recognitionId: recognitionId),
+    wasDeferred: deferredIdempotencyKey != null,
+    deferredIdempotencyKey: deferredIdempotencyKey,
+    wasNotified: wasNotified,
+  );
+
   /// Writes History's `index.json` in [historyFolder] holding [entries], as `HistoryStore` writes it.
   static void writeIndex(Directory historyFolder, List<StoredHistoryEntry> entries) {
     historyFolder.createSync(recursive: true);

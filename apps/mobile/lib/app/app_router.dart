@@ -14,6 +14,7 @@ import 'package:lookup_listener/app/saved_result_page.dart';
 import 'package:lookup_listener/app/settings_tab_page.dart';
 import 'package:lookup_listener/core/theme/look_up_tokens.dart';
 import 'package:lookup_listener/core/time/clock.dart';
+import 'package:lookup_listener/features/account/presentation/account_settings_screen.dart';
 import 'package:lookup_listener/features/history/domain/history_entry.dart';
 import 'package:lookup_listener/features/history/presentation/history_screen.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -54,6 +55,7 @@ abstract final class AppRouter {
     required PendingDestination pendingDestination,
     required Clock clock,
     required ValueChanged<HistoryAwaitingChoiceEntry> openSavedChooser,
+    required ValueChanged<HistoryAwaitingAccountEntry> openSavedAccountGate,
   }) {
     final rootNavigatorKey = GlobalKey<NavigatorState>();
     return GoRouter(
@@ -84,6 +86,7 @@ abstract final class AppRouter {
                       onOpenResult: (recognitionId) =>
                           context.push(AppRoute.savedResultLocation(recognitionId)),
                       onOpenSavedChooser: openSavedChooser,
+                      onOpenSavedAccountGate: openSavedAccountGate,
                     ),
                   ),
                 ),
@@ -98,6 +101,7 @@ abstract final class AppRouter {
                         context.push(AppRoute.savedResultLocation(recognitionId)),
                     // T51: the chooser from the saved answer; the redirect follows the flow there.
                     onOpenSavedChooser: openSavedChooser,
+                    onOpenSavedAccountGate: openSavedAccountGate,
                   ),
                 ),
               ],
@@ -119,6 +123,11 @@ abstract final class AppRouter {
                       AppRoute.privacy,
                       rootNavigatorKey,
                       (context, routerState) => PrivacyScreen(onBack: () => _back(context)),
+                    ),
+                    _pageOverTabs(
+                      AppRoute.settingsAccount,
+                      rootNavigatorKey,
+                      (context, routerState) => AccountSettingsScreen(onBack: () => _back(context)),
                     ),
                     _pageOverTabs(
                       AppRoute.about,
@@ -265,6 +274,9 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           answer: entry.answerBody,
           capturedAtOnPhone: entry.capturedAtOnPhone,
         ),
+    openSavedAccountGate: (entry) => ref
+        .read(recognitionFlowProvider.notifier)
+        .openSavedAccountGate(recognitionId: entry.entryId, capturedAtOnPhone: entry.capturedAtOnPhone),
   );
   ref.onDispose(() {
     router.dispose();

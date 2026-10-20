@@ -51,9 +51,9 @@ file (`so-our-platform-does-luminous-stonebraker.md`).
 | Screen | Route | Contents |
 |---|---|---|
 | Gate | `/account` | Heading "One more step to see your result". One sentence: "Stations use your gender and age to see who their adverts reach. They never see your name or email." **Create account** (primary), **I already have an account**, **Not now**. |
-| Your email | `/account/email` | Email field (email keyboard, autofill), **Send me a code**. Plain errors (not an email, too many tries, no connection). |
-| Enter the code | `/account/code` | 6 digit boxes (one-time-code autofill), "We sent a code to a\*\*\*@gmail.com", **Send a new code** with a 60-second countdown, **Change email**. Wrong, expired and locked each have their own words. |
-| About you | `/account/about-you` | Gender chips (4), **Age** number box (13–99), consent checkbox with "Read how we use this" → Privacy, **Create account** pinned above the keyboard. Only for a new email. |
+| Your email | `/account` (a step inside the gate's screen) | Email field (email keyboard, autofill), **Send me a code**. Plain errors (not an email, too many tries, no connection). |
+| Enter the code | `/account` (a step inside the gate's screen) | 6 digit boxes (one-time-code autofill), "We sent a code to a\*\*\*@gmail.com", **Send a new code** with a 60-second countdown, **Change email**. Wrong, expired and locked each have their own words. |
+| About you | `/account` (a step inside the gate's screen) | Gender chips (4), **Age** number box (13–99), consent checkbox with a **How we use this** sheet that opens over the form (the Privacy screen would leave the form and lose what was typed), **Create account** pinned above the keyboard. Only for a new email. |
 | Settings → Account | `/settings/account` | Signed in: masked email, **Sign out**, **Delete my account** (confirm sheet naming what is erased). Signed out: **Create account**, **Sign in**. |
 
 All words come from `app_en.arb`. Targets are 48 dp; the layout works from 320 dp, in light and dark, with the

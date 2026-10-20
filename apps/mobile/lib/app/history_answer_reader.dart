@@ -24,6 +24,13 @@ final class HistoryAnswerReader implements StoredAnswerReader {
   }
 
   @override
+  bool readsAsAccountRequired(Object? answer, {required String recognitionId}) =>
+      switch (_parser.read(httpStatus: 200, body: answer)) {
+        AccountRequiredAnswer(recognitionId: final answeredId) => answeredId == recognitionId,
+        _ => false,
+      };
+
+  @override
   List<RecognitionResult>? readCandidates(Object? answer) =>
       switch (_parser.read(httpStatus: 200, body: answer)) {
         ChooseStationAnswer(:final candidates) => candidates,

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_answer.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
@@ -252,6 +253,26 @@ void main() {
         reason: '$retryAfterSeconds',
       );
     }
+  });
+
+  test('ACCOUNT_REQUIRED (ADR-005; LA-APP-01) opens the account gate for that recognition, drops the clip and reports nothing', () {
+    const recognitionId = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70';
+    final outcome = const SendPolicy().decide(
+      const AccountRequiredAnswer(
+        recognitionId: recognitionId,
+        answerBody: {'status': 'ACCOUNT_REQUIRED'},
+        apiRequestId: _apiRequestId,
+      ),
+      reportRequestId: _reportRequestId,
+    );
+    expect(outcome, isA<FinishedOutcome>());
+    final finished = outcome as FinishedOutcome;
+    expect(
+      finished.nextState,
+      const AccountRequiredState(recognitionId: recognitionId, origin: AccountGateOrigin.liveIdentify),
+    );
+    expect(finished.problemReport, isNull);
+    expect(finished.isClipKept, isFalse);
   });
 
   test('the limits are the ones the design states', () {

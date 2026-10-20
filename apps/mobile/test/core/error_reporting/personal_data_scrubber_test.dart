@@ -44,6 +44,12 @@ void main() {
     },
   );
 
+  test('LA-PRIVACY-04: a message that quotes the email and the sign-up ticket of a listener loses both', () {
+    final ticket = 'Tk3' * 18;
+    final message = PersonalDataScrubber.scrub('create failed for Listener.One+tag@example.com with ticket $ticket');
+    expect(message, 'create failed for [email] with ticket [token]');
+  });
+
   group('the secrets the phone knows', () {
     const installId = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f';
     // Shaped like the API's install tokens: a signed JWT whose three parts are each long.

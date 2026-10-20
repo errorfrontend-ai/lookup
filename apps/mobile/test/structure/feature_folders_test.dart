@@ -5,19 +5,22 @@ import 'support/feature_folder_scan.dart';
 import 'support/temporary_folder_copy.dart';
 
 /// Feature-first folders (design §3.1; S4-STRUCTURE-01, -02, -04; P6 design §3.1, P6-STRUCTURE-01):
-/// `identify`, `result`, `history` and `settings`, each with exactly `presentation`, `domain` and
-/// `data`.
+/// `identify`, `result`, `history`, `settings` and, from the listener accounts (ADR-005), `account`, each with
+/// exactly `presentation`, `domain` and `data`.
 void main() {
   final libraryFolder = RepositoryFileLocator.mobileAppFolder('lib');
 
   test(
-    'lib/features holds exactly identify, result, history and settings, each with its three layers (P6-STRUCTURE-01)',
+    'lib/features holds exactly account, identify, result, history and settings, each with its three layers (P6-STRUCTURE-01)',
     () {
       final scan = FeatureFolderScan.of(libraryFolder);
 
       expect(scan.featureNames, FeatureFolderScan.expectedFeatures);
-      expect(scan.featureNames, containsAll(['history', 'settings']));
+      expect(scan.featureNames, containsAll(['account', 'history', 'settings']));
       expect(scan.dartFileCountsByLayerFolder.keys.toSet(), {
+        'account/presentation',
+        'account/domain',
+        'account/data',
         'history/presentation',
         'history/domain',
         'history/data',

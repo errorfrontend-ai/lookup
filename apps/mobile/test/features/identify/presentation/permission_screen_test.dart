@@ -44,7 +44,9 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.text('Radio stations see how many people used their buttons — never who you are.'),
+        find.text(
+          'Radio stations see how many people used their buttons and the mix of ages and genders — never your name or email.',
+        ),
         findsOneWidget,
       );
       final promiseTops = [

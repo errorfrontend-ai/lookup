@@ -14,6 +14,7 @@ class HistoryTabPage extends StatefulWidget {
     super.key,
     required this.onOpenResultPage,
     required this.onOpenSavedChooser,
+    this.onOpenSavedAccountGate,
   });
 
   /// A row's tap below expanded width: the saved result as a page (`/r/<id>`).
@@ -21,6 +22,9 @@ class HistoryTabPage extends StatefulWidget {
 
   /// A clip waiting for its station: "Which station?" (T51).
   final ValueChanged<HistoryAwaitingChoiceEntry> onOpenSavedChooser;
+
+  /// A scan whose result waits for the listener's account: the account gate (ADR-005).
+  final ValueChanged<HistoryAwaitingAccountEntry>? onOpenSavedAccountGate;
 
   @override
   State<HistoryTabPage> createState() => _HistoryTabPageState();
@@ -38,6 +42,7 @@ class _HistoryTabPageState extends State<HistoryTabPage> {
           ? setState(() => _openedRecognitionId = recognitionId)
           : widget.onOpenResultPage(recognitionId),
       onOpenSavedChooser: widget.onOpenSavedChooser,
+      onOpenSavedAccountGate: widget.onOpenSavedAccountGate,
     );
     if (!isExpanded) return list;
     final words = AppLocalizations.of(context);

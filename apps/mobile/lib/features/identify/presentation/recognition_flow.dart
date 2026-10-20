@@ -19,6 +19,8 @@ import 'package:lookup_listener/features/identify/domain/recognition_failure.dar
 import 'package:lookup_listener/features/identify/domain/recognition_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_problem_report.dart';
 import 'package:lookup_listener/core/outbox/outbox_item.dart' show DeferredClipSavedReason;
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
+import 'package:lookup_listener/features/identify/domain/account_result_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
 import 'package:lookup_listener/features/identify/domain/saved_clip_reason.dart';
@@ -84,6 +86,10 @@ class RecognitionFlow extends Notifier<RecognitionState> {
   /// The `CHOOSE_STATION` answer the chooser shows, kept until a row is tapped so the chosen
   /// result can be saved to History as the answer came (T44); dropped on every way out.
   ({String recognitionId, Map<String, Object?> answer, DateTime capturedAtOnPhone})? _chooserAnswer;
+
+  /// The recognition the account gate is open for and when the phone recorded its clip, kept for History while the
+  /// gate is open (ADR-005); dropped on every way out.
+  ({String recognitionId, DateTime capturedAtOnPhone})? _accountGate;
 
   /// The counts for [_clip] so far; a fresh policy for every capture.
   SendPolicy _sendPolicy = const SendPolicy();
@@ -187,6 +193,84 @@ class RecognitionFlow extends Notifier<RecognitionState> {
       );
     }
     if (isRemembered) unawaited(_rememberStation(candidate));
+  }
+
+  /// A History row "Create an account to see this result", or the notification of a saved clip answered that way,
+  /// opens the account gate for it (ADR-005), with no request. Only from Home (idle); [capturedAtOnPhone] is when the
+  /// phone recorded the clip, which History keeps when the result replaces the row.
+  void openSavedAccountGate({required String recognitionId, required DateTime capturedAtOnPhone}) {
+    if (state is! IdleState) return;
+    _beginIdentify();
+    _accountGate = (recognitionId: recognitionId, capturedAtOnPhone: capturedAtOnPhone);
+    state = AccountRequiredState(recognitionId: recognitionId, origin: AccountGateOrigin.savedRecognition);
+  }
+
+  /// The gate's last step: this phone now has an account, so the result the server held back is asked for and
+  /// shown as it always would have been (ADR-005, design §3.2): the Result, or "Which station?" when several
+  /// stations air the ad, and saved to History over the row that waited. Only at the gate. When it cannot be
+  /// shown the gate stays and the outcome says why, so it can offer to try again; leaving the gate meanwhile drops
+  /// the result quietly.
+  Future<AccountResultOutcome> showResultAfterAccount() async {
+    final current = state;
+    if (current is! AccountRequiredState) return AccountResultOutcome.notWaiting;
+    final identifyNumber = _beginIdentify();
+    final capturedAtOnPhone = _accountGate?.recognitionId == current.recognitionId
+        ? _accountGate!.capturedAtOnPhone
+        : _clock.now();
+    final RecognitionAnswer answer;
+    try {
+      answer = await _recognitionRepository.reveal(current.recognitionId);
+    } on Object catch (error, stackTrace) {
+      _failOnPhone(
+        identifyNumber,
+        error,
+        stackTrace,
+        description: 'Asking for the held-back result failed on the phone',
+      );
+      return AccountResultOutcome.problem;
+    }
+    if (!_isCurrent(identifyNumber)) return AccountResultOutcome.notWaiting;
+    switch (answer) {
+      case MatchAnswer(:final result):
+        _accountGate = null;
+        state = switch (result.kind) {
+          RecognitionResultKind.campaign => MatchedState(result: result),
+          RecognitionResultKind.clientDefault => FallbackState(result: result),
+        };
+        _keepForHistory(answer, capturedAtOnPhone: capturedAtOnPhone);
+        return AccountResultOutcome.shown;
+      case ChooseStationAnswer(:final recognitionId, :final candidates):
+        _accountGate = null;
+        state = ChooseStationState(
+          recognitionId: recognitionId,
+          candidates: candidates,
+          origin: switch (current.origin) {
+            AccountGateOrigin.liveIdentify => ChooserOrigin.liveIdentify,
+            AccountGateOrigin.savedRecognition => ChooserOrigin.savedRecognition,
+          },
+        );
+        _keepForHistory(answer, capturedAtOnPhone: capturedAtOnPhone);
+        return AccountResultOutcome.shown;
+      case NoAnswer():
+        // The account is made; only the fetch failed. The gate stays, to try again.
+        _restoreAccountGate(current);
+        return AccountResultOutcome.noConnection;
+      case ErrorStatusAnswer(httpStatus: 404):
+        _restoreAccountGate(current);
+        return AccountResultOutcome.notFound;
+      case ErrorStatusAnswer(httpStatus: 426):
+        _accountGate = null;
+        state = const ErrorState(failure: AppUpdateRequiredFailure());
+        return AccountResultOutcome.problem;
+      case _:
+        _restoreAccountGate(current);
+        return AccountResultOutcome.problem;
+    }
+  }
+
+  /// Keeps the gate on screen after a fetch that failed: the same state again, a new identify number.
+  void _restoreAccountGate(AccountRequiredState gate) {
+    if (state is AccountRequiredState) state = gate;
   }
 
   /// "Try again" on No match and on the server-failure, phone-failure and recording-unusable
@@ -528,6 +612,18 @@ class RecognitionFlow extends Notifier<RecognitionState> {
           answer: answerBody,
           capturedAtOnPhone: capturedAtOnPhone,
         );
+      case AccountRequiredAnswer(:final recognitionId, :final answerBody)
+          when state is AccountRequiredState:
+        // The ad was recognised but its result waits for an account: History keeps a row that reopens the gate
+        // (ADR-005), and the gate keeps the capture time for the result that will replace it.
+        _accountGate = (recognitionId: recognitionId, capturedAtOnPhone: capturedAtOnPhone);
+        unawaited(
+          _saveAwaitingAccountToHistory(
+            recognitionId: recognitionId,
+            answer: answerBody,
+            capturedAtOnPhone: capturedAtOnPhone,
+          ),
+        );
       case _:
         break;
     }
@@ -743,6 +839,26 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     }
   }
 
+  /// Saves the "Create an account to see this result" row, in the background (ADR-005). A save that fails is
+  /// reported; the gate still works. Never throws.
+  Future<void> _saveAwaitingAccountToHistory({
+    required String recognitionId,
+    required Map<String, Object?> answer,
+    required DateTime capturedAtOnPhone,
+  }) async {
+    try {
+      await ref
+          .read(historyRepositoryProvider)
+          .saveAwaitingAccount(
+            recognitionId: recognitionId,
+            answer: answer,
+            capturedAtOnPhone: capturedAtOnPhone,
+          );
+    } on Object catch (error, stackTrace) {
+      _reportQuietly(error, stackTrace, description: 'Saving the waiting row to History failed');
+    }
+  }
+
   /// The crash report the policy asked for. When the failure shown is a phone failure, its code
   /// appears only once the API has accepted the report (T39).
   Future<void> _sendProblemReport(
@@ -895,6 +1011,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _beginIdentify();
     _dropClip();
     _chooserAnswer = null;
+    _accountGate = null;
     state = const IdleState();
     _deleteLeftoverClips();
   }
@@ -947,6 +1064,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     _stopActivities();
     _dropClip();
     _chooserAnswer = null;
+    _accountGate = null;
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
   }
@@ -959,6 +1077,7 @@ class RecognitionFlow extends Notifier<RecognitionState> {
     RecordingState() => '/listening',
     UploadingState() => '/identifying',
     ChooseStationState() => '/choose-station',
+    AccountRequiredState() => '/account',
     SavedOfflineState() => '/saved-offline',
     MatchedState() || FallbackState() => '/result',
     NoMatchState() => '/no-match',

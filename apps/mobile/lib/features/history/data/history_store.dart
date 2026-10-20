@@ -245,13 +245,16 @@ final class StoredHistoryEntry {
   /// The kind of a saved clip answered `CHOOSE_STATION`, waiting for the listener's choice.
   static const String awaitingChoiceKind = 'AWAITING_CHOICE';
 
+  /// The kind of a scan whose ad result waits for the listener's account (ADR-005).
+  static const String awaitingAccountKind = 'AWAITING_ACCOUNT';
+
   /// The kind of a saved clip that will never be identified.
   static const String notIdentifiedKind = 'NOT_IDENTIFIED';
 
   /// The recognition id.
   final String entryId;
 
-  /// `RESULT`, `AWAITING_CHOICE` or `NOT_IDENTIFIED`.
+  /// `RESULT`, `AWAITING_CHOICE`, `AWAITING_ACCOUNT` or `NOT_IDENTIFIED`.
   final String kind;
 
   /// When the phone recorded the clip, by its own clock, in UTC.

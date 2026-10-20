@@ -281,6 +281,7 @@ String _nameOf(RecognitionState state) => switch (state) {
   RecordingState() => 'recording',
   UploadingState() => 'uploading',
   ChooseStationState() => 'chooseStation',
+  AccountRequiredState() => 'accountRequired',
   MatchedState() => 'matched',
   FallbackState() => 'fallback',
   NoMatchState() => 'noMatch',

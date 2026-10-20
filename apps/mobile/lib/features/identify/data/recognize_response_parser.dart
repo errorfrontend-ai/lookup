@@ -54,6 +54,15 @@ final class RecognizeResponseParser {
         capturedAt: capturedAt,
       ),
       'CHOOSE_STATION' => _readChooser(body, recognitionId, capturedAt, apiRequestId, unreadable),
+      'ACCOUNT_REQUIRED' =>
+        recognitionId == null
+            ? unreadable(_unreadableRecognitionIdProblem('ACCOUNT_REQUIRED'))
+            : AccountRequiredAnswer(
+                recognitionId: recognitionId,
+                answerBody: _answerBodyOf(body),
+                apiRequestId: apiRequestId,
+                capturedAt: capturedAt,
+              ),
       String() => UnknownStatusAnswer(apiRequestId: apiRequestId),
       _ => unreadable('status is missing or not text'),
     };

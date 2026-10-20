@@ -34,6 +34,7 @@ void main() {
   late RecognitionState flowState;
   late List<String> wentTo;
   late List<HistoryAwaitingChoiceEntry> openedChoosers;
+  late List<HistoryAwaitingAccountEntry> openedAccountGates;
   late NotificationLaunchHandler handler;
 
   setUp(() {
@@ -58,6 +59,7 @@ void main() {
     flowState = const IdleState();
     wentTo = [];
     openedChoosers = [];
+    openedAccountGates = [];
     handler = NotificationLaunchHandler(
       deviceServices: deviceServices,
       history: history,
@@ -65,6 +67,7 @@ void main() {
       readFlowState: () => flowState,
       go: wentTo.add,
       openSavedChooser: openedChoosers.add,
+      openSavedAccountGate: openedAccountGates.add,
     );
     addTearDown(handler.dispose);
   });
@@ -166,6 +169,34 @@ void main() {
         expect(pendingDestination.value, isNull);
       });
     }
+
+    test('a scan waiting for an account opens the account gate for it, from idle (LA-APP-09)', () async {
+      await history.saveAwaitingAccount(
+        recognitionId: _resultId,
+        answer: HistoryFixtures.answer('valid/account-required'),
+        capturedAtOnPhone: _capturedAt,
+        deferredIdempotencyKey: _clipKey,
+        wasNotified: true,
+      );
+      await handler.open(_resultId);
+      expect(openedAccountGates.single.entryId, _resultId);
+      expect(wentTo, isEmpty);
+      expect(pendingDestination.value, isNull);
+    });
+
+    test('during an identify nothing is interrupted: the place is kept as History', () async {
+      await history.saveAwaitingAccount(
+        recognitionId: _resultId,
+        answer: HistoryFixtures.answer('valid/account-required'),
+        capturedAtOnPhone: _capturedAt,
+        deferredIdempotencyKey: _clipKey,
+        wasNotified: true,
+      );
+      flowState = const UploadingState();
+      await handler.open(_resultId);
+      expect(openedAccountGates, isEmpty);
+      expect(pendingDestination.value, '/history');
+    });
 
     test('History that cannot be read: the app opens as it was, and nothing is thrown', () async {
       await saveResult(wasNotified: true);

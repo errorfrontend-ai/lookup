@@ -102,6 +102,24 @@ class RecognitionRepository {
     }
   }
 
+  /// `GET /api/v1/recognitions/{id}` (ADR-005): the result the server held back with `ACCOUNT_REQUIRED`, asked for
+  /// once the listener has an account, read exactly as a recognize answer is. After a refused token the install
+  /// registers again, once, and asks again. Never throws.
+  Future<RecognitionAnswer> reveal(String recognitionId, {bool registersAgainFirst = false}) async {
+    final registration = await _registration(registersAgainFirst: registersAgainFirst);
+    switch (registration) {
+      case ListenerInstallNotRegistered():
+        return _readRegistrationFailure(registration);
+      case ListenerInstallRegistered(:final installToken):
+        final answer = await _apiClient.getJson(ListenerRoute.revealFor(recognitionId), installToken: installToken);
+        if (answer case ApiAnswerReceived(status: 401) when !registersAgainFirst) {
+          _refusedInstallToken = installToken;
+          return reveal(recognitionId, registersAgainFirst: true);
+        }
+        return _readAnswer(answer);
+    }
+  }
+
   /// Sends the crash report `SendPolicy` asked for after an answer the app caused or could not
   /// read (§3.11), from [location] (the route path, e.g. `/identifying`). Resolves to whether the
   /// API accepted it, which decides whether a phone failure may show its code (T39). Never throws.

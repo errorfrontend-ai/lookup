@@ -133,6 +133,47 @@ void main() {
     expect(deviceServices.posted.single.text, words.savedClipNotificationText);
   });
 
+  test('ACCOUNT_REQUIRED (LA-APP-09): kept as a scan waiting for an account, then the same notification, which opens it', () async {
+    await handler.record(
+      DeferredClipAwaitingAccount(
+        idempotencyKey: _clipKey,
+        capturedAtOnPhone: _capturedAt,
+        recognitionId: _recognitionId,
+        answerBody: HistoryFixtures.answer('valid/account-required'),
+      ),
+    );
+
+    final entry = await onlyEntry() as HistoryAwaitingAccountEntry;
+    expect(entry.entryId, _recognitionId);
+    expect(entry.deferredIdempotencyKey, _clipKey);
+    expect(entry.capturedAtOnPhone, _capturedAt);
+    expect(await history.wasNotified(_recognitionId), isTrue);
+    final posted = deviceServices.posted.single;
+    expect(deviceServices.wasInHistoryWhenPosted, [isTrue], reason: 'History first');
+    expect(posted.recognitionId, _recognitionId);
+    expect(posted.text, words.savedClipNotificationText, reason: 'the words never name the ad, the station or the outcome');
+  });
+
+  test('a result already kept is never undone by a replay of the withheld answer', () async {
+    await handler.record(
+      DeferredClipMatched(
+        idempotencyKey: _clipKey,
+        capturedAtOnPhone: _capturedAt,
+        recognitionId: _recognitionId,
+        answerBody: HistoryFixtures.answer('valid/match-campaign'),
+      ),
+    );
+    await handler.record(
+      DeferredClipAwaitingAccount(
+        idempotencyKey: _clipKey,
+        capturedAtOnPhone: _capturedAt,
+        recognitionId: _recognitionId,
+        answerBody: HistoryFixtures.answer('valid/account-required'),
+      ),
+    );
+    expect(await onlyEntry(), isA<HistoryResultEntry>());
+  });
+
   test('not recognised: kept under the recognition id, and notified', () async {
     await handler.record(
       DeferredClipNotIdentified(

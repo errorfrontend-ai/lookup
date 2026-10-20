@@ -125,6 +125,22 @@ class ApiClient {
     cancelToken: cancelToken,
   );
 
+  /// Sends a DELETE to [path] with no body: deleting the listener's account (ADR-005).
+  Future<ApiAnswer> deleteJson(
+    String path, {
+    String? installToken,
+    String? requestId,
+    CancelToken? cancelToken,
+  }) => _send(
+    'DELETE',
+    path,
+    buildData: () => null,
+    contentType: null,
+    installToken: installToken,
+    requestId: requestId,
+    cancelToken: cancelToken,
+  );
+
   /// Reads [path] with a GET (design §3.12): the station list.
   ///
   /// [ifNoneMatch] is the entity tag of the copy the app holds, from an earlier answer's

@@ -106,6 +106,28 @@ final class ChooseStationAnswer extends ReceivedAnswer {
   final DateTime? capturedAt;
 }
 
+/// 200 `ACCOUNT_REQUIRED` (ADR-005): the clip was recognised as an ad, but this install has no listener
+/// account yet, so the server holds the result back. The answer carries nothing about the ad: only its
+/// recognition id, which the app asks for the result with once the listener has an account, and the
+/// capture time. The body is kept as it came, for History's "Sign up to see this result" row.
+final class AccountRequiredAnswer extends ReceivedAnswer {
+  const AccountRequiredAnswer({
+    required this.recognitionId,
+    required this.answerBody,
+    required super.apiRequestId,
+    this.capturedAt,
+  });
+
+  /// The recognition the result is asked for: a lower-case UUID version 7.
+  final String recognitionId;
+
+  /// The 200 answer as it came.
+  final Map<String, Object?> answerBody;
+
+  /// As [MatchAnswer.capturedAt].
+  final DateTime? capturedAt;
+}
+
 /// 200 with a status this version of the app does not know, from a newer server.
 final class UnknownStatusAnswer extends ReceivedAnswer {
   const UnknownStatusAnswer({required super.apiRequestId});

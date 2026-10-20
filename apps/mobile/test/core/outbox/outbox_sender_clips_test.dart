@@ -82,6 +82,24 @@ void main() {
       });
     });
 
+    test('ACCOUNT_REQUIRED goes to History as a scan waiting for an account, and the clip is deleted (LA-APP-09)', () {
+      _runSenderTest((harness) {
+        final capturedAt = harness.clock.now();
+        harness.queueClip(_keyOne, capturedAt: capturedAt);
+        harness.answerWithResponseFixture('valid/account-required-deferred');
+        harness.startRun(OutboxRunReason.wakeUp);
+
+        final outcome = harness.resultSink.outcomes.single as DeferredClipAwaitingAccount;
+        expect(outcome.idempotencyKey, _keyOne);
+        expect(outcome.capturedAtOnPhone, capturedAt);
+        expect(outcome.recognitionId, _matchRecognitionId);
+        expect(outcome.answerBody['status'], 'ACCOUNT_REQUIRED');
+        expect(harness.items, isEmpty, reason: 'a 200 is final: the clip is not sent again');
+        expect(File('${harness.folder.path}/clips/$_keyOne.m4a').existsSync(), isFalse);
+        expect(harness.reporter.reports, isEmpty);
+      });
+    });
+
     test('"Which station?" goes to History as a chooser to answer later', () {
       _runSenderTest((harness) {
         harness.queueClip(_keyOne, capturedAt: harness.clock.now());

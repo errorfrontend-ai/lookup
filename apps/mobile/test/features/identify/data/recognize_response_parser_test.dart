@@ -20,6 +20,9 @@ const String _reportRequestId = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 /// What each recognize-response fixture leads to (§4.4). Every fixture in the folders must be named
 /// here, so a new fixture fails the test until someone decides what the app does with it.
 const Map<String, String> _expectedValidStates = {
+  // ADR-005: the ad was recognised but its result waits for the listener's account; nothing of the ad is sent.
+  'account-required': 'account required',
+  'account-required-deferred': 'account required',
   // The chooser (P6 design T19′): every candidate, in the answer's order.
   'choose-station': 'chooser: Station A, Station B',
   'choose-station-deferred': 'chooser: Station A, Station B',
@@ -36,6 +39,9 @@ const Map<String, String> _expectedValidStates = {
 };
 
 const Map<String, String> _expectedInvalidStates = {
+  // Anything beyond the five fields of a withheld result is never read: the gate shows nothing of it.
+  'account-required-with-result': 'account required',
+  'account-required-with-station-name': 'account required',
   // Statuses the app does not know.
   'ambiguous-status': 'newer app needed',
   'match-found-status': 'newer app needed',
@@ -90,6 +96,15 @@ const Map<String, String> _expectedEnvelopeOutcomes = {
   'not-found': 'server failure, reported',
   'station-already-chosen': 'server failure, reported',
   'station-not-a-candidate': 'server failure, reported',
+  // The listener account's own refusals (ADR-005) belong to its routes; on a clip's send they are the API
+  // refusing what was sent, or a wait.
+  'account-age-too-young': 'server failure, reported',
+  'account-ticket-not-valid': 'server failure, reported',
+  'already-signed-in': 'wait 3 s and resend, clip kept',
+  'listener-code-expired': 'server failure, reported',
+  'listener-code-incorrect': 'server failure, reported',
+  'listener-code-locked': 'server failure, reported',
+  'resend-too-soon': 'kept for later: too many tries',
 };
 
 RecognitionAnswer _readResponseFixture(NamedFixture fixture) =>
@@ -115,6 +130,7 @@ String _describe(RecognitionOutcome outcome) {
       MatchedState() => 'matched',
       FallbackState() => 'fallback',
       NoMatchState() => 'no match',
+      AccountRequiredState() => 'account required',
       ChooseStationState(:final candidates, :final areAllCandidatesDefaultCards) =>
         'chooser: ${candidates.map((candidate) => candidate.stationName).join(', ')}'
             '${areAllCandidatesDefaultCards ? ', all default cards' : ''}',
@@ -175,11 +191,11 @@ void main() {
   );
 
   test(
-    'the loader finds 12 valid and 19 invalid responses and 19 envelopes, each with an expectation',
+    'the loader finds 14 valid and 21 invalid responses and 26 envelopes, each with an expectation',
     () {
-      expect(validResponses, hasLength(12));
-      expect(invalidResponses, hasLength(19));
-      expect(envelopes, hasLength(19));
+      expect(validResponses, hasLength(14));
+      expect(invalidResponses, hasLength(21));
+      expect(envelopes, hasLength(26));
       expect(
         validResponses.map((fixture) => fixture.name).toSet(),
         _expectedValidStates.keys.toSet(),
@@ -194,6 +210,41 @@ void main() {
       );
     },
   );
+
+  group('ACCOUNT_REQUIRED (ADR-005)', () {
+    test('reads the recognition id and the capture time, and keeps the answer exactly as it came', () {
+      final fixture = validResponses.firstWhere((fixture) => fixture.name == 'account-required-deferred');
+      final answer = _readResponseFixture(fixture) as AccountRequiredAnswer;
+      expect(answer.recognitionId, '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70');
+      expect(answer.capturedAt, DateTime.utc(2026, 10, 7, 4, 30));
+      expect(answer.answerBody, (fixture.content as Map<String, Object?>)['response']);
+      expect(answer.apiRequestId, _fixtureRequestId);
+    });
+
+    for (final badId in <Object?>[null, '', 'not-an-id', '0199b2c4-5a6e-4c3d-8f10-2b3c4d5e6f70', 7]) {
+      test('a recognition id of $badId cannot be reopened: unreadable, so a server failure that is reported', () {
+        final answer = _parser.read(
+          httpStatus: 200,
+          body: {
+            'status': 'ACCOUNT_REQUIRED',
+            'recognition_id': ?badId,
+            'request_id': _fixtureRequestId,
+            'is_deferred': false,
+            'captured_at': '2026-10-07T06:30:00Z',
+          },
+        );
+        expect(answer, isA<UnreadableAnswer>());
+        expect(_describe(_decide(answer)), 'server failure, reported');
+      });
+    }
+
+    test('never reads anything of the ad, even if a server sent it', () {
+      final fixture = invalidResponses.firstWhere((fixture) => fixture.name == 'account-required-with-result');
+      final answer = _readResponseFixture(fixture);
+      expect(answer, isA<AccountRequiredAnswer>());
+      expect(_describe(_decide(answer)), 'account required');
+    });
+  });
 
   group('recognize-response/valid', () {
     for (final fixture in validResponses) {

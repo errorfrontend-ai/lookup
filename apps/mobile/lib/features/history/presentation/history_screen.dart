@@ -25,13 +25,21 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 /// shell, which knows the routes. The tab bar is the shell's, with History marked as the current
 /// tab (P6-NAVIGATION-05).
 class HistoryScreen extends ConsumerWidget {
-  const HistoryScreen({super.key, required this.onOpenResult, required this.onOpenSavedChooser});
+  const HistoryScreen({
+    super.key,
+    required this.onOpenResult,
+    required this.onOpenSavedChooser,
+    this.onOpenSavedAccountGate,
+  });
 
   /// Opens the saved result of a recognition id.
   final ValueChanged<String> onOpenResult;
 
   /// Opens "Which station?" for a saved clip waiting for its station.
   final ValueChanged<HistoryAwaitingChoiceEntry> onOpenSavedChooser;
+
+  /// Opens the account gate for a scan whose result waits for the listener's account (ADR-005).
+  final ValueChanged<HistoryAwaitingAccountEntry>? onOpenSavedAccountGate;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -57,6 +65,7 @@ class HistoryScreen extends ConsumerWidget {
           now: ref.watch(historyClockProvider).now(),
           onOpenResult: onOpenResult,
           onOpenSavedChooser: onOpenSavedChooser,
+          onOpenSavedAccountGate: onOpenSavedAccountGate,
         ),
         // Read in a moment; a History that cannot be read was reported, and shows nothing rather
         // than an empty History it does not know to be empty.
@@ -73,12 +82,14 @@ class _SavedResults extends StatelessWidget {
     required this.now,
     required this.onOpenResult,
     required this.onOpenSavedChooser,
+    required this.onOpenSavedAccountGate,
   });
 
   final HistoryView view;
   final DateTime now;
   final ValueChanged<String> onOpenResult;
   final ValueChanged<HistoryAwaitingChoiceEntry> onOpenSavedChooser;
+  final ValueChanged<HistoryAwaitingAccountEntry>? onOpenSavedAccountGate;
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +145,15 @@ class _SavedResults extends StatelessWidget {
       entry: entry,
       now: now,
       onTap: () => onOpenSavedChooser(entry),
+    ),
+    HistoryAwaitingAccountEntry() => HistoryOutcomeRow(
+      key: ValueKey(entry.entryId),
+      entry: entry,
+      now: now,
+      onTap: switch (onOpenSavedAccountGate) {
+        final open? => () => open(entry),
+        null => null,
+      },
     ),
     HistoryNotIdentifiedEntry() => HistoryOutcomeRow(
       key: ValueKey(entry.entryId),

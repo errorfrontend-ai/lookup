@@ -105,8 +105,8 @@ class AppLocalizationsEn extends AppLocalizations {
       'Only when you tap Identify — never in the background.';
 
   @override
-  String get permissionPromiseNeverWhoYouAre =>
-      'Radio stations see how many people used their buttons — never who you are.';
+  String get permissionPromiseStationsSeeGroups =>
+      'Radio stations see how many people used their buttons and the mix of ages and genders — never your name or email.';
 
   @override
   String get permissionRefusedOnceNote =>
@@ -768,4 +768,217 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsPaneNote => 'Tap an item to see it here.';
+
+  @override
+  String get accountGateHeading => 'One more step to see your result';
+
+  @override
+  String get accountGateExplanation =>
+      'Create a free account with your email, gender and age. Stations use this to see who their adverts reach. They never see your name or your email.';
+
+  @override
+  String get accountGateCreateButton => 'Create account';
+
+  @override
+  String get accountGateSignInButton => 'I already have an account';
+
+  @override
+  String get accountGateNotNowButton => 'Not now';
+
+  @override
+  String get accountCreateHeading => 'Create your account';
+
+  @override
+  String get accountSignInHeading => 'Sign in';
+
+  @override
+  String get accountEmailExplanation =>
+      'We send you a 6-digit code to check it is yours. We use your email for nothing else.';
+
+  @override
+  String get accountEmailLabel => 'Email';
+
+  @override
+  String get accountSendCodeButton => 'Send me a code';
+
+  @override
+  String get accountCodeHeading => 'Enter the code';
+
+  @override
+  String accountCodeSentTo(String email) {
+    return 'We sent a 6-digit code to $email. It works for 10 minutes.';
+  }
+
+  @override
+  String get accountCodeLabel => '6-digit code';
+
+  @override
+  String get accountCheckCodeButton => 'Check the code';
+
+  @override
+  String get accountResendCodeButton => 'Send a new code';
+
+  @override
+  String accountResendCodeWait(int seconds) {
+    return 'Send a new code in $seconds s';
+  }
+
+  @override
+  String get accountNewCodeOnItsWay => 'A new code is on its way.';
+
+  @override
+  String get accountUseDifferentEmailButton => 'Use a different email';
+
+  @override
+  String get accountAboutYouHeading => 'About you';
+
+  @override
+  String get accountAboutYouExplanation =>
+      'Stations only see groups of listeners, like women aged 25 to 34. They never see you.';
+
+  @override
+  String get accountGenderLabel => 'Gender';
+
+  @override
+  String get accountGenderFemale => 'Female';
+
+  @override
+  String get accountGenderMale => 'Male';
+
+  @override
+  String get accountGenderAnother => 'Another';
+
+  @override
+  String get accountGenderPreferNotToSay => 'Prefer not to say';
+
+  @override
+  String get accountAgeLabel => 'Your age';
+
+  @override
+  String accountAgeHelp(int minimum, int maximum) {
+    return 'A number from $minimum to $maximum';
+  }
+
+  @override
+  String get accountConsentLabel =>
+      'I agree that Look Up keeps my email, gender and age, and shows stations only groups of listeners, never me.';
+
+  @override
+  String get accountConsentReadMoreButton => 'How we use this';
+
+  @override
+  String get accountConsentNeeded => 'Tick the box to create your account.';
+
+  @override
+  String get accountConsentSheetHeading => 'How we use your details';
+
+  @override
+  String get accountConsentSheetBody =>
+      'Your email is used to send you a sign-in code. It is kept safe and is never shown to a station or an advertiser.\n\nYour gender and age are used only to count listeners in groups, for example how many women aged 25 to 34 followed an advert. A station sees a group only when it has at least 10 listeners.\n\nYou can sign out or delete your account in Settings, under Account. Deleting erases your email, gender and age.';
+
+  @override
+  String get accountCreateButton => 'Create account';
+
+  @override
+  String get accountProblemNotAnEmail =>
+      'That does not look like an email address. Check it and try again.';
+
+  @override
+  String get accountProblemNoConnection => 'No connection. Check your signal and try again.';
+
+  @override
+  String get accountProblemTooManyTries => 'Too many tries. Please wait a moment and try again.';
+
+  @override
+  String get accountProblemCodeIncorrect =>
+      'That code is not right. Check your email and try again.';
+
+  @override
+  String get accountProblemCodeExpired => 'This code has expired. Ask for a new one.';
+
+  @override
+  String get accountProblemCodeLocked => 'Too many wrong tries. Ask for a new code.';
+
+  @override
+  String get accountProblemStartAgain => 'That took too long. Please start again with your email.';
+
+  @override
+  String get accountProblemTooYoung => 'You need to be at least 13 to create an account.';
+
+  @override
+  String get accountProblemAgeNotValid => 'Enter your age as a number from 13 to 99.';
+
+  @override
+  String get accountProblemAlreadySignedIn =>
+      'This phone already has an account. Sign out first to use another.';
+
+  @override
+  String get accountProblemUpdateRequired => 'Please update the app to continue.';
+
+  @override
+  String get accountProblemServerFailure =>
+      'Something went wrong on our side. Please try again in a moment.';
+
+  @override
+  String get accountGettingResult => 'Getting your result…';
+
+  @override
+  String get accountResultNotFound =>
+      'We could not find that result any more. Tap Identify to try again.';
+
+  @override
+  String get accountResultRetryButton => 'Try again';
+
+  @override
+  String get settingsAccount => 'Account';
+
+  @override
+  String get settingsAccountNotSignedIn => 'Not signed in';
+
+  @override
+  String accountSettingsSignedInAs(String email) {
+    return 'Signed in as $email';
+  }
+
+  @override
+  String get accountSettingsSignedOutIntro =>
+      'Create a free account to see the results of the ads you identify, or sign in if you already have one.';
+
+  @override
+  String get accountSettingsCreateButton => 'Create account';
+
+  @override
+  String get accountSettingsSignInButton => 'Sign in';
+
+  @override
+  String get accountSignOutButton => 'Sign out';
+
+  @override
+  String get accountSignedOutMessage => 'Signed out.';
+
+  @override
+  String get accountDeleteButton => 'Delete my account';
+
+  @override
+  String get accountDeleteConfirmHeading => 'Delete your account?';
+
+  @override
+  String get accountDeleteConfirmBody =>
+      'This erases your email, gender and age from Look Up. You can create a new account any time.';
+
+  @override
+  String get accountDeleteConfirmButton => 'Delete';
+
+  @override
+  String get accountDeletedMessage => 'Your account was deleted.';
+
+  @override
+  String get accountSettingsReadFailed => 'We could not check your account right now.';
+
+  @override
+  String get historyAwaitingAccountDetail => 'Create an account to see this result';
+
+  @override
+  String get privacyAccountDetails =>
+      'If you create an account, Look Up keeps your email, gender and age. Stations only ever see groups of listeners, never you.';
 }

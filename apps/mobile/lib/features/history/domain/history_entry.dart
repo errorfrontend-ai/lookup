@@ -73,6 +73,21 @@ final class HistoryAwaitingChoiceEntry extends HistoryEntry {
   String toString() => 'HistoryAwaitingChoiceEntry($entryId: ${candidates.length} stations)';
 }
 
+/// A scan answered `ACCOUNT_REQUIRED` (ADR-005): the ad was recognised, but its result waits for the listener's
+/// account, so the phone holds nothing of it. The row says "Create an account to see this result" and opens the
+/// account gate for this recognition. Once the listener has an account the entry becomes a [HistoryResultEntry],
+/// or a chooser waiting for its station when several stations air the ad.
+final class HistoryAwaitingAccountEntry extends HistoryEntry {
+  const HistoryAwaitingAccountEntry({
+    required super.entryId,
+    required super.capturedAtOnPhone,
+    super.deferredIdempotencyKey,
+  });
+
+  @override
+  String toString() => 'HistoryAwaitingAccountEntry($entryId)';
+}
+
 /// A saved clip that will never be identified (P6 design §2.9, §3.11): not recognised, deleted
 /// unsent at 24 hours, or one that could not be checked. Not a button: there is nothing to open.
 final class HistoryNotIdentifiedEntry extends HistoryEntry {

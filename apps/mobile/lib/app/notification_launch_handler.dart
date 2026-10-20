@@ -33,12 +33,14 @@ class NotificationLaunchHandler {
     required RecognitionState Function() readFlowState,
     required void Function(String location) go,
     required void Function(HistoryAwaitingChoiceEntry entry) openSavedChooser,
+    required void Function(HistoryAwaitingAccountEntry entry) openSavedAccountGate,
   }) : _deviceServices = deviceServices,
        _history = history,
        _pendingDestination = pendingDestination,
        _readFlowState = readFlowState,
        _go = go,
-       _openSavedChooser = openSavedChooser;
+       _openSavedChooser = openSavedChooser,
+       _openSavedAccountGate = openSavedAccountGate;
 
   final DeviceServices _deviceServices;
   final HistoryRepository _history;
@@ -46,6 +48,7 @@ class NotificationLaunchHandler {
   final RecognitionState Function() _readFlowState;
   final void Function(String location) _go;
   final void Function(HistoryAwaitingChoiceEntry entry) _openSavedChooser;
+  final void Function(HistoryAwaitingAccountEntry entry) _openSavedAccountGate;
   StreamSubscription<String>? _subscription;
 
   /// Opens the id the app was started with, if any, and then each one that arrives while it runs.
@@ -75,6 +78,12 @@ class NotificationLaunchHandler {
         case HistoryAwaitingChoiceEntry():
           if (isIdle) {
             _openSavedChooser(entry);
+          } else {
+            _pendingDestination.keep(AppRoute.history.path);
+          }
+        case HistoryAwaitingAccountEntry():
+          if (isIdle) {
+            _openSavedAccountGate(entry);
           } else {
             _pendingDestination.keep(AppRoute.history.path);
           }
@@ -113,6 +122,9 @@ final Provider<NotificationLaunchHandler> notificationLaunchHandlerProvider =
               answer: entry.answerBody,
               capturedAtOnPhone: entry.capturedAtOnPhone,
             ),
+        openSavedAccountGate: (entry) => ref
+            .read(recognitionFlowProvider.notifier)
+            .openSavedAccountGate(recognitionId: entry.entryId, capturedAtOnPhone: entry.capturedAtOnPhone),
       );
       ref.onDispose(handler.dispose);
       return handler;

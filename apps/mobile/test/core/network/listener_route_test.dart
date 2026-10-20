@@ -13,6 +13,12 @@ void main() {
     expect(ListenerRoute.clientErrors, 'client-errors');
     expect(ListenerRoute.choiceFor(recognitionId), 'recognitions/$recognitionId/choice');
     expect(ListenerRoute.reportFor(recognitionId), 'recognitions/$recognitionId/report');
+    // ADR-005: the result held back for an account, and the listener's account.
+    expect(ListenerRoute.revealFor(recognitionId), 'recognitions/$recognitionId');
+    expect(ListenerRoute.listenerAccount, 'listener-account');
+    expect(ListenerRoute.listenerAccountCode, 'listener-account/code');
+    expect(ListenerRoute.listenerAccountVerify, 'listener-account/verify');
+    expect(ListenerRoute.listenerAccountSignOut, 'listener-account/sign-out');
   });
 
   test('exactly the listener routes carry the token on every request', () {
@@ -22,6 +28,11 @@ void main() {
       ListenerRoute.engagements,
       ListenerRoute.choiceFor(recognitionId),
       ListenerRoute.reportFor(recognitionId),
+      ListenerRoute.revealFor(recognitionId),
+      ListenerRoute.listenerAccount,
+      ListenerRoute.listenerAccountCode,
+      ListenerRoute.listenerAccountVerify,
+      ListenerRoute.listenerAccountSignOut,
     ]) {
       expect(ListenerRoute.carriesInstallToken(path), isTrue, reason: path);
       expect(ListenerRoute.mayCarryInstallToken(path), isTrue, reason: path);
@@ -37,8 +48,11 @@ void main() {
     for (final path in [
       ListenerRoute.clientErrors,
       'recognitions',
-      'recognitions/$recognitionId',
+      'recognitions/',
       'recognitions/$recognitionId/delete',
+      'listener-account/other',
+      'listener-account/code/again',
+      'listener-account/',
       'recognitions/$recognitionId/choice/again',
       'recognitions/${recognitionId.toUpperCase()}/choice',
       'recognitions/not-a-uuid/choice',

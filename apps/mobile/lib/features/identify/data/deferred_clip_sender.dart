@@ -128,6 +128,12 @@ final class DeferredClipSender implements OutboxItemSender {
         recognitionId: recognitionId,
         answerBody: answerBody,
       ),
+      AccountRequiredAnswer(:final recognitionId, :final answerBody) => DeferredClipAwaitingAccount(
+        idempotencyKey: item.idempotencyKey,
+        capturedAtOnPhone: item.capturedAt,
+        recognitionId: recognitionId,
+        answerBody: answerBody,
+      ),
       NoMatchAnswer(:final recognitionId) => notIdentified(
         DeferredClipNotIdentifiedReason.notRecognised,
         recognitionId: recognitionId,

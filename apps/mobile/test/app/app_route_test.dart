@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lookup_listener/app/app_route.dart';
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
@@ -20,11 +21,13 @@ void main() {
         'myStation': '/settings/my-station',
         'privacy': '/settings/privacy',
         'about': '/settings/about',
+        'settingsAccount': '/settings/account',
         'savedResult': '/r/:recognitionId',
         'permission': '/permission',
         'listening': '/listening',
         'identifying': '/identifying',
         'chooseStation': '/choose-station',
+        'accountRequired': '/account',
         'result': '/result',
         'noMatch': '/no-match',
         'busy': '/busy',
@@ -35,7 +38,7 @@ void main() {
     expect(AppRoute.values.where((route) => route.path.contains('ad')), isEmpty);
   });
 
-  test('each of the ten states has its one route (S4-D5; P6 design §3.7)', () {
+  test('each of the eleven states has its one route (S4-D5; P6 design §3.7; ADR-005)', () {
     final result = resultWith();
     final stationB = resultWith(
       stationId: '0192a6c4-1111-4000-8000-000000000002',
@@ -52,6 +55,8 @@ void main() {
         candidates: [result, stationB],
         origin: ChooserOrigin.liveIdentify,
       ): AppRoute.chooseStation,
+      const AccountRequiredState(recognitionId: fixtureRecognitionId, origin: AccountGateOrigin.liveIdentify):
+          AppRoute.accountRequired,
       MatchedState(result: result): AppRoute.result,
       FallbackState(result: result): AppRoute.result,
       const NoMatchState(): AppRoute.noMatch,
@@ -77,6 +82,7 @@ void main() {
         AppRoute.listening,
         AppRoute.identifying,
         AppRoute.chooseStation,
+        AppRoute.accountRequired,
         AppRoute.savedOffline,
         AppRoute.result,
         AppRoute.noMatch,
@@ -104,5 +110,6 @@ void main() {
     expect(AppRoute.myStation.pathBelowTab, 'my-station');
     expect(AppRoute.privacy.pathBelowTab, 'privacy');
     expect(AppRoute.about.pathBelowTab, 'about');
+    expect(AppRoute.settingsAccount.pathBelowTab, 'account');
   });
 }

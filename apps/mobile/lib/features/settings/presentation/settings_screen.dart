@@ -27,6 +27,7 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({
     super.key,
+    required this.onOpenAccount,
     required this.onOpenMyStation,
     required this.onOpenPrivacy,
     required this.onOpenAbout,
@@ -34,6 +35,9 @@ class SettingsScreen extends ConsumerWidget {
 
   /// The "My station" row is at least this tall (P6-SETTINGS-04).
   static const double myStationRowMinimumHeight = 64;
+
+  /// Opens Settings → Account (ADR-005): sign in, sign out or delete the account.
+  final VoidCallback onOpenAccount;
 
   final VoidCallback onOpenMyStation;
   final VoidCallback onOpenPrivacy;
@@ -78,6 +82,11 @@ class SettingsScreen extends ConsumerWidget {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          SettingsSection(
+            heading: words.settingsAccount,
+            rows: [SettingsRow(title: words.settingsAccount, onTap: onOpenAccount, showsChevron: true)],
+          ),
+          SizedBox(height: spacing.space6),
           SettingsSection(
             heading: words.settingsListeningHeading,
             rows: [

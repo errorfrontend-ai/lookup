@@ -101,6 +101,8 @@ const Type plantedRow = StationPickerRow;
       expect(find.byType(SettingsScreen), findsOneWidget);
       expectNoStationList('Settings');
       for (final page in ['Privacy', 'About Look Up']) {
+        await tester.ensureVisible(find.text(page));
+        await tester.pump();
         await tester.tap(find.text(page));
         await harness.pumpTransition(tester);
         expectNoStationList(page);

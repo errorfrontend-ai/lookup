@@ -78,7 +78,7 @@ final class FeatureFolderScan {
 
   /// The features the app has (S4-STRUCTURE-04; P6 design §3.1, P6-STRUCTURE-01: `settings` from
   /// piece 1, `history` from piece 2).
-  static const List<String> expectedFeatures = ['history', 'identify', 'result', 'settings'];
+  static const List<String> expectedFeatures = ['account', 'history', 'identify', 'result', 'settings'];
 
   /// The layers every finished feature has (S4-STRUCTURE-02).
   static const List<String> expectedLayers = ['presentation', 'domain', 'data'];
@@ -86,6 +86,7 @@ final class FeatureFolderScan {
   /// Each feature's layers: all three, for every feature (P6-STRUCTURE-01; `settings` gained its
   /// screens in piece 2).
   static const Map<String, List<String>> expectedLayersByFeature = {
+    'account': expectedLayers,
     'history': expectedLayers,
     'identify': expectedLayers,
     'result': expectedLayers,

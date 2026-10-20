@@ -1,8 +1,9 @@
 /// The API routes the app calls, by their paths relative to `LOOKUP_API_BASE_URL`, and which of them
 /// carry the install token (design §3.12; contract §1.0, amendment A3).
 ///
-/// - The listener routes carry it on every request: `recognize`, `stations`, `engagements`, and a
-///   recognition's `choice` and `report`.
+/// - The listener routes carry it on every request: `recognize`, `stations`, `engagements`, a
+///   recognition's `choice` and `report` and the result held back for it, and the listener's account
+///   (`listener-account` and its `code`, `verify` and `sign-out`; ADR-005).
 /// - `installs` carries it only on a re-registration, when the app still holds a token that has not
 ///   reached its expiry (amendment A3); a first registration, and one after the token was refused,
 ///   carry none. The install repository decides; the client only lets it through.
@@ -32,12 +33,37 @@ abstract final class ListenerRoute {
   /// A report about a recognition's result (§1.6).
   static String reportFor(String recognitionId) => 'recognitions/$recognitionId/report';
 
-  static const Set<String> _routesWithToken = {recognize, stations, engagements};
+  /// The result the server held back with `ACCOUNT_REQUIRED`, asked for once the listener has an account
+  /// (ADR-005).
+  static String revealFor(String recognitionId) => 'recognitions/$recognitionId';
 
-  /// `recognitions/<lower-case UUID>/choice` or `/report`: nothing else under `recognitions/`.
+  /// The listener's account: read it (GET), create it (POST) and delete it (DELETE).
+  static const String listenerAccount = 'listener-account';
+
+  /// Emails a 6-digit code to an address.
+  static const String listenerAccountCode = 'listener-account/code';
+
+  /// Checks the code that came to the email.
+  static const String listenerAccountVerify = 'listener-account/verify';
+
+  /// This phone leaves its account.
+  static const String listenerAccountSignOut = 'listener-account/sign-out';
+
+  static const Set<String> _routesWithToken = {
+    recognize,
+    stations,
+    engagements,
+    listenerAccount,
+    listenerAccountCode,
+    listenerAccountVerify,
+    listenerAccountSignOut,
+  };
+
+  /// `recognitions/<lower-case UUID>`, with `/choice` or `/report` after it: nothing else under
+  /// `recognitions/`.
   static final RegExp _recognitionFollowUp = RegExp(
     r'^recognitions/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
-    r'/(?:choice|report)$',
+    r'(?:/(?:choice|report))?$',
   );
 
   /// Whether [path] is one of the contract's listener routes, each of whose requests carries the

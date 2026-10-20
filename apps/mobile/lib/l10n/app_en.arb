@@ -121,9 +121,9 @@
   "@permissionPromiseOnlyWhenYouTap": {
     "description": "The first promise, after a tick: when the app listens."
   },
-  "permissionPromiseNeverWhoYouAre": "Radio stations see how many people used their buttons — never who you are.",
-  "@permissionPromiseNeverWhoYouAre": {
-    "description": "The second promise, after a tick: what stations learn."
+  "permissionPromiseStationsSeeGroups": "Radio stations see how many people used their buttons and the mix of ages and genders — never your name or email.",
+  "@permissionPromiseStationsSeeGroups": {
+    "description": "The second promise, after a tick: what stations learn. Changed with the listener accounts (ADR-005, LA-PRIVACY-02): it was \"never who you are\"."
   },
   "permissionRefusedOnceNote": "You chose not to allow the microphone. Look Up can't identify an ad without it.",
   "@permissionRefusedOnceNote": {
@@ -1047,5 +1047,284 @@
   "settingsPaneNote": "Tap an item to see it here.",
   "@settingsPaneNote": {
     "description": "Settings at tablet width: the right pane before a page is opened (P6 design §3.19)."
+  },
+  "accountGateHeading": "One more step to see your result",
+  "@accountGateHeading": {
+    "description": "The account gate: the heading, shown instead of an ad result until the listener has an account."
+  },
+  "accountGateExplanation": "Create a free account with your email, gender and age. Stations use this to see who their adverts reach. They never see your name or your email.",
+  "@accountGateExplanation": {
+    "description": "The account gate: why an account is asked for."
+  },
+  "accountGateCreateButton": "Create account",
+  "@accountGateCreateButton": {
+    "description": "The account gate: starts creating an account."
+  },
+  "accountGateSignInButton": "I already have an account",
+  "@accountGateSignInButton": {
+    "description": "The account gate: signs in with an email that already has an account."
+  },
+  "accountGateNotNowButton": "Not now",
+  "@accountGateNotNowButton": {
+    "description": "The account gate: leaves without an account; the scan stays in History."
+  },
+  "accountCreateHeading": "Create your account",
+  "@accountCreateHeading": {
+    "description": "The email step: the heading when creating an account."
+  },
+  "accountSignInHeading": "Sign in",
+  "@accountSignInHeading": {
+    "description": "The email step: the heading when signing in to an account."
+  },
+  "accountEmailExplanation": "We send you a 6-digit code to check it is yours. We use your email for nothing else.",
+  "@accountEmailExplanation": {
+    "description": "The email step: what the email is for."
+  },
+  "accountEmailLabel": "Email",
+  "@accountEmailLabel": {
+    "description": "The email step: the label of the email field."
+  },
+  "accountSendCodeButton": "Send me a code",
+  "@accountSendCodeButton": {
+    "description": "The email step: emails the code."
+  },
+  "accountCodeHeading": "Enter the code",
+  "@accountCodeHeading": {
+    "description": "The code step: the heading."
+  },
+  "accountCodeSentTo": "We sent a 6-digit code to {email}. It works for 10 minutes.",
+  "@accountCodeSentTo": {
+    "description": "The code step: where the code was sent. {email} is the address the listener typed.",
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "accountCodeLabel": "6-digit code",
+  "@accountCodeLabel": {
+    "description": "The code step: the label of the code field."
+  },
+  "accountCheckCodeButton": "Check the code",
+  "@accountCheckCodeButton": {
+    "description": "The code step: checks the typed code."
+  },
+  "accountResendCodeButton": "Send a new code",
+  "@accountResendCodeButton": {
+    "description": "The code step: asks for another code, once a minute has passed."
+  },
+  "accountResendCodeWait": "Send a new code in {seconds} s",
+  "@accountResendCodeWait": {
+    "description": "The code step: the wait before another code may be asked for. {seconds} counts down.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "accountNewCodeOnItsWay": "A new code is on its way.",
+  "@accountNewCodeOnItsWay": {
+    "description": "The code step: said after another code was asked for."
+  },
+  "accountUseDifferentEmailButton": "Use a different email",
+  "@accountUseDifferentEmailButton": {
+    "description": "The code step: goes back to the email step."
+  },
+  "accountAboutYouHeading": "About you",
+  "@accountAboutYouHeading": {
+    "description": "The last step: the heading, over gender and age."
+  },
+  "accountAboutYouExplanation": "Stations only see groups of listeners, like women aged 25 to 34. They never see you.",
+  "@accountAboutYouExplanation": {
+    "description": "The last step: what gender and age are used for."
+  },
+  "accountGenderLabel": "Gender",
+  "@accountGenderLabel": {
+    "description": "The last step: the label over the gender choices."
+  },
+  "accountGenderFemale": "Female",
+  "@accountGenderFemale": {
+    "description": "A gender choice."
+  },
+  "accountGenderMale": "Male",
+  "@accountGenderMale": {
+    "description": "A gender choice."
+  },
+  "accountGenderAnother": "Another",
+  "@accountGenderAnother": {
+    "description": "A gender choice."
+  },
+  "accountGenderPreferNotToSay": "Prefer not to say",
+  "@accountGenderPreferNotToSay": {
+    "description": "A gender choice for a listener who does not want to say."
+  },
+  "accountAgeLabel": "Your age",
+  "@accountAgeLabel": {
+    "description": "The last step: the label of the age field."
+  },
+  "accountAgeHelp": "A number from {minimum} to {maximum}",
+  "@accountAgeHelp": {
+    "description": "The last step: what the age field accepts. {minimum} and {maximum} are the smallest and largest age.",
+    "placeholders": {
+      "minimum": {
+        "type": "int"
+      },
+      "maximum": {
+        "type": "int"
+      }
+    }
+  },
+  "accountConsentLabel": "I agree that Look Up keeps my email, gender and age, and shows stations only groups of listeners, never me.",
+  "@accountConsentLabel": {
+    "description": "The last step: the line the listener ticks to agree. Its wording is versioned (LISTENER_CONSENT_TEXT_VERSION)."
+  },
+  "accountConsentReadMoreButton": "How we use this",
+  "@accountConsentReadMoreButton": {
+    "description": "The last step: opens the longer explanation of how the details are used."
+  },
+  "accountConsentNeeded": "Tick the box to create your account.",
+  "@accountConsentNeeded": {
+    "description": "The last step: said under the button until the consent box is ticked."
+  },
+  "accountConsentSheetHeading": "How we use your details",
+  "@accountConsentSheetHeading": {
+    "description": "The explanation sheet: the heading."
+  },
+  "accountConsentSheetBody": "Your email is used to send you a sign-in code. It is kept safe and is never shown to a station or an advertiser.\n\nYour gender and age are used only to count listeners in groups, for example how many women aged 25 to 34 followed an advert. A station sees a group only when it has at least 10 listeners.\n\nYou can sign out or delete your account in Settings, under Account. Deleting erases your email, gender and age.",
+  "@accountConsentSheetBody": {
+    "description": "The explanation sheet: how the details are used, in three short paragraphs."
+  },
+  "accountCreateButton": "Create account",
+  "@accountCreateButton": {
+    "description": "The last step: creates the account."
+  },
+  "accountProblemNotAnEmail": "That does not look like an email address. Check it and try again.",
+  "@accountProblemNotAnEmail": {
+    "description": "The email step: said when the address is not one."
+  },
+  "accountProblemNoConnection": "No connection. Check your signal and try again.",
+  "@accountProblemNoConnection": {
+    "description": "An account step: said when nothing could be reached."
+  },
+  "accountProblemTooManyTries": "Too many tries. Please wait a moment and try again.",
+  "@accountProblemTooManyTries": {
+    "description": "An account step: said when this phone asked too often."
+  },
+  "accountProblemCodeIncorrect": "That code is not right. Check your email and try again.",
+  "@accountProblemCodeIncorrect": {
+    "description": "The code step: said when the code is wrong."
+  },
+  "accountProblemCodeExpired": "This code has expired. Ask for a new one.",
+  "@accountProblemCodeExpired": {
+    "description": "The code step: said when the code is too old."
+  },
+  "accountProblemCodeLocked": "Too many wrong tries. Ask for a new code.",
+  "@accountProblemCodeLocked": {
+    "description": "The code step: said when wrong tries locked the code."
+  },
+  "accountProblemStartAgain": "That took too long. Please start again with your email.",
+  "@accountProblemStartAgain": {
+    "description": "An account step: said when the step timed out and the email must be given again."
+  },
+  "accountProblemTooYoung": "You need to be at least 13 to create an account.",
+  "@accountProblemTooYoung": {
+    "description": "The last step: said when the age is under 13."
+  },
+  "accountProblemAgeNotValid": "Enter your age as a number from 13 to 99.",
+  "@accountProblemAgeNotValid": {
+    "description": "The last step: said when the age is not a number in range."
+  },
+  "accountProblemAlreadySignedIn": "This phone already has an account. Sign out first to use another.",
+  "@accountProblemAlreadySignedIn": {
+    "description": "An account step: said when the phone is signed in to a different account."
+  },
+  "accountProblemUpdateRequired": "Please update the app to continue.",
+  "@accountProblemUpdateRequired": {
+    "description": "An account step: said when this version of the app is too old."
+  },
+  "accountProblemServerFailure": "Something went wrong on our side. Please try again in a moment.",
+  "@accountProblemServerFailure": {
+    "description": "An account step: said when the server could not do it."
+  },
+  "accountGettingResult": "Getting your result…",
+  "@accountGettingResult": {
+    "description": "After the account is made: shown while the held-back result is fetched."
+  },
+  "accountResultNotFound": "We could not find that result any more. Tap Identify to try again.",
+  "@accountResultNotFound": {
+    "description": "After the account is made: said when the held-back result is gone."
+  },
+  "accountResultRetryButton": "Try again",
+  "@accountResultRetryButton": {
+    "description": "After the account is made: asks for the result again."
+  },
+  "settingsAccount": "Account",
+  "@settingsAccount": {
+    "description": "The Settings row, and the heading of the account page."
+  },
+  "settingsAccountNotSignedIn": "Not signed in",
+  "@settingsAccountNotSignedIn": {
+    "description": "The Settings row: said when this phone has no account."
+  },
+  "accountSettingsSignedInAs": "Signed in as {email}",
+  "@accountSettingsSignedInAs": {
+    "description": "The account page: who this phone is signed in as. {email} is the masked address.",
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "accountSettingsSignedOutIntro": "Create a free account to see the results of the ads you identify, or sign in if you already have one.",
+  "@accountSettingsSignedOutIntro": {
+    "description": "The account page: said when this phone has no account."
+  },
+  "accountSettingsCreateButton": "Create account",
+  "@accountSettingsCreateButton": {
+    "description": "The account page: starts creating an account."
+  },
+  "accountSettingsSignInButton": "Sign in",
+  "@accountSettingsSignInButton": {
+    "description": "The account page: starts signing in."
+  },
+  "accountSignOutButton": "Sign out",
+  "@accountSignOutButton": {
+    "description": "The account page: this phone leaves its account."
+  },
+  "accountSignedOutMessage": "Signed out.",
+  "@accountSignedOutMessage": {
+    "description": "Said briefly after signing out."
+  },
+  "accountDeleteButton": "Delete my account",
+  "@accountDeleteButton": {
+    "description": "The account page: opens the confirmation to delete the account."
+  },
+  "accountDeleteConfirmHeading": "Delete your account?",
+  "@accountDeleteConfirmHeading": {
+    "description": "The deletion sheet: the heading."
+  },
+  "accountDeleteConfirmBody": "This erases your email, gender and age from Look Up. You can create a new account any time.",
+  "@accountDeleteConfirmBody": {
+    "description": "The deletion sheet: what deleting does."
+  },
+  "accountDeleteConfirmButton": "Delete",
+  "@accountDeleteConfirmButton": {
+    "description": "The deletion sheet: deletes the account."
+  },
+  "accountDeletedMessage": "Your account was deleted.",
+  "@accountDeletedMessage": {
+    "description": "Said briefly after deleting the account."
+  },
+  "accountSettingsReadFailed": "We could not check your account right now.",
+  "@accountSettingsReadFailed": {
+    "description": "The account page: said when the account could not be read."
+  },
+  "historyAwaitingAccountDetail": "Create an account to see this result",
+  "@historyAwaitingAccountDetail": {
+    "description": "History: the second line of a scan whose result waits for an account."
+  },
+  "privacyAccountDetails": "If you create an account, Look Up keeps your email, gender and age. Stations only ever see groups of listeners, never you.",
+  "@privacyAccountDetails": {
+    "description": "The Privacy page: what an account keeps."
   }
 }

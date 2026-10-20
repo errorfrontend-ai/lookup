@@ -4,6 +4,10 @@ import 'package:lookup_listener/app/app_route.dart';
 import 'package:lookup_listener/app/main_tab.dart';
 import 'package:lookup_listener/app/pending_destination.dart';
 import 'package:lookup_listener/app/result_beside_home.dart';
+import 'package:lookup_listener/features/account/domain/account_result_problem.dart';
+import 'package:lookup_listener/features/account/presentation/account_gate_screen.dart';
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
+import 'package:lookup_listener/features/identify/domain/account_result_outcome.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/history/data/history_providers.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_state.dart';
@@ -50,6 +54,17 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
 
   void _backToHome() => ref.read(recognitionFlowProvider.notifier).backToHome();
 
+  /// The gate's last step: asks the flow for the result that was held back, and says why when it cannot be shown.
+  Future<AccountResultProblem?> _showResultAfterAccount() async {
+    final outcome = await ref.read(recognitionFlowProvider.notifier).showResultAfterAccount();
+    return switch (outcome) {
+      AccountResultOutcome.shown || AccountResultOutcome.notWaiting => null,
+      AccountResultOutcome.noConnection => AccountResultProblem.noConnection,
+      AccountResultOutcome.notFound => AccountResultProblem.notFound,
+      AccountResultOutcome.problem => AccountResultProblem.serverFailure,
+    };
+  }
+
   /// Ends the flow at the History tab: the destination is kept before the flow goes idle, so the
   /// redirect lands there in one step.
   void _backToHistory() {
@@ -82,6 +97,14 @@ class _RecognitionStatePageState extends ConsumerState<RecognitionStatePage> {
         ChooserOrigin.liveIdentify => _backToHome,
         ChooserOrigin.savedRecognition => _backToHistory,
       },
+    ),
+    // ADR-005: the result waits for an account; "Not now" from History goes back there (design §3.2).
+    AccountRequiredState(:final origin) => AccountGateScreen(
+      onNotNow: switch (origin) {
+        AccountGateOrigin.liveIdentify => _backToHome,
+        AccountGateOrigin.savedRecognition => _backToHistory,
+      },
+      onSignedIn: _showResultAfterAccount,
     ),
     SavedOfflineState() => SavedOfflineScreen(
       state: state,

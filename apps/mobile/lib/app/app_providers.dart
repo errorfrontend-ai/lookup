@@ -15,6 +15,7 @@ import 'package:lookup_listener/app/history_answer_reader.dart';
 import 'package:lookup_listener/app/outbox_background_coordinator.dart';
 import 'package:lookup_listener/app/outbox_recognition_reporting.dart';
 import 'package:lookup_listener/app/outbox_run_scheduler.dart';
+import 'package:lookup_listener/features/account/data/listener_account_repository.dart';
 import 'package:lookup_listener/core/configuration/app_configuration_provider.dart';
 import 'package:lookup_listener/core/data_use/data_use_meter.dart';
 import 'package:lookup_listener/core/device/network_watcher.dart';
@@ -341,6 +342,15 @@ List<Override> get appServiceOverrides => [
       clock: ref.watch(clockProvider),
     ),
   ),
+  // The listener's account (ADR-005): the same API client and install as the recognize route.
+  listenerAccountRepositoryProvider.overrideWith(
+    (ref) => ListenerAccountRepository(
+      apiClient: ref.watch(apiClientProvider),
+      listenerInstallRepository: ref.watch(listenerInstallRepositoryProvider),
+      clock: ref.watch(clockProvider),
+    ),
+  ),
+  accountClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
   recognitionClockProvider.overrideWith((ref) => ref.watch(clockProvider)),
   recognitionRandomUuidProvider.overrideWith((ref) => ref.watch(randomUuidProvider)),
   outboxStoreProvider.overrideWith((ref) {

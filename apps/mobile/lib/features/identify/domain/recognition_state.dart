@@ -1,3 +1,4 @@
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
@@ -22,6 +23,7 @@ sealed class RecognitionState {
     IdleState() ||
     PermissionNeededState() ||
     ChooseStationState() ||
+    AccountRequiredState() ||
     SavedOfflineState() ||
     MatchedState() ||
     FallbackState() ||
@@ -169,6 +171,29 @@ final class ChooseStationState extends RecognitionState {
       'ChooseStationState(recognitionId: $recognitionId, '
       'stations: ${candidates.map((candidate) => candidate.stationName).join(', ')}, '
       'origin: ${origin.name})';
+}
+
+/// The account gate (ADR-005): the ad was recognised, but the result waits until the listener creates an
+/// account, which the server enforces. The screen shows nothing of the ad: it never reached the phone. Once
+/// the listener has an account the flow asks for the result and moves on to the usual Result or chooser.
+final class AccountRequiredState extends RecognitionState {
+  const AccountRequiredState({required this.recognitionId, required this.origin});
+
+  /// The recognition the result is asked for: a lower-case UUID version 7, from the answer.
+  final String recognitionId;
+
+  /// Where the gate came from, which decides where "Not now" leads.
+  final AccountGateOrigin origin;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AccountRequiredState && other.recognitionId == recognitionId && other.origin == origin;
+
+  @override
+  int get hashCode => Object.hash(AccountRequiredState, recognitionId, origin);
+
+  @override
+  String toString() => 'AccountRequiredState(recognitionId: $recognitionId, origin: ${origin.name})';
 }
 
 /// Result: the ad was on air, so the station's campaign card is shown.

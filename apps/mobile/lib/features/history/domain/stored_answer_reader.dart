@@ -15,4 +15,8 @@ abstract interface class StoredAnswerReader {
   /// The candidates of a `CHOOSE_STATION` [answer], in the server's order, each with its card; null
   /// when this version cannot read it as a chooser. Never throws.
   List<RecognitionResult>? readCandidates(Object? answer);
+
+  /// Whether [answer] is an `ACCOUNT_REQUIRED` for [recognitionId]: the ad was recognised and its result waits
+  /// for the listener's account (ADR-005). Never throws.
+  bool readsAsAccountRequired(Object? answer, {required String recognitionId});
 }

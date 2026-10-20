@@ -30,7 +30,7 @@ class PermissionScreen extends ConsumerWidget {
   static List<String> promisesOf(AppLocalizations words) => [
     words.permissionPromiseOnlyWhenYouTap,
     words.permissionPromiseOfflineClip,
-    words.permissionPromiseNeverWhoYouAre,
+    words.permissionPromiseStationsSeeGroups,
   ];
 
   @override

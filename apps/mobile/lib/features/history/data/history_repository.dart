@@ -127,6 +127,38 @@ class HistoryRepository {
     );
   }
 
+  /// Keeps a scan whose ad result waits for the listener's account (ADR-005): the `ACCOUNT_REQUIRED` [answer] for
+  /// [recognitionId], recorded by the phone at [capturedAtOnPhone]. A result, or a chooser, already kept for the
+  /// recognition is never undone by a replay of the same answer. Throws [HistoryAnswerUnreadable] when the answer
+  /// is not an `ACCOUNT_REQUIRED` for [recognitionId].
+  Future<void> saveAwaitingAccount({
+    required String recognitionId,
+    required Object? answer,
+    required DateTime capturedAtOnPhone,
+    String? deferredIdempotencyKey,
+    bool wasNotified = false,
+  }) async {
+    if (!_answerReader.readsAsAccountRequired(answer, recognitionId: recognitionId)) {
+      throw const HistoryAnswerUnreadable();
+    }
+    await _save(
+      (earlier, now) => earlier != null && earlier.kind != StoredHistoryEntry.awaitingAccountKind
+          ? earlier
+          : StoredHistoryEntry(
+              entryId: recognitionId,
+              kind: StoredHistoryEntry.awaitingAccountKind,
+              capturedAtOnPhone: earlier?.capturedAtOnPhone ?? capturedAtOnPhone.toUtc(),
+              savedAt: now,
+              answer: answer,
+              wasDeferred: deferredIdempotencyKey != null,
+              deferredIdempotencyKey: deferredIdempotencyKey,
+              wasNotified: (earlier?.wasNotified ?? false) || wasNotified,
+              isReported: false,
+            ),
+      entryId: recognitionId,
+    );
+  }
+
   /// Keeps a saved clip that will never be identified, with why (§3.11): keyed by [entryId], the
   /// recognition id when the server made one, otherwise the clip's own key.
   Future<void> saveNotIdentified({
@@ -287,6 +319,13 @@ class HistoryRepository {
           capturedAtOnPhone: stored.capturedAtOnPhone,
           candidates: candidates,
           answerBody: answer,
+          deferredIdempotencyKey: stored.deferredIdempotencyKey,
+        );
+      case StoredHistoryEntry.awaitingAccountKind:
+        if (!_answerReader.readsAsAccountRequired(stored.answer, recognitionId: stored.entryId)) return null;
+        return HistoryAwaitingAccountEntry(
+          entryId: stored.entryId,
+          capturedAtOnPhone: stored.capturedAtOnPhone,
           deferredIdempotencyKey: stored.deferredIdempotencyKey,
         );
       case StoredHistoryEntry.notIdentifiedKind:

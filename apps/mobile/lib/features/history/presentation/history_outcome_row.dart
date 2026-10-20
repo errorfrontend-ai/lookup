@@ -10,20 +10,26 @@ import 'package:lookup_listener/l10n/app_localizations.dart';
 /// tall, in a white card with a line-soft border:
 /// - **waiting for a choice**: a radio icon on accent-soft, "Clip from today, 14:32", "Choose your
 ///   station to see the buttons" and a chevron; a button that opens "Which station?" (T51);
+/// - **waiting for an account** (ADR-005): a lock on accent-soft, "Clip from today, 14:32", "Create an account to
+///   see this result" and a chevron; a button that opens the account gate for it;
 /// - **not identified**: a magnifying glass, muted on line-soft, "Clip from today, 14:32" and one of
 ///   "Not recognised", "Not sent within 24 hours — deleted", "Couldn't be checked — deleted"; not a
 ///   button, as there is nothing to open.
 class HistoryOutcomeRow extends StatelessWidget {
   const HistoryOutcomeRow({super.key, required this.entry, required this.now, this.onTap})
     // A result has its own row, HistoryEntryRow.
-    : assert(entry is HistoryAwaitingChoiceEntry || entry is HistoryNotIdentifiedEntry);
+    : assert(
+        entry is HistoryAwaitingChoiceEntry ||
+            entry is HistoryAwaitingAccountEntry ||
+            entry is HistoryNotIdentifiedEntry,
+      );
 
   static const double minimumHeight = 72;
 
   final HistoryEntry entry;
   final DateTime now;
 
-  /// Opens the chooser; only for a clip waiting for a choice.
+  /// Opens the chooser, or the account gate; only for a clip waiting for a choice or for an account.
   final VoidCallback? onTap;
 
   /// The row's two lines in words.
@@ -42,6 +48,7 @@ class HistoryOutcomeRow extends StatelessWidget {
     ),
     detail: switch (entry) {
       HistoryAwaitingChoiceEntry() => words.historyAwaitingChoiceDetail,
+      HistoryAwaitingAccountEntry() => words.historyAwaitingAccountDetail,
       HistoryNotIdentifiedEntry(:final reason) => switch (reason) {
         DeferredClipNotIdentifiedReason.notRecognised => words.historyNotRecognised,
         DeferredClipNotIdentifiedReason.notSentWithin24Hours => words.historyNotSentWithin24Hours,
@@ -63,7 +70,9 @@ class HistoryOutcomeRow extends StatelessWidget {
       words: AppLocalizations.of(context),
       locale: Localizations.localeOf(context),
     );
-    final isAwaitingChoice = entry is HistoryAwaitingChoiceEntry;
+    // A row that waits for the listener (a station to choose, an account to create) opens something.
+    final isAwaitingChoice = entry is HistoryAwaitingChoiceEntry || entry is HistoryAwaitingAccountEntry;
+    final isAwaitingAccount = entry is HistoryAwaitingAccountEntry;
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(tokens.radii.large),
       side: BorderSide(color: colours.lineSoft),
@@ -82,7 +91,11 @@ class HistoryOutcomeRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(tokens.radii.medium),
                 ),
                 child: Icon(
-                  isAwaitingChoice ? Icons.radio_outlined : Icons.search,
+                  isAwaitingAccount
+                      ? Icons.lock_outline
+                      : isAwaitingChoice
+                      ? Icons.radio_outlined
+                      : Icons.search,
                   color: isAwaitingChoice ? colours.accent : colours.muted,
                 ),
               ),

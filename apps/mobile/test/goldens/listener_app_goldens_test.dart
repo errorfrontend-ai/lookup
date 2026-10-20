@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lookup_listener/app/app_providers.dart' show clockProvider;
 import 'package:lookup_listener/app/app_route.dart';
+import 'package:lookup_listener/features/identify/domain/account_gate_origin.dart';
 import 'package:lookup_listener/features/identify/domain/chooser_origin.dart';
 import 'package:lookup_listener/features/identify/domain/microphone_access.dart';
 import 'package:lookup_listener/features/identify/domain/recognition_failure.dart';
@@ -16,6 +19,7 @@ import '../app/listener_app_harness.dart';
 import '../features/identify/presentation/recording_recognition_flow.dart';
 import '../features/result/support/result_screen_harness.dart';
 import '../support/contract_fixtures.dart';
+import '../support/fake_clock.dart';
 import '../support/history_fixtures.dart';
 import '../support/phone_screen.dart';
 
@@ -204,7 +208,35 @@ final List<GoldenState> goldenStates = [
           capturedAtOnPhone: DateTime.utc(2026, 10, 14, 7, number),
         ),
     ]);
-    return _showTab(tester, screen, AppRoute.history, harness: harness);
+    // "Today" as of the day the images were drawn, so the day words do not change as the real date moves on.
+    return _showTab(
+      tester,
+      screen,
+      AppRoute.history,
+      harness: harness,
+      extraOverrides: [clockProvider.overrideWithValue(FakeClock(startsAt: DateTime.utc(2026, 10, 14, 12)))],
+    );
+  }),
+  GoldenState('history-awaiting-account', (tester, screen) {
+    final harness = ListenerAppHarness();
+    HistoryFixtures.writeIndex(harness.historyFolder, [
+      HistoryFixtures.storedAwaitingAccount(
+        recognitionId: HistoryFixtures.recognitionIdNumbered(7),
+        capturedAtOnPhone: DateTime(2026, 10, 14, 11, 57).toUtc(),
+      ),
+      HistoryFixtures.storedResult(
+        recognitionId: HistoryFixtures.recognitionIdNumbered(6),
+        capturedAtOnPhone: DateTime(2026, 10, 14, 11, 20).toUtc(),
+      ),
+    ]);
+    // "Today" as of a fixed moment, so the day words never change (the other History image reads the real date).
+    return _showTab(
+      tester,
+      screen,
+      AppRoute.history,
+      harness: harness,
+      extraOverrides: [clockProvider.overrideWithValue(FakeClock(startsAt: DateTime(2026, 10, 14, 12).toUtc()))],
+    );
   }),
   GoldenState('history-empty', (tester, screen) => _showTab(tester, screen, AppRoute.history)),
   GoldenState('settings', (tester, screen) => _showTab(tester, screen, AppRoute.settings)),
@@ -223,6 +255,30 @@ final List<GoldenState> goldenStates = [
     return _showTab(tester, screen, AppRoute.myStation, harness: harness);
   }),
   GoldenState('privacy', (tester, screen) => _showTab(tester, screen, AppRoute.privacy)),
+  // The listener account (ADR-005): the gate, its steps, and Settings → Account.
+  GoldenState(
+    'account-gate',
+    (tester, screen) => _showFlow(
+      tester,
+      screen,
+      const AccountRequiredState(
+        recognitionId: fixtureRecognitionId,
+        origin: AccountGateOrigin.liveIdentify,
+      ),
+    ),
+  ),
+  for (final step in _AccountStep.values)
+    GoldenState('account-${step.name}', (tester, screen) => _showAccountStep(tester, screen, step)),
+  GoldenState('settings-account-signed-out', (tester, screen) {
+    final harness = ListenerAppHarness();
+    harness.adapter.answerJson(200, {'is_signed_in': false, 'email_masked': null});
+    return _showTab(tester, screen, AppRoute.settingsAccount, harness: harness);
+  }),
+  GoldenState('settings-account-signed-in', (tester, screen) {
+    final harness = ListenerAppHarness();
+    harness.adapter.answerJson(200, {'is_signed_in': true, 'email_masked': 'l***@example.com'});
+    return _showTab(tester, screen, AppRoute.settingsAccount, harness: harness);
+  }),
   GoldenState('about', (tester, screen) => _showTab(tester, screen, AppRoute.about)),
 ];
 
@@ -286,11 +342,74 @@ Future<void> _showTab(
   PhoneScreen screen,
   AppRoute route, {
   ListenerAppHarness? harness,
+  List<Override> extraOverrides = const [],
 }) async {
   final app = harness ?? ListenerAppHarness();
-  await app.pumpApp(tester, phoneScreen: screen);
+  await app.pumpApp(tester, phoneScreen: screen, extraOverrides: extraOverrides);
   app.router(tester).go(route.path);
   await _settle(tester);
+}
+
+/// The steps of the account gate that have a screen of their own.
+enum _AccountStep {
+  /// The email.
+  email,
+
+  /// The code that came to it.
+  code,
+
+  /// Gender, age and the consent tick, empty.
+  aboutYou,
+
+  /// The same, filled in and ready.
+  aboutYouFilled,
+}
+
+/// The gate, taken through its steps by tapping and typing, with the account routes answered by the harness's fake
+/// transport.
+Future<void> _showAccountStep(WidgetTester tester, PhoneScreen screen, _AccountStep step) async {
+  final harness = ListenerAppHarness();
+  harness.adapter.answerJson(202, {'resend_after_seconds': 60});
+  harness.adapter.answerJson(200, {'status': 'DETAILS_NEEDED', 'ticket': 'T' * 54});
+  await _showFlow(
+    tester,
+    screen,
+    const AccountRequiredState(recognitionId: fixtureRecognitionId, origin: AccountGateOrigin.liveIdentify),
+    harness: harness,
+  );
+  await _tapAndExpect(tester, find.text('Create account'), reaches: 'Create your account');
+  if (step == _AccountStep.email) return;
+  await tester.enterText(find.byType(TextField), 'listener@example.com');
+  await _tapAndExpect(tester, find.text('Send me a code'), reaches: 'Enter the code');
+  if (step == _AccountStep.code) return;
+  await tester.enterText(find.byType(TextField), '042817');
+  await _tapAndExpect(tester, find.text('Check the code'), reaches: 'About you');
+  if (step == _AccountStep.aboutYou) return;
+  await tester.ensureVisible(find.text('Female'));
+  await tester.pump();
+  await tester.tap(find.text('Female'));
+  await tester.enterText(find.widgetWithText(TextField, 'Your age'), '34');
+  // The box itself, not the middle of its (at large text, very tall) row, which can be out of view; and with the age
+  // box let go of first, so its text-selection handle is not over it.
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pump();
+  await tester.ensureVisible(find.byType(Checkbox));
+  await tester.pump();
+  await tester.tap(find.byType(Checkbox));
+  await _settle(tester);
+  expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Create account')).onPressed, isNotNull);
+}
+
+/// Taps [button] and checks the step named [reaches] came up. A tap that misses (a text-selection handle over the
+/// button, a button off screen) only warns, and would leave the image showing the step before: this fails instead.
+Future<void> _tapAndExpect(WidgetTester tester, Finder button, {required String reaches}) async {
+  FocusManager.instance.primaryFocus?.unfocus();
+  await tester.pump();
+  await tester.ensureVisible(button);
+  await tester.pump();
+  await tester.tap(button);
+  await _settle(tester);
+  expect(find.text(reaches), findsWidgets, reason: 'the step "$reaches" was not reached');
 }
 
 /// Lets files be read and transitions end, without waiting on animations that never stop (the
