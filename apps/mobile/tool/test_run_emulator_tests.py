@@ -741,13 +741,22 @@ def app(label: str) -> Node:
     return label, APP, ''
 
 
+EDIT_BOX = 'edit-text'
+
+
+def edit_box(label: str) -> Node:
+    """A text box of the app: Android's EditText, found by its kind and not by its label."""
+    return label, APP, EDIT_BOX
+
+
 def dump_of(nodes: list[Node]) -> str:
     """One node per row, 120 px apart; the app's labels in content-desc, the system's in text, as on Android."""
     rows = []
     for index, (label, package, resource_id) in enumerate(nodes):
         top = 100 + index * 120
         text, description = (label, '') if package != APP else ('', label)
-        rows.append(f'<node index="{index}" text={quote(text)} resource-id="{resource_id}" class="android.view.View" '
+        class_name = 'android.widget.EditText' if resource_id == EDIT_BOX else 'android.view.View'
+        rows.append(f'<node index="{index}" text={quote(text)} resource-id="{resource_id}" class="{class_name}" '
                     f'package="{package}" content-desc={quote(description)} clickable="true" '
                     f'bounds="[0,{top}][1080,{top + 100}]" />')
     return f"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">{''.join(rows)}</hierarchy>"
@@ -780,8 +789,18 @@ class ScriptedPhone:
         self.evidence: list[str] = []
         self.device_log = ''
         self.is_device_log_readable = True
+        self.typed: list[str] = []
+        self.deleted: list[int] = []
+        self.previous = start
+
+    def type_text(self, text: str) -> None:
+        self.typed.append(text)
+
+    def delete_characters(self, count: int) -> None:
+        self.deleted.append(count)
 
     def move(self, screen_name: str) -> None:
+        self.previous = self.current
         self.current = screen_name
         self.reads_here = 0
         if screen_name in self.on_enter:
@@ -798,6 +817,8 @@ class ScriptedPhone:
         label = self.screens[self.current][(y - 100) // 120][0]
         self.tapped.append(label)
         next_screen = self.tap_script.get((self.current, label))
+        if callable(next_screen):   # a tap that goes where what was typed, or the account's state, says
+            next_screen = next_screen()
         if next_screen:
             self.move(next_screen)
 
@@ -848,6 +869,30 @@ class ScriptedFakeApi:
         self.report_outbox: list[dict[str, str]] = []
         self.choices: list[dict[str, str]] = []
         self.station_list_requests = 0
+        self.is_account_required = False
+        self.accounts = 0
+        self.signed_in_installs = 0
+
+    def set_account_gate(self, is_required: bool) -> None:
+        self.is_account_required = is_required
+
+    def receive_account(self, result: str) -> None:
+        """An account call the scripted app made, and what the stand-in made of it."""
+        self.requests.append({'method': 'POST', 'path': '/api/v1/listener-account', 'request_id': f'account-{len(self.requests)}',
+                              'account': 'call', 'result': result})
+        if result == 'created':
+            self.accounts, self.signed_in_installs = 1, 1
+        elif result == 'signed in':
+            self.signed_in_installs = 1
+        elif result == 'signed out':
+            self.signed_in_installs = 0
+        elif result == 'erased':
+            self.accounts, self.signed_in_installs = 0, 0
+
+    def receive_reveal(self, recognition_id: str, outcome: str = 'revealed') -> None:
+        self.requests.append({'method': 'GET', 'path': f'/api/v1/recognitions/{recognition_id}',
+                              'request_id': f'reveal-{len(self.requests)}', 'recognition_id': recognition_id,
+                              'reveal': outcome})
 
     def queue(self, scenario_names: list[str]) -> None:
         self.queued.extend(scenario_names)
@@ -866,7 +911,10 @@ class ScriptedFakeApi:
         self.deliver_outbox()
         return {'is_offline': self.is_offline, 'choices': [dict(choice) for choice in self.choices],
                 'station_list_requests': self.station_list_requests,
-                'recognitions': [{'scenario': request.get('scenario'), 'station_hint': request.get('station_hint')}
+                'is_account_required': self.is_account_required, 'accounts': self.accounts,
+                'signed_in_installs': self.signed_in_installs,
+                'recognitions': [{'scenario': request.get('scenario'), 'station_hint': request.get('station_hint'),
+                                  'account_required': request.get('account_required', False)}
                                  for request in self.requests if request.get('path') == RECOGNIZE_PATH]}
 
     def deliver_outbox(self, *, even_offline: bool = False) -> None:
@@ -888,10 +936,11 @@ class ScriptedFakeApi:
 
     def receive_recognize(self, idempotency_key: str = 'key-1',
                           request_id: str = '6f1c2d3e-4b5a-4c7d-9e8f-0a1b2c3d4e5f', *,
-                          station_hint: str | None = None) -> None:
+                          station_hint: str | None = None, account_required: bool = False) -> None:
         scenario = self.queued.pop(0) if self.queued else 'match'
         self.requests.append({**recognize_request(scenario, idempotency_key, f'{request_id}'),
-                              'station_hint': station_hint})
+                              'station_hint': station_hint, 'account_required': account_required,
+                              'recognition_id': ACCOUNT_RECOGNITION_ID})
 
 
 class FakeClock:
@@ -905,6 +954,7 @@ class FakeClock:
         self.now += seconds
 
 
+ACCOUNT_RECOGNITION_ID = '0199b2c4-5a6e-7c3d-8f10-2b3c4d5e6f70'
 HOME = [app(LABELS['home heading']), app(LABELS['identify control']), app(LABELS['send test error'])]
 CARD = CardExpectation.from_fixture(runner.MATCH_FIXTURE)
 RESULT = [app(LABELS['result back']), app(LABELS['result header']), app(f'{CARD.client_name}\n{CARD.via_line}'),
@@ -1455,7 +1505,8 @@ class FullListenerAppJourneyTest(unittest.TestCase):
 
     def test_the_new_journeys_run_after_step_4s_and_the_first_open_one_last(self) -> None:
         names = [journey for _, journey in runner.JOURNEYS]
-        self.assertEqual(names[-21:], [runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
+        self.assertEqual(names[-23:], [runner.restart_makes_no_new_registration,
+                                       runner.choose_a_station_with_no_signal, runner.remembered_station_skips_the_sheet,
                                        runner.cancel_on_the_sheet_chooses_nothing,
                                        runner.history_keeps_a_result_that_works_with_no_data,
                                        runner.station_list_is_asked_for_once,
@@ -1478,6 +1529,8 @@ class FullListenerAppJourneyTest(unittest.TestCase):
                                        runner.answers_lost_still_count_once,
                                        # Piece 6.
                                        runner.window_sizes_show_the_tablet_layouts,
+                                       # Piece 7.
+                                       runner.the_account_gate_and_sign_up,
                                        runner.first_open_shows_how_look_up_works_once])
         self.assertLess(names.index(runner.send_test_error), names.index(runner.a_crash_report_waits_for_the_signal))
 
@@ -1736,6 +1789,211 @@ class TabletWindowSizesTest(unittest.TestCase):
         self.assertEqual(phone.window_sizes[-1], None, 'the phone size is set back')
 
 
+TABS = [app(LABELS['tab identify']), app(LABELS['tab history']), app(LABELS['tab settings'])]
+
+
+def account_phone(fake_api: ScriptedFakeApi, *, gate_shows_the_ad: bool = False, holds_the_result_back: bool = True,
+                  reveals: bool = True, shows_whole_email: bool = False) -> ScriptedPhone:
+    """An identify answers "One more step"; "Not now" leaves a History row that reopens the gate; the email, a wrong code
+    and the right one, then gender, consent and age lead to the Result; Settings → Account signs out, signs in and
+    deletes. What the stand-in saw follows what the scripted app does, as the real one does."""
+    def right_code() -> str:
+        return 'about you' if phone.typed[-1] == runner.FAKE_EMAIL_CODE else 'code wrong'
+
+    def create_the_account() -> None:
+        fake_api.receive_account('created')
+        if reveals:
+            fake_api.receive_reveal(ACCOUNT_RECOGNITION_ID)
+
+    def sign_in_again() -> None:
+        fake_api.receive_account('signed in')
+
+    phone = ScriptedPhone(
+        screens={
+            'home': HOME + TABS,
+            'listening': [app(LABELS['listening heading'])],
+            'gate': [app(LABELS['account gate heading']), app(LABELS['account create']), app(LABELS['account have one']),
+                     app(LABELS['not now']), *([app(CARD.title)] if gate_shows_the_ad else [])],
+            'history waiting': TABS + [app(LABELS['history account needed'])],
+            'history result': TABS + [app(LABELS['history earlier']), app(CARD.history_title)],
+            'email': [app(LABELS['account create heading']), edit_box('Email'), app(LABELS['account send code'])],
+            'code': [app(LABELS['account code heading']), edit_box('6-digit code'), app(LABELS['account check code'])],
+            'code wrong': [app(LABELS['account code heading']), edit_box('6-digit code'), app(LABELS['account check code']),
+                           app(LABELS['account code incorrect'])],
+            'about you': [app(LABELS['account about you']), app(LABELS['account female']), app(LABELS['account consent']),
+                          edit_box('Your age'), app(LABELS['account create'])],
+            'result': RESULT,
+            'settings': TABS + [app(LABELS['settings account'])],
+            'account in': [app(LABELS['account signed in as']), app(LABELS['account sign out']),
+                           app(LABELS['account delete']), app('Back'),
+                           *([app(runner.ACCOUNT_EMAIL)] if shows_whole_email else [])],
+            'account out': [app(LABELS['account signed out']), app(LABELS['account create']),
+                            app(LABELS['account sign in']), app('Back')],
+            'sign-in email': [app(LABELS['account sign in']), edit_box('Email'), app(LABELS['account send code'])],
+            'sign-in code': [app(LABELS['account code heading']), edit_box('6-digit code'), app(LABELS['account check code'])],
+            'delete sheet': [app('Delete your account?'), app(LABELS['account delete confirm']), app('Cancel')],
+            'account deleted': [app(LABELS['account deleted']), app(LABELS['account create']),
+                                app(LABELS['account sign in']), app('Back')],
+        },
+        taps={
+            ('home', LABELS['identify control']): 'listening',
+            ('gate', LABELS['not now']): 'home',
+            ('home', LABELS['tab history']): lambda: 'history result' if fake_api.accounts else 'history waiting',
+            ('history waiting', LABELS['history account needed']): 'gate',
+            ('gate', LABELS['account create']): 'email',
+            ('email', LABELS['account send code']): 'code',
+            ('code', LABELS['account check code']): right_code,
+            ('code wrong', LABELS['account check code']): right_code,
+            ('about you', LABELS['account create']): 'result',
+            ('result', LABELS['result back']): 'home',
+            ('history result', LABELS['tab identify']): 'home',
+            ('home', LABELS['tab settings']): 'settings',
+            ('settings', LABELS['settings account']): 'account in',
+            ('account in', LABELS['account sign out']): 'account out',
+            ('account out', LABELS['account sign in']): 'sign-in email',
+            ('sign-in email', LABELS['account send code']): 'sign-in code',
+            ('sign-in code', LABELS['account check code']): 'account in',
+            ('account in', LABELS['account delete']): 'delete sheet',
+            ('delete sheet', LABELS['account delete confirm']): 'account deleted',
+            ('account deleted', 'Back'): 'settings',
+            ('settings', LABELS['tab identify']): 'home',
+        },
+        moves_after_reads={'listening': (1, 'gate')},
+        on_enter={
+            'listening': lambda: fake_api.receive_recognize(account_required=holds_the_result_back),
+            'code': lambda: fake_api.receive_account('code sent'),
+            'code wrong': lambda: fake_api.receive_account('code incorrect'),
+            'about you': lambda: fake_api.receive_account('details needed'),
+            'result': create_the_account,
+            'account out': lambda: fake_api.receive_account('signed out'),
+            'sign-in code': lambda: fake_api.receive_account('code sent'),
+            'account in': lambda: sign_in_again() if phone.previous == 'sign-in code' else None,
+            'account deleted': lambda: fake_api.receive_account('erased'),
+        },
+    )
+    return phone
+
+
+class AccountJourneyTest(unittest.TestCase):
+    """Piece 7 (ADR-005; LA-APP-15): the account journey, against a scripted phone and stand-in."""
+
+    def run_journey(self, **options: bool) -> tuple[str, ScriptedPhone, ScriptedFakeApi]:
+        fake_api = ScriptedFakeApi()
+        phone = account_phone(fake_api, **options)
+        context, _ = context_for(phone, fake_api)
+        return runner.the_account_gate_and_sign_up(context), phone, fake_api
+
+    def test_the_whole_journey_passes_and_leaves_the_gate_off(self) -> None:
+        detail, phone, fake_api = self.run_journey()
+
+        self.assertEqual(phone.typed, [runner.ACCOUNT_EMAIL, runner.WRONG_ACCOUNT_CODE, runner.FAKE_EMAIL_CODE, '34',
+                                       runner.ACCOUNT_EMAIL, runner.FAKE_EMAIL_CODE])
+        self.assertEqual(phone.deleted, [len(runner.WRONG_ACCOUNT_CODE)])
+        self.assertIn(LABELS['not now'], phone.tapped)
+        self.assertIn(LABELS['account consent'], phone.tapped)
+        consent_at = phone.tapped.index(LABELS['account consent'])
+        self.assertTrue([at for at, label in enumerate(phone.tapped) if label == LABELS['account create'] and at > consent_at],
+                        'the consent is ticked before the account is made')
+        self.assertFalse(fake_api.is_account_required)
+        self.assertEqual((fake_api.accounts, fake_api.signed_in_installs), (0, 0))
+        self.assertIn('held back', detail)
+        self.assertIn('code sent, code incorrect, details needed, created', detail)
+
+    def test_a_gate_that_shows_the_ad_fails_and_the_gate_is_still_turned_off(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(account_phone(fake_api, gate_shows_the_ad=True), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.the_account_gate_and_sign_up(context)
+
+        self.assertIn('the gate shows the ad', str(failure.exception))
+        self.assertFalse(fake_api.is_account_required)
+
+    def test_an_identify_the_stand_in_did_not_hold_back_is_not_a_test_of_the_gate(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(account_phone(fake_api, holds_the_result_back=False), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.the_account_gate_and_sign_up(context)
+
+        self.assertIn('did not hold the result back', str(failure.exception))
+        self.assertFalse(fake_api.is_account_required)
+
+    def test_a_result_that_came_without_a_reveal_fails(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(account_phone(fake_api, reveals=False), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.the_account_gate_and_sign_up(context)
+
+        self.assertIn('the reveals []', str(failure.exception))
+
+    def test_settings_that_show_the_whole_email_fail(self) -> None:
+        fake_api = ScriptedFakeApi()
+        context, _ = context_for(account_phone(fake_api, shows_whole_email=True), fake_api)
+
+        with self.assertRaises(StepFailed) as failure:
+            runner.the_account_gate_and_sign_up(context)
+
+        self.assertIn('shows the whole email', str(failure.exception))
+        self.assertFalse(fake_api.is_account_required)
+
+    def test_the_driver_taps_the_text_box_by_its_kind_and_the_real_device_types_only_what_needs_no_quoting(self) -> None:
+        phone = ScriptedPhone({'email': [app('Heading'), edit_box('Email'), app('Send')]}, {}, start='email')
+        context, _ = context_for(phone, ScriptedFakeApi())
+        context.driver.tap_text_field()
+        self.assertEqual(phone.tapped, ['Email'])
+
+        class RecordingAdb(runner.AdbDevice):
+            def __init__(self) -> None:
+                self.commands: list[tuple[str, ...]] = []
+
+            def adb(self, *arguments: str, **options: Any) -> str:
+                self.commands.append(arguments)
+                return ''
+
+        device = RecordingAdb()
+        device.type_text('listener@example.com')
+        device.delete_characters(3)
+        self.assertEqual(device.commands, [('shell', 'input', 'text', 'listener@example.com'),
+                                           ('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END', 'KEYCODE_DEL',
+                                            'KEYCODE_DEL', 'KEYCODE_DEL')])
+        for unsafe in ('two words', 'a;b', '$(x)', "it's", ''):
+            with self.assertRaises(ValueError, msg=unsafe):
+                device.type_text(unsafe)
+
+    def test_the_account_labels_are_the_apps_own_words(self) -> None:
+        words = json.loads((runner.APP_FOLDER / 'lib' / 'l10n' / 'app_en.arb').read_text(encoding='utf-8'))
+        for label, key in [('account gate heading', 'accountGateHeading'), ('account create', 'accountCreateButton'),
+                           ('account have one', 'accountGateSignInButton'), ('not now', 'accountGateNotNowButton'),
+                           ('account create heading', 'accountCreateHeading'), ('account send code', 'accountSendCodeButton'),
+                           ('account code heading', 'accountCodeHeading'), ('account check code', 'accountCheckCodeButton'),
+                           ('account code incorrect', 'accountProblemCodeIncorrect'),
+                           ('account about you', 'accountAboutYouHeading'), ('account female', 'accountGenderFemale'),
+                           ('account consent', 'accountConsentLabel'),
+                           ('history account needed', 'historyAwaitingAccountDetail'),
+                           ('settings account', 'settingsAccount'), ('account sign out', 'accountSignOutButton'),
+                           ('account signed out', 'accountSignedOutMessage'),
+                           ('account sign in', 'accountSettingsSignInButton'), ('account delete', 'accountDeleteButton'),
+                           ('account delete confirm', 'accountDeleteConfirmButton'),
+                           ('account deleted', 'accountDeletedMessage')]:
+            self.assertEqual(LABELS[label], words[key], label)
+        self.assertEqual(LABELS['account signed in as'],
+                         words['accountSettingsSignedInAs'].replace('{email}', 'l***@example.com'))
+
+    def test_the_email_and_code_the_journey_types_are_the_stand_ins(self) -> None:
+        import fake_listener_api
+        self.assertEqual(runner.FAKE_EMAIL_CODE, fake_listener_api.FAKE_EMAIL_CODE)
+        self.assertEqual(fake_listener_api.mask_email(runner.ACCOUNT_EMAIL), 'l***@example.com')
+        self.assertNotEqual(runner.WRONG_ACCOUNT_CODE, runner.FAKE_EMAIL_CODE)
+
+    def test_the_journey_runs_last_but_one_and_the_device_log_check_names_an_email(self) -> None:
+        names = [journey for _, journey in runner.JOURNEYS]
+        self.assertEqual(names[-2:], [runner.the_account_gate_and_sign_up, runner.first_open_shows_how_look_up_works_once])
+        found = private_values_in_device_log('I flutter : sent ' + runner.ACCOUNT_EMAIL + ' ' * 1_000, {})
+        self.assertEqual(found, ['an email address'])
+
+
 class StandInControlTest(unittest.TestCase):
     """The control routes the journeys use, against the real stand-in (tool/fake_listener_api.py)."""
 
@@ -1769,6 +2027,14 @@ class StandInControlTest(unittest.TestCase):
                  'rate-limited-deferred', 'match-station-b', 'slow-answer', 'match-with-images', 'match-answer-lost']
         self.fake_api.queue(names)
         self.assertEqual(self.fake_api.state()['queued']['recognize'], names)
+
+    def test_the_account_gate_is_switched_on_and_off_and_the_state_holds_counts_only(self) -> None:
+        self.assertFalse(self.fake_api.state()['is_account_required'])
+        self.fake_api.set_account_gate(True)
+        state = self.fake_api.state()
+        self.assertEqual((state['is_account_required'], state['accounts'], state['signed_in_installs']), (True, 0, 0))
+        self.fake_api.set_account_gate(False)
+        self.assertFalse(self.fake_api.state()['is_account_required'])
 
     def test_the_update_gate_is_set_and_turned_off_and_the_state_holds_what_the_journeys_read(self) -> None:
         self.fake_api.set_minimum_app_version('0.2.0')

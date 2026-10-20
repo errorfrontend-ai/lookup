@@ -24,6 +24,9 @@ Control routes (fake only; refused when forwarded, as through ngrok, and from an
     POST /__fake/phone-number     {"phone_number": "+E.164", "install_id": "<an install that registered lately>"}:
                                   numbers in answers to that install alone become this one, in memory, for its next
                                   3 answers that hold a number or 5 minutes; {"phone_number": null} forgets it
+    POST /__fake/account-gate     {"is_required": true|false}: the account gate, as LISTENER_ACCOUNT_REQUIRED on the real
+                                  API: an identify from an install with no account is answered ACCOUNT_REQUIRED, not a
+                                  MATCH or a "Which station?" (ADR-005)
     POST /__fake/reset            empties the queues, the logs, the issued tokens and the switches (the gate too)
 
 Every control POST must be JSON, carry no Origin or this page's own, and name this machine as its Host
@@ -49,6 +52,19 @@ Listener routes (contract §1 and §4), each with its own queue of answers:
     GET  /api/v1/stations                           the "My station" list with ETag "fake-stations-1", kept a day;
                                                     304 when the app sends that ETag back (P4 design §5.6)
     POST /api/v1/client-errors                      a crash report, with no token
+
+Listener account routes (ADR-005; contract listener-account-schemas.ts). Each is refused unless it is exactly what the
+contract allows, and answers with the shared fixtures' words. The sign-in code the real API would email is always 042817:
+    POST   /api/v1/listener-account/code      {email}: 202; one code a minute for an email
+    POST   /api/v1/listener-account/verify    {email, code}: SIGNED_IN for an email with an account, else DETAILS_NEEDED
+                                              with a ticket; a wrong code is refused, the fifth locks the email
+    POST   /api/v1/listener-account           {email, ticket, gender, age, consent_text_version}: 201, the account made
+    GET    /api/v1/listener-account           {is_signed_in, email_masked}
+    POST   /api/v1/listener-account/sign-out  204 (the account stays)
+    DELETE /api/v1/listener-account           204 (the account is erased, and every install leaves it)
+    GET    /api/v1/recognitions/{id}          the result the gate held back, once this install has an account
+The gender and age are kept in memory so a deletion can be proved, and are never logged, shown or answered. With the gate
+on, a follow-up (a choice, a tap, a report) from an install with no account is refused: it has no result to follow up.
 
 Pictures (P6 design §3.16): "Match with pictures" answers with the shared fixture whose card has a banner
 and a station logo. Started with --public-origin, the https address the phone reaches the stand-in by (an ngrok
@@ -124,12 +140,30 @@ ENGAGEMENTS_PATH = '/api/v1/engagements'
 ENGAGEMENT_FIELDS = {'recognition_id', 'station_id', 'action_id', 'occurred_at', 'sent_at'}
 
 RECOGNIZE_PATH = '/api/v1/recognize'
+ACCOUNT_PATH = '/api/v1/listener-account'
+ACCOUNT_POST_ACTIONS = {f'{ACCOUNT_PATH}/code': 'code', f'{ACCOUNT_PATH}/verify': 'verify', ACCOUNT_PATH: 'create',
+                        f'{ACCOUNT_PATH}/sign-out': 'sign-out'}
+RECOGNITION_PATH = re.compile(r'^/api/v1/recognitions/([^/?#]*)$')
 STATIONS_PATH = '/api/v1/stations'
 CHOICE_PATH = re.compile(r'^/api/v1/recognitions/([^/?#]*)/choice$')
 REPORT_PATH = re.compile(r'^/api/v1/recognitions/([^/?#]*)/report$')
 # The contract's RECOGNITION_REPORT_REASONS (packages/contracts/src/recognition/recognition-report-schemas.ts).
 RECOGNITION_REPORT_REASONS = ('WRONG_OR_MISLEADING_BUTTONS', 'NUMBER_OR_LINK_DOES_NOT_WORK', 'LOOKS_LIKE_A_SCAM',
                               'SOMETHING_ELSE')
+# The listener account's rules (packages/contracts/src/listener-accounts/listener-account-schemas.ts; a test keeps the two
+# agreeing). The code is always the same, so a run can type it.
+FAKE_EMAIL_CODE = '042817'
+ACCOUNT_CODE_RESEND_SECONDS = 60
+ACCOUNT_CODE_LIFETIME_SECONDS = 600
+ACCOUNT_CODE_ATTEMPT_LIMIT = 5
+ACCOUNT_GENDERS = ('FEMALE', 'MALE', 'ANOTHER', 'PREFER_NOT_TO_SAY')
+ACCOUNT_MINIMUM_AGE = 13
+ACCOUNT_MAXIMUM_AGE = 99
+ACCOUNT_CONSENT_TEXT_VERSION = 'listener-consent-2026-10'
+MAXIMUM_ACCOUNT_EMAIL_LENGTH = 254
+ACCOUNT_EMAIL = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+ACCOUNT_CODE = re.compile(r'^[0-9]{6}$')
+ACCOUNT_TICKET = re.compile(r'^[A-Za-z0-9_-]{20,300}$')
 # Drawn pictures: their address, and the largest side drawn, so no request can ask for a huge one.
 PICTURE_PATH = re.compile(r'^/fake-pictures/([0-9]{1,4})x([0-9]{1,4})\.png$')
 LARGEST_PICTURE_SIDE = 1600
@@ -350,6 +384,17 @@ class FakeState:
             # The update gate: None (off) or a minimum version; and each install's registered version.
             self.minimum_app_version: str | None = None
             self.install_app_versions: dict[str, str] = {}
+            # The listener account gate (ADR-005): off until a run turns it on, as LISTENER_ACCOUNT_REQUIRED is on the
+            # real API. The accounts are kept in memory by email, with the gender and age so a deletion can be proved;
+            # nothing of them is ever logged, shown or answered.
+            self.is_account_required = False
+            self.accounts: dict[str, dict[str, Any]] = {}
+            # The email each signed-in install is signed in with.
+            self.install_accounts: dict[str, str] = {}
+            # A code asked for, by email: when (by the clock), and how many wrong tries it has had.
+            self.pending_codes: dict[str, dict[str, Any]] = {}
+            # A sign-up ticket, given at a right code for a new email, and the install and email it is for.
+            self.account_tickets: dict[str, dict[str, str]] = {}
 
     def answer_held_for(self, install_id: str, idempotency_key: str) -> dict[str, Any] | None:
         """The 200 answer already given to this install for this key, as first built, or None for a new key."""
@@ -357,13 +402,17 @@ class FakeState:
             held = self.answers_by_key.get((install_id, idempotency_key))
             return json.loads(json.dumps(held)) if held is not None else None
 
-    def remember_answer(self, install_id: str, idempotency_key: str, response: dict[str, Any]) -> None:
-        """Keeps a 200 answer for a send of the same key again, and what it showed, for the choices that follow it."""
+    def remember_answer(self, install_id: str, idempotency_key: str, response: dict[str, Any],
+                        fields: dict[str, str]) -> None:
+        """Keeps a 200 answer for a send of the same key again, and what it showed, for the choices that follow it, and
+        the full answer with the send's own fields, for the reveal of what the account gate held back."""
         shown = response.get('candidates') or ([response['result']] if 'result' in response else [])
         with self.lock:
             self.answers_by_key[(install_id, idempotency_key)] = json.loads(json.dumps(response))
             self.answered_recognitions[response['recognition_id']] = {
                 'install_id': install_id, 'status': response['status'],
+                'answer': json.loads(json.dumps(response)),
+                'is_deferred': fields['is_deferred'], 'captured_at': fields['captured_at'],
                 'station_ids': [result['station']['id'] for result in shown],
                 # The buttons each shown station's card had, for the taps that follow.
                 'action_ids_by_station': {result['station']['id']: [action['id'].lower() for action in result['card']['actions']]
@@ -410,6 +459,92 @@ class FakeState:
             self.reports.append({'recognition_id': recognition_id, 'station_id': station_id, 'reason': reason,
                                  'request_id': request_id})
             return 'reported'
+
+    # ---- the listener account (ADR-005) ------------------------------------------------------------------
+
+    def has_account(self, install_id: str) -> bool:
+        with self.lock:
+            return install_id in self.install_accounts
+
+    def email_of(self, install_id: str) -> str | None:
+        with self.lock:
+            return self.install_accounts.get(install_id)
+
+    def has_account_for_email(self, email: str) -> bool:
+        with self.lock:
+            return email in self.accounts
+
+    def holds_back_for(self, install_id: str) -> bool:
+        """Whether an ad's result must be held back from this install: the gate is on and it has no account."""
+        with self.lock:
+            return self.is_account_required and install_id not in self.install_accounts
+
+    def ask_for_code(self, email: str) -> int | None:
+        """Notes a code asked for [email]: None when it goes out, or the seconds to wait when the last one went less than
+        a minute ago."""
+        with self.lock:
+            now = self.clock()
+            held = self.pending_codes.get(email)
+            if held is not None and now - held['asked_at'] < ACCOUNT_CODE_RESEND_SECONDS:
+                return max(1, math.ceil(ACCOUNT_CODE_RESEND_SECONDS - (now - held['asked_at'])))
+            self.pending_codes[email] = {'asked_at': now, 'wrong_tries': 0}
+            return None
+
+    def check_code(self, email: str, code: str) -> str:
+        """'right', 'incorrect', 'expired' (none asked for, or one over ten minutes old) or 'locked' (the fifth wrong try
+        and every try after it), as the real API's code store answers."""
+        with self.lock:
+            held = self.pending_codes.get(email)
+            if held is None:
+                return 'expired'
+            if self.clock() - held['asked_at'] > ACCOUNT_CODE_LIFETIME_SECONDS:
+                del self.pending_codes[email]
+                return 'expired'
+            if held['wrong_tries'] >= ACCOUNT_CODE_ATTEMPT_LIMIT:
+                return 'locked'
+            if code != FAKE_EMAIL_CODE:
+                held['wrong_tries'] += 1
+                return 'locked' if held['wrong_tries'] >= ACCOUNT_CODE_ATTEMPT_LIMIT else 'incorrect'
+            del self.pending_codes[email]
+            return 'right'
+
+    def sign_in(self, install_id: str, email: str) -> None:
+        with self.lock:
+            self.install_accounts[install_id] = email
+
+    def issue_ticket(self, install_id: str, email: str) -> str:
+        ticket = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('ascii').rstrip('=')
+        with self.lock:
+            self.account_tickets[ticket] = {'install_id': install_id, 'email': email}
+        return ticket
+
+    def use_ticket(self, ticket: str, install_id: str, email: str) -> bool:
+        """Spends a ticket: true only for the install and email it was given for, once."""
+        with self.lock:
+            held = self.account_tickets.get(ticket)
+            if held is None or held['install_id'] != install_id or held['email'] != email:
+                return False
+            del self.account_tickets[ticket]
+            return True
+
+    def create_account(self, install_id: str, email: str, gender: str, age: int) -> None:
+        with self.lock:
+            self.accounts[email] = {'gender': gender, 'age': age}
+            self.install_accounts[install_id] = email
+
+    def sign_out(self, install_id: str) -> None:
+        with self.lock:
+            self.install_accounts.pop(install_id, None)
+
+    def delete_account(self, install_id: str) -> None:
+        """Erases the account this install is signed in to, and every install leaves it."""
+        with self.lock:
+            email = self.install_accounts.get(install_id)
+            if email is None:
+                return
+            self.accounts.pop(email, None)
+            for install in [install for install, signed_in_as in self.install_accounts.items() if signed_in_as == email]:
+                del self.install_accounts[install]
 
     def queue(self, names: list[str]) -> None:
         with self.lock:
@@ -474,6 +609,10 @@ class FakeState:
                 'is_offline': self.is_offline,
                 'minimum_app_version': self.minimum_app_version,
                 'update_required_answers': sum(1 for request in requests if request.get('update_required')),
+                # Counts only: never an email, a gender or an age.
+                'is_account_required': self.is_account_required,
+                'accounts': len(self.accounts),
+                'signed_in_installs': len(self.install_accounts),
                 'replaces_phone_numbers': check is not None,
                 'phone_check': None if check is None else {
                     'install_label': install_label(check.install_id),
@@ -494,7 +633,8 @@ class FakeState:
                     {'request_id': request.get('request_id'), 'idempotency_key': request.get('idempotency_key'),
                      'scenario': request.get('scenario'), 'recognition_id': request.get('recognition_id'),
                      'is_deferred': request.get('is_deferred'), 'station_hint': request.get('station_hint'),
-                     'captured_at': request.get('captured_at'), 'sent_at': request.get('sent_at')}
+                     'captured_at': request.get('captured_at'), 'sent_at': request.get('sent_at'),
+                     'account_required': request.get('account_required', False)}
                     for request in requests if request.get('path') == RECOGNIZE_PATH and 'scenario' in request
                 ],
                 # One per recognition, the first: what the real API would hold however often the app sent it.
@@ -534,6 +674,10 @@ def outcome_of(request: dict[str, Any]) -> str:
         return 'below the minimum app version: answered 426'
     if 'picture' in request:
         return f"picture {request['picture']}"
+    if 'account' in request:
+        return f"account {request['account']}: {request.get('result', 'answered')}"
+    if 'reveal' in request:
+        return f"reveal: {request['reveal']}"
     for key in ('choice', 'engagement', 'report', 'station_list'):
         if key in request:
             return f"{request.get('scenario')}: {request[key]}"
@@ -685,6 +829,27 @@ def replace_phone_numbers(value: Any, phone_number: str) -> Any:
 def check_uuid(value: Any, name: str) -> None:
     if not isinstance(value, str) or not UUID.match(value):
         raise RequestRefused(f'{name} is not a UUID')
+
+
+def withheld_answer(response: dict[str, Any], request_id: str, is_deferred: bool, captured_at: str) -> dict[str, Any]:
+    """What the account gate answers instead of a result: the shared fixture's five fields, for this recognition."""
+    answer = read_fixture(f'{RESPONSES}/account-required.json')['response']
+    return {**answer, 'recognition_id': response['recognition_id'], 'request_id': request_id,
+            'is_deferred': is_deferred, 'captured_at': captured_at}
+
+
+def check_account_email(value: Any) -> str:
+    """The email of an account call: an address, as the app sends it, trimmed and in lower case."""
+    if (not isinstance(value, str) or len(value) > MAXIMUM_ACCOUNT_EMAIL_LENGTH or not ACCOUNT_EMAIL.match(value)
+            or value != value.strip().lower()):
+        raise RequestRefused('the email must be an address, trimmed and in lower case')
+    return value
+
+
+def mask_email(email: str) -> str:
+    """The first letter, three stars and the domain, as the real API masks it (maskEmailAddress)."""
+    at_sign = email.rfind('@')
+    return '***' if at_sign < 1 else f'{email[:1]}***{email[at_sign:]}'
 
 
 def check_install_input(body: Any) -> None:
@@ -903,6 +1068,12 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                 with self.state.lock:
                     self.state.is_offline = body['is_offline']
                 self.answer_json(200, {'is_offline': body['is_offline']})
+            elif self.path == '/__fake/account-gate':
+                if not isinstance(body, dict) or set(body) != {'is_required'} or not isinstance(body['is_required'], bool):
+                    raise ControlRefused(400, 'the body must be {"is_required": true or false}')
+                with self.state.lock:
+                    self.state.is_account_required = body['is_required']
+                self.answer_json(200, {'is_account_required': body['is_required']})
             elif self.path == '/__fake/minimum-app-version':
                 self.handle_minimum_app_version(body)
             elif self.path == '/__fake/phone-number':
@@ -975,11 +1146,17 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if picture_path is not None:
             self.answer_picture(int(picture_path.group(1)), int(picture_path.group(2)))
             return
-        if self.path == STATIONS_PATH:
+        reveal_path = RECOGNITION_PATH.match(self.path)
+        if self.path in (STATIONS_PATH, ACCOUNT_PATH) or reveal_path is not None:
             request_id = self.headers.get('X-Request-Id')
             try:
                 check_uuid(request_id, 'X-Request-Id')
-                self.handle_stations(request_id)
+                if self.path == STATIONS_PATH:
+                    self.handle_stations(request_id)
+                elif reveal_path is not None:
+                    self.handle_reveal(request_id, reveal_path.group(1))
+                else:
+                    self.handle_account(request_id, 'describe')
             except RequestRefused as refused:
                 self.refuse(str(refused), request_id if request_id and UUID.match(request_id) else None)
             return
@@ -1008,12 +1185,26 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                 self.handle_report(request_id, report_path.group(1))
             elif self.path == '/api/v1/client-errors':
                 self.handle_client_error(request_id)
+            elif self.path in ACCOUNT_POST_ACTIONS:
+                self.handle_account(request_id, ACCOUNT_POST_ACTIONS[self.path])
             else:
                 raise RequestRefused(f'no route {self.path}')
         except RequestRefused as refused:
             self.refuse(str(refused), request_id if request_id and UUID.match(request_id) else None)
         except json.JSONDecodeError:
             self.refuse('the body is not JSON', request_id if request_id and UUID.match(request_id) else None)
+
+    def do_DELETE(self) -> None:
+        if self.path.startswith('/api/v1/') and self.drops_while_offline():
+            return
+        request_id = self.headers.get('X-Request-Id')
+        try:
+            check_uuid(request_id, 'X-Request-Id')
+            if self.path != ACCOUNT_PATH:
+                raise RequestRefused(f'no route {self.path}')
+            self.handle_account(request_id, 'delete')
+        except RequestRefused as refused:
+            self.refuse(str(refused), request_id if request_id and UUID.match(request_id) else None)
 
     def handle_install(self, request_id: str) -> None:
         """A registration, or, with the install's own token as a bearer header, a re-registration (amendment A3). As
@@ -1079,8 +1270,9 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         if held is not None:
             # The same key again after a 200 (a lost answer, a resend from the outbox): the same answer and recognition
             # id, as the real API replays it, and no queued answer is spent.
-            self.record({**sent, 'scenario': 'replay', 'recognition_id': held['recognition_id']})
-            self.answer_recognition(held, request_id, install_id)
+            self.record({**sent, 'scenario': 'replay', 'recognition_id': held['recognition_id'],
+                         'account_required': self.is_held_back(install_id, held)})
+            self.answer_recognition(held, request_id, install_id, fields)
             return
         scenario = self.state.next_scenario(RECOGNIZE_ROUTE)
         response = self.fixture_answer(SCENARIOS[scenario], fields)
@@ -1090,14 +1282,15 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             return
         # A new id for each new key, so each answer (and each chooser's choice) is told apart, as on the real API.
         response['recognition_id'] = new_recognition_id()
-        self.state.remember_answer(install_id, fields['idempotency_key'], response)
-        self.record({**sent, 'scenario': scenario, 'recognition_id': response['recognition_id']})
+        self.state.remember_answer(install_id, fields['idempotency_key'], response, fields)
+        self.record({**sent, 'scenario': scenario, 'recognition_id': response['recognition_id'],
+                     'account_required': self.is_held_back(install_id, response)})
         if SCENARIOS[scenario].get('drop_after_keeping'):
             self.close_unanswered()   # kept: the same key again gets this answer as a replay
             return
         if SCENARIOS[scenario].get('answers_after_seconds'):
             self.state.sleep(SCENARIOS[scenario]['answers_after_seconds'])
-        self.answer_recognition(response, request_id, install_id)
+        self.answer_recognition(response, request_id, install_id, fields)
 
     def fixture_answer(self, plan: dict[str, Any], fields: dict[str, str]) -> dict[str, Any] | None:
         """The 200 answer a scenario gives, from the shared fixtures, or None for one that answers otherwise."""
@@ -1118,8 +1311,19 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             response = with_drawn_pictures(response, self.state.public_origin)
         return response
 
-    def answer_recognition(self, response: dict[str, Any], request_id: str, install_id: str) -> None:
-        """A 200 answer to an identify, with this request's id; numbers become the phone check's for its install."""
+    def is_held_back(self, install_id: str, response: dict[str, Any]) -> bool:
+        """Whether the gate holds [response] back from this install: an ad's result (a match or a "Which station?") while
+        the install has no account."""
+        return response['status'] in ('MATCH', 'CHOOSE_STATION') and self.state.holds_back_for(install_id)
+
+    def answer_recognition(self, response: dict[str, Any], request_id: str, install_id: str,
+                           fields: dict[str, str]) -> None:
+        """A 200 answer to an identify, with this request's id; numbers become the phone check's for its install. With
+        the account gate on and no account, the answer holds nothing of the ad (ADR-005)."""
+        if self.is_held_back(install_id, response):
+            self.answer_json(200, withheld_answer(response, request_id, fields['is_deferred'] == 'true',
+                                                  fields['captured_at']), request_id)
+            return
         answer = {**response, 'request_id': request_id}
         if holds_phone_numbers(answer):
             replacement = self.state.take_phone_number_for(install_id)
@@ -1139,6 +1343,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             return
         if self.answers_update_required(install_id, request_id):
             return
+        self.refuse_when_no_account(install_id, 'a choice')
         if not RECOGNITION_ID.match(recognition_id):
             raise RequestRefused('the recognition id in the path is not a lower-case UUID version 7')
         if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
@@ -1186,6 +1391,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             return
         if self.answers_update_required(install_id, request_id):
             return
+        self.refuse_when_no_account(install_id, 'a tap')
         if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
             raise RequestRefused('a tap must be sent as application/json')
         tap = json.loads(body)
@@ -1244,6 +1450,7 @@ class FakeListenerApi(BaseHTTPRequestHandler):
             return
         if self.answers_update_required(install_id, request_id):
             return
+        self.refuse_when_no_account(install_id, 'a report')
         if not RECOGNITION_ID.match(recognition_id):
             raise RequestRefused('the recognition id in the path is not a lower-case UUID version 7')
         if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
@@ -1333,6 +1540,144 @@ class FakeListenerApi(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def handle_account(self, request_id: str, action: str) -> None:
+        """A listener-account call (ADR-005; contract listener-account-schemas.ts). Refused, so the run fails, unless it
+        is exactly what the contract allows: the install token, and for a call with a body, JSON with exactly its
+        fields. A wrong code, a code asked for too soon and a ticket that is no good get the shared error envelopes."""
+        token = self.bearer_token()
+        with self.state.lock:
+            install_id = self.state.issued_tokens.get(token)
+        body = self.read_body(MAXIMUM_JSON_BODY_BYTES)
+        if install_id is None:
+            self.answer_token_not_issued(request_id)
+            return
+        if self.answers_update_required(install_id, request_id):
+            return
+        sent: dict[str, Any] = {}
+        if action in ('describe', 'delete'):
+            if body:
+                raise RequestRefused(f'the {action} call carries no body')
+        else:
+            if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+                raise RequestRefused('an account call must be sent as application/json')
+            decoded = json.loads(body)
+            if not isinstance(decoded, dict):
+                raise RequestRefused('the body must be a JSON object')
+            sent = decoded
+        details = {'request_id': request_id, 'account': action}
+        if action == 'code':
+            self.account_code(sent, request_id, details)
+        elif action == 'verify':
+            self.account_verify(sent, install_id, request_id, details)
+        elif action == 'create':
+            self.account_create(sent, install_id, request_id, details)
+        elif action == 'describe':
+            email = self.state.email_of(install_id)
+            self.record({**details, 'result': 'signed in' if email else 'signed out'})
+            self.answer_json(200, {'is_signed_in': email is not None,
+                                   'email_masked': mask_email(email) if email else None}, request_id)
+        elif action == 'sign-out':
+            if sent:
+                raise RequestRefused('signing out carries an empty body')
+            self.state.sign_out(install_id)
+            self.record({**details, 'result': 'signed out'})
+            self.answer_no_content(request_id)
+        else:
+            self.state.delete_account(install_id)
+            self.record({**details, 'result': 'erased'})
+            self.answer_no_content(request_id)
+
+    def account_code(self, sent: dict[str, Any], request_id: str, details: dict[str, Any]) -> None:
+        if set(sent) != {'email'}:
+            raise RequestRefused('asking for a code sends exactly {"email"}')
+        email = check_account_email(sent['email'])
+        wait = self.state.ask_for_code(email)
+        if wait is not None:
+            self.record({**details, 'result': 'asked too soon'})
+            self.answer_envelope({'envelope': 'errors/envelopes/resend-too-soon.json', 'retry_after_seconds': wait}, request_id)
+            return
+        self.record({**details, 'result': 'code sent'})
+        self.answer_json(202, {'resend_after_seconds': ACCOUNT_CODE_RESEND_SECONDS}, request_id)
+
+    def account_verify(self, sent: dict[str, Any], install_id: str, request_id: str, details: dict[str, Any]) -> None:
+        if set(sent) != {'email', 'code'}:
+            raise RequestRefused('checking a code sends exactly {"email", "code"}')
+        email = check_account_email(sent['email'])
+        if not isinstance(sent['code'], str) or not ACCOUNT_CODE.match(sent['code']):
+            raise RequestRefused('the code must be six digits, as a string')
+        outcome = self.state.check_code(email, sent['code'])
+        if outcome != 'right':
+            self.record({**details, 'result': f'code {outcome}'})
+            envelope = {'incorrect': 'listener-code-incorrect', 'expired': 'listener-code-expired',
+                        'locked': 'listener-code-locked'}[outcome]
+            self.answer_envelope({'envelope': f'errors/envelopes/{envelope}.json'}, request_id)
+            return
+        signed_in_as = self.state.email_of(install_id)
+        if signed_in_as is not None and signed_in_as != email:
+            self.record({**details, 'result': 'already signed in'})
+            self.answer_envelope({'envelope': 'errors/envelopes/already-signed-in.json'}, request_id)
+        elif self.state.has_account_for_email(email):
+            self.state.sign_in(install_id, email)
+            self.record({**details, 'result': 'signed in'})
+            self.answer_json(200, {'status': 'SIGNED_IN', 'email_masked': mask_email(email)}, request_id)
+        else:
+            self.record({**details, 'result': 'details needed'})
+            self.answer_json(200, {'status': 'DETAILS_NEEDED', 'ticket': self.state.issue_ticket(install_id, email)}, request_id)
+
+    def account_create(self, sent: dict[str, Any], install_id: str, request_id: str, details: dict[str, Any]) -> None:
+        if set(sent) != {'email', 'ticket', 'gender', 'age', 'consent_text_version'}:
+            raise RequestRefused('creating the account sends exactly {email, ticket, gender, age, consent_text_version}')
+        email = check_account_email(sent['email'])
+        if not isinstance(sent['ticket'], str) or not ACCOUNT_TICKET.match(sent['ticket']):
+            raise RequestRefused('the ticket is not one the API gives')
+        if sent['gender'] not in ACCOUNT_GENDERS:
+            raise RequestRefused('the gender is not one of the four the contract names')
+        age = sent['age']
+        if not isinstance(age, int) or isinstance(age, bool) or age > ACCOUNT_MAXIMUM_AGE or age < 1:
+            raise RequestRefused('the age must be a whole number the contract allows')
+        if sent['consent_text_version'] != ACCOUNT_CONSENT_TEXT_VERSION:
+            raise RequestRefused('the consent wording is not the current version')
+        if age < ACCOUNT_MINIMUM_AGE:
+            self.record({**details, 'result': 'too young'})
+            self.answer_envelope({'envelope': 'errors/envelopes/account-age-too-young.json'}, request_id)
+            return
+        if not self.state.use_ticket(sent['ticket'], install_id, email):
+            self.record({**details, 'result': 'ticket not valid'})
+            self.answer_envelope({'envelope': 'errors/envelopes/account-ticket-not-valid.json'}, request_id)
+            return
+        self.state.create_account(install_id, email, sent['gender'], age)
+        self.record({**details, 'result': 'created'})
+        self.answer_json(201, {'status': 'SIGNED_IN', 'email_masked': mask_email(email)}, request_id)
+
+    def handle_reveal(self, request_id: str, recognition_id: str) -> None:
+        """The result an account gate held back (ADR-005). Refused unless the id is a lower-case version 7 one. A recognition
+        this install was not given, or one that was no ad's result, is "not found"; with no account the answer is the
+        withheld one again; with an account, the full answer the scan would have had."""
+        token = self.bearer_token()
+        with self.state.lock:
+            install_id = self.state.issued_tokens.get(token)
+        if install_id is None:
+            self.answer_token_not_issued(request_id)
+            return
+        if self.answers_update_required(install_id, request_id):
+            return
+        if not RECOGNITION_ID.match(recognition_id):
+            raise RequestRefused('the recognition id in the path is not a lower-case UUID version 7')
+        answered = self.state.answered_recognition(recognition_id)
+        if answered is None or answered['install_id'] != install_id or answered['status'] not in ('MATCH', 'CHOOSE_STATION'):
+            self.record({'request_id': request_id, 'recognition_id': recognition_id, 'reveal': 'not found'})
+            self.answer_envelope({'envelope': 'errors/envelopes/not-found.json'}, request_id)
+            return
+        full = json.loads(json.dumps(answered['answer']))
+        if self.state.holds_back_for(install_id):
+            self.record({'request_id': request_id, 'recognition_id': recognition_id, 'reveal': 'held back'})
+            self.answer_json(200, withheld_answer(full, request_id, answered['is_deferred'] == 'true',
+                                                  answered['captured_at']), request_id)
+            return
+        self.record({'request_id': request_id, 'recognition_id': recognition_id, 'reveal': 'revealed'})
+        self.answer_recognition(full, request_id, install_id, {'is_deferred': answered['is_deferred'],
+                                                               'captured_at': answered['captured_at']})
+
     def answer_envelope(self, plan: dict[str, Any], request_id: str) -> None:
         """A shared error envelope with this request's id, and the plan's Retry-After or the envelope's own."""
         envelope = read_fixture(plan['envelope'])
@@ -1355,6 +1700,12 @@ class FakeListenerApi(BaseHTTPRequestHandler):
                 or len(token) > 1024:
             raise RequestRefused('a listener route needs Authorization: Bearer <install token>')
         return token
+
+    def refuse_when_no_account(self, install_id: str, what: str) -> None:
+        """With the gate on, an install with no account has seen no result, so the real API answers a follow-up as it
+        answers an unknown recognition, and the app must never send one: refused, so the run fails."""
+        if self.state.holds_back_for(install_id):
+            raise RequestRefused(f'{what} from an install with no account: the app never showed it a result')
 
     def answers_update_required(self, install_id: str, request_id: str) -> bool:
         """The update gate, after the token as on the real guard: with a minimum set, an install registered with an
@@ -1517,6 +1868,17 @@ def render_panel(nonce: str, port: int) -> str:
     </div>
   </section>
 
+  <section aria-labelledby="account-heading">
+    <h2 id="account-heading">Listener accounts</h2>
+    <p>With the account gate on, an identify answers "One more step to see your result" and holds the ad back until the
+       phone has an account. The sign-in code the app asks for is always {FAKE_EMAIL_CODE}.</p>
+    <p id="account-status" aria-live="polite"></p>
+    <div class="buttons">
+      <button type="button" id="account-gate-on">Account gate on</button>
+      <button type="button" id="account-gate-off" class="primary">Account gate off</button>
+    </div>
+  </section>
+
   <section aria-labelledby="gate-heading">
     <h2 id="gate-heading">Minimum app version</h2>
     <p>Set a version newer than the app's, such as 0.2.0, and every request with a token gets "Please update the
@@ -1638,6 +2000,9 @@ def render_panel(nonce: str, port: int) -> str:
       const signal = document.getElementById('signal');
       signal.textContent = state.is_offline ? 'No signal: requests are cut off.' : 'Signal: requests are answered.';
       signal.className = state.is_offline ? 'signal-off' : '';
+      document.getElementById('account-status').textContent = (state.is_account_required
+        ? 'Gate on: results are held back until the phone has an account.' : 'Gate off: results are answered as before.')
+        + ' Accounts: ' + state.accounts + ' · signed-in phones: ' + state.signed_in_installs + '.';
       showInstalls(state.recent_registrations);
       const check = state.phone_check;
       document.getElementById('number-status').textContent = check
@@ -1678,6 +2043,10 @@ def render_panel(nonce: str, port: int) -> str:
     () => control('/__fake/offline', {{ is_offline: true }}, 'No signal: requests are now cut off.'));
   document.getElementById('signal-on').addEventListener('click',
     () => control('/__fake/offline', {{ is_offline: false }}, 'Signal back: requests are answered again.'));
+  document.getElementById('account-gate-on').addEventListener('click',
+    () => control('/__fake/account-gate', {{ is_required: true }}, 'The account gate is on.'));
+  document.getElementById('account-gate-off').addEventListener('click',
+    () => control('/__fake/account-gate', {{ is_required: false }}, 'The account gate is off.'));
   document.getElementById('use-number').addEventListener('click', () => {{
     if (chosenInstallId === null) {{
       statusLine.textContent = 'Choose your phone\\'s install first.';

@@ -74,7 +74,10 @@ def phone_numbers_in(value: Any) -> list[str]:
     return []
 
 
-class FakeListenerApiTest(unittest.TestCase):
+class FakeServerHelpers:
+    """A running stand-in, and the requests the app makes of it; for the test cases that follow, and for the account
+    routes' own (test_fake_listener_api_accounts.py)."""
+
     def setUp(self) -> None:
         self.clock = FakeClock()
         # How long each slow answer waited: recorded, never really waited.
@@ -222,6 +225,8 @@ class FakeListenerApiTest(unittest.TestCase):
         self.assertEqual(status, 200)
         return body
 
+
+class FakeListenerApiTest(FakeServerHelpers, unittest.TestCase):
     # ---- what the app must get right ---------------------------------------------------------------
 
     def test_a_correct_identify_gets_the_shared_match_answer_with_the_echoed_request_id(self) -> None:

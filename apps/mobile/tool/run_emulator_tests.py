@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import IO, Any, Callable, Protocol, Sequence, TypeVar
 from xml.etree import ElementTree
 
-from fake_listener_api import BUSY_RETRY_AFTER_SECONDS
+from fake_listener_api import BUSY_RETRY_AFTER_SECONDS, FAKE_EMAIL_CODE
 
 # ---- The words the driver reads and taps --------------------------------------------------------------
 # Copied from design §2 (docs/design/step-4-listener-app.md). A label matches a node when it equals the
@@ -116,10 +116,34 @@ LABELS: dict[str, str] = {
     'report reason scam': 'It looks like a scam',                      # P6 §2.14
     'send report': 'Send report',                                      # P6 §2.14
     'report thanks': "Thanks — we'll check this ad.",                  # P6 §2.14
+    # The listener account (ADR-005, docs/design/listener-accounts.md §3.1).
+    'account gate heading': 'One more step to see your result',
+    'account create': 'Create account',
+    'account have one': 'I already have an account',
+    'not now': 'Not now',
+    'account create heading': 'Create your account',
+    'account send code': 'Send me a code',
+    'account code heading': 'Enter the code',
+    'account check code': 'Check the code',
+    'account code incorrect': 'That code is not right. Check your email and try again.',
+    'account about you': 'About you',
+    'account female': 'Female',
+    'account consent': 'I agree that Look Up keeps my email, gender and age, and shows stations only groups of '
+                       'listeners, never me.',
+    'history account needed': 'Create an account to see this result',
+    'settings account': 'Account',
+    'account signed in as': 'Signed in as l***@example.com',
+    'account sign out': 'Sign out',
+    'account signed out': 'Signed out.',
+    'account sign in': 'Sign in',
+    'account delete': 'Delete my account',
+    'account delete confirm': 'Delete',
+    'account deleted': 'Your account was deleted.',
 }
 
 # "Clip [n]% sent" (P6 §2.5), and an amount of data as Settings shows it: whole kilobytes below 1,000 KB, then
 # megabytes with one decimal, each 1,000 of the one before (DataAmount.of).
+EDIT_TEXT_CLASS = 'android.widget.EditText'
 CLIP_PERCENT_SENT = re.compile(r'^Clip (\d{1,3})% sent$')
 DATA_AMOUNT = re.compile(r'^(\d+(?:\.\d)?) (KB|MB)$')
 # Identifies the Data journey makes at most for "Used this month" to move: past a megabyte it moves in 100 KB steps,
@@ -638,6 +662,9 @@ class Device(Protocol):
     def reset_window_size(self) -> None: ...
     def use_mobile_data_only(self) -> str: ...
     def use_wifi_again(self) -> None: ...
+    # The listener account's text boxes (ADR-005).
+    def type_text(self, text: str) -> None: ...
+    def delete_characters(self, count: int) -> None: ...
 
 
 class FakeApiControl(Protocol):
@@ -646,6 +673,7 @@ class FakeApiControl(Protocol):
     def reset(self) -> None: ...
     def set_offline(self, is_offline: bool) -> None: ...
     def set_minimum_app_version(self, minimum_app_version: str | None) -> None: ...
+    def set_account_gate(self, is_required: bool) -> None: ...
     def state(self) -> dict[str, Any]: ...
 
 
@@ -701,6 +729,15 @@ class Driver:
 
     def wait_for(self, label: str, timeout_seconds: float) -> ScreenNode:
         return self.wait_for_any([label], timeout_seconds)[1]
+
+    def tap_text_field(self, timeout_seconds: float = 10.0) -> None:
+        """Waits for the screen's text box and taps it, so what is typed next goes into it. Each account step has exactly
+        one, so it is found by its kind and not by a label that changes with what was typed."""
+        def text_box() -> ScreenNode | None:
+            boxes = [node for node in self.read_screen().nodes
+                     if node.package_name == self.app_package and node.class_name == EDIT_TEXT_CLASS]
+            return boxes[0] if boxes else None
+        self.tap_node(self.wait_until(text_box, timeout_seconds, 'a text box on the screen'), 'text box')
 
     def tap_node(self, node: ScreenNode, label: str) -> None:
         self.device.tap(*node.center)
@@ -2000,6 +2037,140 @@ def the_update_gate_and_its_end(context: RunContext) -> str:
             'and went at the next start once the gate was off')
 
 
+# ---- Piece 7: the listener account (ADR-005; LA-APP-15) ----------------------------------------------------------------
+
+ACCOUNT_EMAIL = 'listener@example.com'
+WRONG_ACCOUNT_CODE = '000000'
+SECONDS_FOR_AN_ACCOUNT_STEP = 25
+
+
+def account_results_since(fake_api: FakeApiControl, requests_before: int) -> list[str]:
+    """What the stand-in made of each account call since [requests_before], in order: "code sent", "code incorrect",
+    "details needed", "created", "signed in" ..."""
+    return [str(request['result']) for request in fake_api.request_log().get('requests', [])[requests_before:]
+            if 'account' in request]
+
+
+def reveals_since(fake_api: FakeApiControl, requests_before: int) -> list[dict[str, Any]]:
+    return [request for request in fake_api.request_log().get('requests', [])[requests_before:] if 'reveal' in request]
+
+
+def ad_words_on_screen(context: RunContext) -> list[str]:
+    """The words of the ad the screen shows: none may, while the account gate holds the result back."""
+    card = context.card
+    return [word for word in (card.title, card.client_name, *WORDS_A_NOTIFICATION_MUST_NOT_HOLD)
+            if context.driver.shows(word, exact=False)]
+
+
+def the_account_gate_and_sign_up(context: RunContext) -> str:
+    """Piece 7 (ADR-005, LA-APP-15). With the account gate on, an identify is answered "One more step to see your result"
+    and nothing of the ad shows. "Not now" leaves a row in History that opens the gate again. "Create account" takes the
+    email, a wrong code (told), the right one, then gender, age and the consent tick with "Create account" in reach, and
+    the Result of the same scan appears, fetched by one reveal. Settings → Account says who is signed in with the email
+    masked; "Sign out", then "Sign in" with the code alone, and "Delete my account" erases it."""
+    driver, device, fake_api, card = context.driver, context.device, context.fake_api, context.card
+    fake_api.set_account_gate(True)
+    try:
+        count_before = context.recognize_count()
+        requests_before = len(fake_api.request_log().get('requests', []))
+        fake_api.queue(['match'])
+        driver.tap(IDENTIFY_LABELS)
+        driver.wait_for(LABELS['account gate heading'], SECONDS_FOR_AN_IDENTIFY)
+        sent = check_sends(context, count_before, ['match'])[0]
+        recognition_id = str(sent.get('recognition_id'))
+        if not fake_api.state()['recognitions'][-1].get('account_required'):
+            raise StepFailed('the stand-in did not hold the result back, so the gate is not what was tested')
+        if driver.shows(LABELS['result header']) or ad_words_on_screen(context):
+            raise StepFailed(f'the gate shows the ad: {ad_words_on_screen(context) or LABELS["result header"]}')
+
+        # "Not now": Home, and History keeps a row that opens the gate for the same scan.
+        driver.tap(LABELS['not now'])
+        driver.wait_for(LABELS['home heading'], 15)
+        driver.tap(LABELS['tab history'])
+        driver.tap(LABELS['history account needed'], 15)
+        driver.wait_for(LABELS['account gate heading'], 15)
+        if ad_words_on_screen(context):
+            raise StepFailed(f'History\'s row opened a gate that shows the ad: {ad_words_on_screen(context)}')
+
+        # The email, a wrong code, then the right one.
+        driver.tap(LABELS['account create'])
+        driver.wait_for(LABELS['account create heading'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        driver.tap_text_field()
+        device.type_text(ACCOUNT_EMAIL)
+        driver.tap(LABELS['account send code'])
+        driver.wait_for(LABELS['account code heading'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        driver.tap_text_field()
+        device.type_text(WRONG_ACCOUNT_CODE)
+        driver.tap(LABELS['account check code'])
+        driver.wait_for(LABELS['account code incorrect'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        driver.tap_text_field()
+        device.delete_characters(len(WRONG_ACCOUNT_CODE))
+        device.type_text(FAKE_EMAIL_CODE)
+        driver.tap(LABELS['account check code'])
+        driver.wait_for(LABELS['account about you'], SECONDS_FOR_AN_ACCOUNT_STEP)
+
+        # Gender and the consent tick first, the age last: "Create account" must be in reach with the keyboard open.
+        driver.tap(LABELS['account female'])
+        driver.tap_scrolling(LABELS['account consent'])
+        driver.tap_text_field()
+        device.type_text('34')
+        driver.tap(LABELS['account create'])
+        driver.wait_for(LABELS['result header'], 30)
+        driver.find_scrolling(card.title)
+        asked = account_results_since(fake_api, requests_before)
+        if asked != ['code sent', 'code incorrect', 'details needed', 'created']:
+            raise StepFailed(f'the stand-in saw the account calls {asked}, not the sign-up in order')
+        revealed = reveals_since(fake_api, requests_before)
+        if [(reveal['recognition_id'], reveal['reveal']) for reveal in revealed] != [(recognition_id, 'revealed')]:
+            raise StepFailed(f'the stand-in saw the reveals {revealed}, not one for {recognition_id} that gave the result')
+        context.back_home_from(LABELS['result back'])
+
+        # History now holds the result, and no waiting row.
+        driver.tap(LABELS['tab history'])
+        driver.wait_for(LABELS['history earlier'], 15)
+        driver.find_scrolling(card.history_title)
+        if driver.shows(LABELS['history account needed']):
+            raise StepFailed('History still shows the scan as waiting for an account')
+        go_home(context)
+
+        # Settings → Account: the masked email only; sign out; sign in with the code alone; delete.
+        driver.tap(LABELS['tab settings'])
+        driver.tap_scrolling(LABELS['settings account'])
+        driver.wait_for(LABELS['account signed in as'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        if driver.shows(ACCOUNT_EMAIL, exact=False):
+            raise StepFailed('Settings → Account shows the whole email')
+        driver.tap(LABELS['account sign out'])
+        driver.wait_for(LABELS['account signed out'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        driver.tap(LABELS['account sign in'])
+        driver.tap_text_field()
+        device.type_text(ACCOUNT_EMAIL)
+        driver.tap(LABELS['account send code'])
+        driver.wait_for(LABELS['account code heading'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        driver.tap_text_field()
+        device.type_text(FAKE_EMAIL_CODE)
+        driver.tap(LABELS['account check code'])
+        driver.wait_for(LABELS['account signed in as'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        state = fake_api.state()
+        if (state['accounts'], state['signed_in_installs']) != (1, 1):
+            raise StepFailed(f'the stand-in holds {state["accounts"]} accounts and {state["signed_in_installs"]} signed-in '
+                             'phones, not one of each')
+        driver.tap(LABELS['account delete'])
+        driver.tap(LABELS['account delete confirm'])
+        driver.wait_for(LABELS['account deleted'], SECONDS_FOR_AN_ACCOUNT_STEP)
+        state = fake_api.state()
+        if (state['accounts'], state['signed_in_installs']) != (0, 0):
+            raise StepFailed('the account is still held after "Delete my account"')
+        driver.tap_scrolling(LABELS['back'])
+        go_home(context)
+        asked = account_results_since(fake_api, requests_before)
+        return (f'gate on: the scan was held back with nothing of the ad on screen; "Not now" left a History row that '
+                f'reopened the gate; sign-up ({", ".join(asked[:4])}) showed the Result by one reveal; Settings → Account '
+                f'showed {LABELS["account signed in as"]!r}, signed out, signed in again ({", ".join(asked[4:])}) and '
+                'deleted the account')
+    finally:
+        fake_api.set_account_gate(False)
+
+
 JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     ('first launch registers once', first_launch_registers_once),
     ('Home, Permission, system dialog, Listening, Result; the call button offers the copy sheet',
@@ -2046,6 +2217,9 @@ JOURNEYS: list[tuple[str, Callable[[RunContext], str]]] = [
     # Piece 6 (P6 design §4.8 step 15).
     ('a tablet upright shows the Result beside Home; on its side, Home beside History',
      window_sizes_show_the_tablet_layouts),
+    # Piece 7 (the listener account, ADR-005). It turns the account gate on and, whatever happens, off again.
+    ('the account gate: held back, "Not now", sign-up with a wrong then the right code, the Result, Settings → Account',
+     the_account_gate_and_sign_up),
     # Last: clearing the app's data forgets the install and the microphone grant the journeys above rely on.
     ('"How Look Up works" shows on the first start only', first_open_shows_how_look_up_works_once),
 ]
@@ -2301,6 +2475,17 @@ class AdbDevice:
                 raise StepFailed('the network did not come back')
             time.sleep(2)
 
+    def type_text(self, text: str) -> None:
+        """Types [text] as the keyboard would, with adb's `input text`. Only letters, digits and . _ - @, which need no
+        quoting in the phone's shell."""
+        if not re.fullmatch(r'[A-Za-z0-9@._-]+', text):
+            raise ValueError('only letters, digits and . _ - @ can be typed')
+        self.adb('shell', 'input', 'text', text)
+
+    def delete_characters(self, count: int) -> None:
+        """Presses Delete [count] times at the end of the text in the box that has focus."""
+        self.adb('shell', 'input', 'keyevent', 'KEYCODE_MOVE_END', *(['KEYCODE_DEL'] * count))
+
     def press_home(self) -> None:
         self.adb('shell', 'input', 'keyevent', 'KEYCODE_HOME', check=False)
         time.sleep(1)
@@ -2395,6 +2580,10 @@ class HttpFakeApi:
     def set_minimum_app_version(self, minimum_app_version: str | None) -> None:
         """The update gate: with a minimum newer than the app's, every request with a token gets 426."""
         self.send('POST', '/__fake/minimum-app-version', {'minimum_app_version': minimum_app_version})
+
+    def set_account_gate(self, is_required: bool) -> None:
+        """The account gate (ADR-005): with it on, an identify from a phone with no account is answered ACCOUNT_REQUIRED."""
+        self.send('POST', '/__fake/account-gate', {'is_required': is_required})
 
 
 @dataclass
@@ -2631,6 +2820,8 @@ def private_values_in_device_log(device_log: str, log: dict[str, Any]) -> list[s
         problems.append('an Authorization header')
     if CARD_PHONE_NUMBER.search(device_log):
         problems.append('a phone number from a card')
+    if ACCOUNT_EMAIL in device_log:
+        problems.append('an email address')
     if any(field in device_log for field in REQUEST_BODY_FIELDS):
         problems.append('a request body')
     if 'ftypM4A' in device_log:
@@ -2648,7 +2839,7 @@ def check_device_log_holds_no_private_values(device: AdbDevice, fake_api: FakeAp
     problems = private_values_in_device_log(device_log, fake_api.request_log())
     if problems:
         raise StepFailed('the device log holds ' + ', '.join(problems))
-    return f'{len(device_log.splitlines()):,} lines read: no install id, token, Authorization header, card phone number, request body or audio'
+    return f'{len(device_log.splitlines()):,} lines read: no install id, token, Authorization header, card phone number, email address, request body or audio'
 
 
 EMULATOR_LONGEST_CLIP_SECONDS = 10.5
