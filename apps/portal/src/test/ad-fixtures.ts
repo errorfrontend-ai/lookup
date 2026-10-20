@@ -1,4 +1,4 @@
-import type { ActionCard, AdCampaignSummary, AdDetail, AdHistoryEvent, AdListViewCounts, AdSchedule, AdSummary, ListenerFigures, StationOverview } from '@lookup/contracts';
+import type { ActionCard, AdCampaignSummary, AdDetail, AdHistoryEvent, AdListViewCounts, AdSchedule, AdSummary, ListenerFigures, ListenerMix, StationOverview } from '@lookup/contracts';
 
 let adCounter = 0;
 
@@ -51,6 +51,43 @@ export function listenerFigures(overrides: Partial<ListenerFigures> = {}): Liste
     recognitionsByHour: Array<number>(24).fill(0),
     ...overrides,
   };
+}
+
+/** Who is listening, as the API answers it: by default nobody yet. Override what a test cares about. */
+export function listenerMix(overrides: Partial<ListenerMix> = {}): ListenerMix {
+  return {
+    range: 'last7Days',
+    firstDay: '2026-10-09',
+    lastDay: '2026-10-15',
+    listeners: 0,
+    knownListeners: 0,
+    notKnownYetListeners: 0,
+    genders: null,
+    ageBands: null,
+    ...overrides,
+  };
+}
+
+/** Who is listening with enough people to show groups: 14 women and 11 in other groups, 12 aged 35–44 and 13 in other groups. */
+export function listenerMixWithGroups(overrides: Partial<ListenerMix> = {}): ListenerMix {
+  return listenerMix({
+    listeners: 30,
+    knownListeners: 25,
+    notKnownYetListeners: 5,
+    genders: [
+      { group: 'FEMALE', listeners: 14 },
+      { group: 'PREFER_NOT_TO_SAY', listeners: 0 },
+      { group: 'OTHER_GROUPS', listeners: 11 },
+    ],
+    ageBands: [
+      { group: 'UNDER_18', listeners: 0 },
+      { group: 'AGE_35_TO_44', listeners: 12 },
+      { group: 'AGE_45_TO_54', listeners: 0 },
+      { group: 'AGE_55_AND_OVER', listeners: 0 },
+      { group: 'OTHER_GROUPS', listeners: 13 },
+    ],
+    ...overrides,
+  });
 }
 
 /** An overview for a set of ads: counts worked out from their own state. */

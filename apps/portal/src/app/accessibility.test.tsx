@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearAllUploads } from '../features/new-ad/ad-upload-store';
 import { findAccessibilityProblems } from '../test/accessibility';
-import { adDetail, adSummary, campaignSummary, historyEvent, listenerFigures, overviewFor, scheduleFixture } from '../test/ad-fixtures';
+import { adDetail, adSummary, campaignSummary, historyEvent, listenerFigures, listenerMix, listenerMixWithGroups, overviewFor, scheduleFixture } from '../test/ad-fixtures';
 import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '../test/fake-api';
 import { renderPortalAt } from '../test/render-portal';
 import { setScreenWidth } from '../test/screen-size';
@@ -35,12 +35,14 @@ beforeEach(() => {
     [`GET /stations/${stationId}/overview`]: () => jsonResponse(200, overviewFor([liveAd, refused])),
     [`GET /stations/${stationId}/listener-figures`]: () =>
       jsonResponse(200, listenerFigures({ recognitionsToday: 2, recognitions: 14, recognitionsSentLater: 3, buttonTaps: 5, recognitionsByHour: Array.from({ length: 24 }, (_unused, hour) => hour % 4) })),
+    [`GET /stations/${stationId}/listener-mix`]: () => jsonResponse(200, listenerMixWithGroups()),
     [`GET /stations/${stationId}/clients`]: () => jsonResponse(200, [brandA]),
     [`GET /stations/${stationId}/ads`]: () => jsonResponse(200, { ads: [liveAd, draftAd, refused], nextCursor: null }),
     ...Object.fromEntries(
       [liveAd, draftAd, bareAd].flatMap((ad: AdDetail) => [
         [`GET /stations/${stationId}/ads/${ad.id}`, () => jsonResponse(200, ad)],
         [`GET /stations/${stationId}/ads/${ad.id}/history`, () => jsonResponse(200, { events: [historyEvent({ kind: 'ad_created', fileName: 'offer.mp3' })], nextCursor: null })],
+        [`GET /stations/${stationId}/ads/${ad.id}/listener-mix`, () => jsonResponse(200, listenerMix({ listeners: 4, knownListeners: 3, notKnownYetListeners: 1 }))],
       ]),
     ),
   });
@@ -81,9 +83,14 @@ describe('accessibility: what axe finds on each screen', () => {
     renderPortalAt(`/stations/${stationId}/overview`);
     await screen.findByRole('region', { name: 'Needs attention' });
     await screen.findByLabelText('Key numbers');
+    // Who is listening (LA-STATS-07), with its two breakdowns as bars.
+    await screen.findByRole('list', { name: 'By gender' });
     await expectNoProblems();
-    // The hourly numbers as a table, too.
-    await userEvent.setup({ delay: null }).click(screen.getByRole('button', { name: 'Table' }));
+    // The hourly numbers, and who is listening, as tables too.
+    const person = userEvent.setup({ delay: null });
+    await person.click(within(screen.getByRole('group', { name: 'View' })).getByRole('button', { name: 'Table' }));
+    await person.click(within(screen.getByRole('group', { name: 'Show who is listening as' })).getByRole('button', { name: 'Table' }));
+    expect(screen.getByRole('table', { name: 'Listeners by gender' })).toBeInTheDocument();
     await expectNoProblems();
   });
 
@@ -103,6 +110,8 @@ describe('accessibility: what axe finds on each screen', () => {
     renderPortalAt(`/stations/${stationId}/ads/${liveAd.id}${tab}`);
     await screen.findByRole('heading', { level: 1, name: 'Summer service offer' });
     await screen.findAllByText(/Brand A/);
+    // On the Overview tab, wait for who is listening to arrive, so it is checked too (LA-STATS-07).
+    if (tab === '') await screen.findByText(/Not enough listeners yet to show groups/);
     await expectNoProblems();
   });
 

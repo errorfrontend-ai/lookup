@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/portal-api';
 import type { ListenerFigures } from '@lookup/contracts';
-import { adSummary, campaignSummary, listenerFigures, overviewFor, viewCounts } from '../../test/ad-fixtures';
+import { adSummary, campaignSummary, listenerFigures, listenerMix, overviewFor, viewCounts } from '../../test/ad-fixtures';
 import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
 
@@ -22,6 +22,7 @@ function installOverview(overview: ReturnType<typeof overviewFor>, clients: unkn
     'GET /auth/me': () => jsonResponse(200, owner),
     [`GET /stations/${stationId}/overview`]: () => jsonResponse(200, overview),
     [`GET /stations/${stationId}/clients`]: () => jsonResponse(200, clients),
+    [`GET /stations/${stationId}/listener-mix`]: () => jsonResponse(200, listenerMix()),
     [`GET /stations/${stationId}/listener-figures`]: (_body, { searchParams }) => jsonResponse(200, figures(searchParams.get('range') ?? '')),
   });
 }
@@ -170,6 +171,7 @@ describe('Overview', () => {
       'GET /auth/me': () => jsonResponse(200, owner),
       [`GET /stations/${stationId}/clients`]: () => jsonResponse(200, []),
       [`GET /stations/${stationId}/overview`]: () => jsonResponse(200, overviewFor([])),
+      [`GET /stations/${stationId}/listener-mix`]: () => jsonResponse(200, listenerMix()),
       [`GET /stations/${stationId}/listener-figures`]: () => {
         attempts += 1;
         return attempts === 1 ? errorResponse(500, 'INTERNAL', 'Something went wrong on our side.', 'f1guresa') : jsonResponse(200, listenerFigures({ recognitions: 5 }));
@@ -208,6 +210,7 @@ describe('Overview', () => {
         attempts += 1;
         return attempts === 1 ? errorResponse(500, 'INTERNAL', 'Something went wrong on our side.', 'abad1dea') : jsonResponse(200, overviewFor([]));
       },
+      [`GET /stations/${stationId}/listener-mix`]: () => jsonResponse(200, listenerMix()),
       [`GET /stations/${stationId}/listener-figures`]: () => jsonResponse(200, listenerFigures()),
     });
     renderPortalAt(overviewPath);

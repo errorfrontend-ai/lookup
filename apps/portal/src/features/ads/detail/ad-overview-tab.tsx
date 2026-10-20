@@ -1,4 +1,5 @@
-import { type AdDetail, wholePercentOf } from '@lookup/contracts';
+import { type AdDetail, type ListenerFiguresRange, wholePercentOf } from '@lookup/contracts';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { AdAudioPlayer } from '../../../components/ad-audio-player';
 import { FigureTile } from '../../../components/figure-tile';
@@ -10,6 +11,7 @@ import { describeFileStatus } from '../../../plain-words/ad-status-words';
 import { describeHistoryActor, describeHistoryEvent } from '../../../plain-words/ad-history-words';
 import { describeUploadRefusal } from '../../../plain-words/upload-words';
 import type { NamedMemberStation } from '../../stations/use-current-station';
+import { ListenerMixSection } from '../../overview/listener-mix-section';
 import { useAdHistory } from '../use-ad-detail';
 import { ScheduleFacts } from './schedule-facts';
 
@@ -81,12 +83,14 @@ function RecentChanges({ stationId, adId }: { stationId: string; adId: string })
   );
 }
 
-/** The ad at a glance: its audio, when it airs, what changed lately, and what listeners see. */
+/** The ad at a glance: its audio, when it airs, who listens, what changed lately, and what listeners see. */
 export function AdOverviewTab({ ad, station }: { ad: AdDetail; station: NamedMemberStation }) {
+  const [listenerMixRange, setListenerMixRange] = useState<ListenerFiguresRange>('last7Days');
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_21.5rem]">
       <div className="flex flex-col gap-4">
         <LastSevenDays ad={ad} />
+        <ListenerMixSection stationId={station.id} adId={ad.id} range={listenerMixRange} onRangeChange={setListenerMixRange} />
         <AudioCard ad={ad} stationId={station.id} />
         <section aria-label="When it airs" className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-5">
           <div className="flex items-center justify-between gap-3">

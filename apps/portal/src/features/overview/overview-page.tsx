@@ -14,6 +14,7 @@ import { useClients } from '../clients/use-clients';
 import { canChangeStationContent, useRequiredCurrentStation } from '../stations/use-current-station';
 import { useStationOverview } from '../stations/use-station-overview';
 import { isListenerFiguresRange, ListenerFiguresSection } from './listener-figures-section';
+import { ListenerMixSection } from './listener-mix-section';
 
 function CountTile({ label, count, to, icon, isAlert = false }: { label: string; count: number; to: string; icon: IconName; isAlert?: boolean }) {
   const alertClasses = isAlert && count > 0 ? 'border-danger bg-danger-soft' : 'border-line-soft bg-surface';
@@ -119,6 +120,7 @@ export function OverviewPage() {
       />
 
       <ListenerFiguresSection stationId={station.id} range={range} onRangeChange={(chosen) => setSearchParams({ range: chosen }, { replace: true })} />
+      <ListenerMixSection stationId={station.id} range={range} />
 
       {overview.isPending ? <Skeleton className="h-64 w-full" /> : null}
       {overview.isError ? (

@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '../../app/portal-api';
-import { adDetail, campaignSummary, historyEvent, overviewFor, scheduleFixture } from '../../test/ad-fixtures';
+import { adDetail, campaignSummary, historyEvent, listenerMix, overviewFor, scheduleFixture } from '../../test/ad-fixtures';
 import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
 
@@ -33,6 +33,7 @@ function installAdPage({ ad = adDetail({ title: 'Summer service offer' }), histo
     [`GET /stations/${sessionStationId}/overview`]: () => jsonResponse(200, overviewFor([ad])),
     [`GET /stations/${sessionStationId}/ads/${ad.id}`]: () => jsonResponse(200, ad),
     [`GET /stations/${sessionStationId}/ads/${ad.id}/history`]: () => jsonResponse(200, history[Math.min(historyPage++, history.length - 1)]),
+    [`GET /stations/${sessionStationId}/ads/${ad.id}/listener-mix`]: () => jsonResponse(200, listenerMix()),
     ...extra,
   });
   return { ad, fakeApi, adPath: `/stations/${sessionStationId}/ads/${ad.id}` };
@@ -142,6 +143,7 @@ describe('Ad page', () => {
         'GET /auth/me': () => jsonResponse(200, owner),
         [`GET /stations/${stationId}/overview`]: () => jsonResponse(200, overviewFor([ad])),
         [`GET /stations/${stationId}/ads/${ad.id}/history`]: () => jsonResponse(200, { events: [], nextCursor: null }),
+        [`GET /stations/${stationId}/ads/${ad.id}/listener-mix`]: () => jsonResponse(200, listenerMix()),
         [`GET /stations/${stationId}/ads/${ad.id}`]: () => {
           attempts += 1;
           return attempts === 1 ? errorResponse(500, 'INTERNAL', 'Something went wrong on our side.', 'deadbeef') : jsonResponse(200, ad);

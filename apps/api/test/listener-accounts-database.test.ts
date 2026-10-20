@@ -157,6 +157,9 @@ describe('listener accounts in the database', () => {
       ['app.delete_listener_account_of_install(uuid, text)', 'text'],
       ['app.describe_listener_account_of_install(uuid)', 'TABLE(listener_account_id uuid, email_sealed bytea)'],
       ['recognition.find_received_at_of_own_recognition(uuid, uuid)', 'timestamp with time zone'],
+      // Who is listening (LA-STATS): counts only, for the current station.
+      ['app.read_listener_mix_for_station(integer)', 'TABLE(first_day text, last_day text, known_listeners integer, not_known_yet_listeners integer, genders jsonb, age_bands jsonb)'],
+      ['app.read_listener_mix_for_ad(uuid, integer)', 'TABLE(first_day text, last_day text, known_listeners integer, not_known_yet_listeners integer, genders jsonb, age_bands jsonb)'],
     ];
     const describeFunction = async (signature: string) =>
       (

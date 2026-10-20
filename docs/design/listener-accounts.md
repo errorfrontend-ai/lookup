@@ -146,7 +146,8 @@ code).
 
 ## 7. Statistics
 
-- `listener_accounts.read_listener_mix_for_station(range_days)` and `…_for_ad(ad_id, range_days)` run as the current
+- `app.read_listener_mix_for_station(range_days)` and `app.read_listener_mix_for_ad(ad_id, range_days)` (migration
+  `1791900100000-ListenerAudienceMix`, SECURITY DEFINER, EXECUTE for `lookup_api` only) run as the current
   station (they read `current_station_id()`; the ad one also checks the ad belongs to it → else 404). They join
   `app.recognition_events` (counted outcomes, captured in range) → `app.listener_installs` → `app.listener_accounts` and
   return **distinct-listener counts**: known listeners by gender, by age band, and the number of installs not yet known.
@@ -158,12 +159,16 @@ code).
      the smallest shown non-zero group joins it.
   4. A zero is shown as 0 (it names no one).
 - Contract `listener-mix-schemas.ts`: `{ range, firstDay, lastDay, listeners, knownListeners, notKnownYetListeners,
-  genders: Group[] | null, ageBands: Group[] | null }`, `Group = { group, listeners }`. No identifier of any kind.
-- Routes: `GET /stations/:stationId/listener-mix?range=1d|7d|30d` and
+  genders: Group[] | null, ageBands: Group[] | null }`, `Group = { group, listeners }`, with `group` one of the contract's
+  genders or age bands or `OTHER_GROUPS`. A strict zod schema (`ListenerMix`): no identifier of any kind can be added.
+  The rule is `suppressSmallGroups` in `apps/api/src/features/station-overview/listener-mix-suppression.ts`.
+- Routes: `GET /stations/:stationId/listener-mix?range=today|last7Days|last30Days` (the last 7 days by default) and
   `GET /stations/:stationId/ads/:adId/listener-mix?range=…`, next to `listener-figures`, same guards, same ranges.
-- Portal: a **Who is listening** section on Overview and a block on each ad's Overview tab: gender and age-band bars with
-  the Chart/Table switch used by the by-hour chart, the range switch, "People we don't know yet: N", the under-10 text,
-  loading and error states, keyboard and screen-reader friendly, one column on a phone.
+  Another station's ad, an unknown id and a malformed one all answer 404.
+- Portal (`features/overview/listener-mix-section.tsx`): a **Who is listening** section on Overview (it follows the page's
+  date range) and on each ad's Overview tab (with its own date choice): the listeners, those with an account and "People
+  we don't know yet"; gender and age-band bars with one Chart/Table switch for both ("Show who is listening as"); the
+  under-10 text; loading, error and empty states; keyboard and screen-reader friendly; one column on a phone.
 - Deleting an account, or signing out, moves that phone's scans to "not known yet". P7's rollups and CSV will take these
   groups later; this change reads live from the events like `listener-figures`.
 
