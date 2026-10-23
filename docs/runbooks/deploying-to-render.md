@@ -125,8 +125,11 @@ Microsoft Authenticator), then clear the shell. Sign in at the portal address; i
 ## When a release adds a secret (a site already running)
 
 A release can need a secret the running site does not have yet. The API then refuses to start, Render reports
-**Failed deploy**, and the previous version stays live, so nothing is lost. The failed deploy's log names it, without
-its value: `Invalid configuration — <NAME>: invalid_type`.
+**Failed deploy**, and the previous version stays live, so nothing is lost. The failed deploy's log names the setting,
+never its value, in a line with `"event":"startup","msg":"process failure"`: look for `"settings":["<NAME>: invalid_type"]`
+(`invalid_type` means it is missing; `invalid_format`, that its value has the wrong shape). Versions before 24 October 2026
+showed a long name as `[token]` instead (`Invalid configuration — [token]: invalid_type` meant
+`LISTENER_EMAIL_ENCRYPTION_SECRET`).
 
 Listener accounts (October 2026) added `LISTENER_EMAIL_ENCRYPTION_SECRET`. To add it:
 

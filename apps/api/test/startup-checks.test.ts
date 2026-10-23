@@ -1,6 +1,8 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadAppConfig } from '../src/config/app-config.js';
+import { InvalidConfigurationError } from '../src/config/invalid-configuration-error.js';
+import { serializeErrorForLog } from '../src/infrastructure/logging/serialize-error-for-log.js';
 import { assertDatabaseRoleIsRestricted } from '../src/infrastructure/database/database-role-check.js';
 import { databaseSetupClient, lookupApiClient } from './support/database-clients.js';
 
@@ -136,6 +138,33 @@ describe('production configuration fails closed', () => {
     expect(() => loadAppConfig({ ...developmentConfig, ADMIN_DATABASE_URL: developmentConfig.DATABASE_URL })).toThrow(
       /ADMIN_DATABASE_URL: must be the super-admin role's own address/,
     );
+  });
+
+  it('LA-ROLLOUT-02: the log names a missing setting in full, even one as long as a token, and never prints a value', () => {
+    // What Render's first deploy of listener accounts met: the key not added yet. Its name is 32 characters, which the
+    // masking of message text takes for a token, so the log must name it in a field of its own.
+    const { LISTENER_EMAIL_ENCRYPTION_SECRET: _missing, ...withoutTheKey } = soundProductionConfig;
+    let refusal: unknown;
+    try {
+      loadAppConfig(withoutTheKey);
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(InvalidConfigurationError);
+    const logged = serializeErrorForLog(refusal);
+    expect(logged.type).toBe('InvalidConfigurationError');
+    expect(logged.settings).toEqual(['LISTENER_EMAIL_ENCRYPTION_SECRET: invalid_type']);
+    const written = JSON.stringify(logged);
+    for (const value of Object.values(soundProductionConfig)) expect(written).not.toContain(value);
+    // A wrong value too: named, never printed.
+    try {
+      loadAppConfig({ ...soundProductionConfig, LISTENER_EMAIL_ENCRYPTION_SECRET: 'Not-random-but-forty-three-characters-long-x', AUTHENTICATION_SECRET: 'short' });
+    } catch (error) {
+      refusal = error;
+    }
+    const second = serializeErrorForLog(refusal);
+    expect(second.settings).toEqual(['AUTHENTICATION_SECRET: invalid_format']);
+    expect(JSON.stringify(second)).not.toContain('short"');
   });
 
   it('LA-ROLLOUT-02: the listener email key is required, random and its own, and the message never prints it', () => {

@@ -1,4 +1,5 @@
 import { scrubPersonalData } from '../../common/privacy/scrub-personal-data.js';
+import { InvalidConfigurationError } from '../../config/invalid-configuration-error.js';
 
 /**
  * How an error is written to the private log.
@@ -10,7 +11,8 @@ import { scrubPersonalData } from '../../common/privacy/scrub-personal-data.js';
  * (`invalid input syntax for type uuid: "…"`).
  *
  * This keeps what diagnoses a failure — type, message, stack, SQLSTATE, constraint, table, column,
- * the SQL text with its $1 placeholders, and the cause chain — and drops or masks the values.
+ * the SQL text with its $1 placeholders, and the cause chain — and drops or masks the values. A
+ * refused configuration keeps its settings' names and reasons unmasked (never their values).
  */
 export interface LoggedError {
   type: string;
@@ -23,6 +25,8 @@ export interface LoggedError {
   schema?: string;
   routine?: string;
   query?: string;
+  /** For a refused configuration: each setting and what is wrong with it (names from our schema, never values). */
+  settings?: string[];
   cause?: LoggedError;
 }
 
@@ -52,6 +56,7 @@ export function serializeErrorForLog(loggedValue: unknown, depth = 0): LoggedErr
       if (text) logged[name] = text;
     }
   }
+  if (value instanceof InvalidConfigurationError) logged.settings = [...value.settingProblems];
   const query = asString(fields.query);
   if (query) logged.query = scrubPersonalData(query.slice(0, MAXIMUM_QUERY_LENGTH));
   if (value.cause !== undefined && depth < MAXIMUM_CAUSE_DEPTH) logged.cause = serializeErrorForLog(value.cause, depth + 1);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isListenerAppVersion } from '@lookup/contracts';
+import { InvalidConfigurationError } from './invalid-configuration-error.js';
 
 /** How the database connection is protected: `require` encrypts it; `verify-full` also checks the server's certificate. */
 export const DATABASE_TLS_MODES = ['disable', 'require', 'verify-full'] as const;
@@ -278,7 +279,7 @@ export function loadAppConfig(source: NodeJS.ProcessEnv = process.env): AppConfi
     const problems = parsed.error.issues.map(
       (issue) => `${issue.path.join('.') || '(root)'}: ${issue.code === 'custom' ? issue.message : issue.code}`,
     );
-    throw new Error(`Invalid configuration — ${problems.join('; ')}`);
+    throw new InvalidConfigurationError(problems);
   }
   return parsed.data;
 }
