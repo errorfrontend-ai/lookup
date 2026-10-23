@@ -71,8 +71,9 @@ is taken). The portal is at that address; the API at `/api/v1`; the listener app
 
 ### 4. The app's own secrets
 
-On your computer, in the repository: `npm run deploy:new-secrets`. It prints four lines (`AUTHENTICATION_SECRET=…`
-and three more), made on your computer and shown once. Keep the terminal open for step 6, then clear it.
+On your computer, in the repository: `npm run deploy:new-secrets`. It prints five lines (`AUTHENTICATION_SECRET=…`
+and four more), made on your computer and shown once. Keep the terminal open for step 6, then clear it. These five are
+for the **first** deploy only: on a site already running, see "When a release adds a secret" below.
 
 ### 5. Push the code
 
@@ -120,6 +121,30 @@ Microsoft Authenticator), then clear the shell. Sign in at the portal address; i
    the worker's logs; if Render reports it ran out of memory, change its plan to `1c-2g`.
 4. The listener app (a build pointed at the address) identifies the ad; the Overview's numbers count it.
 5. `lookup-key-value` → Info: **Max memory policy** is `noeviction`.
+
+## When a release adds a secret (a site already running)
+
+A release can need a secret the running site does not have yet. The API then refuses to start, Render reports
+**Failed deploy**, and the previous version stays live, so nothing is lost. The failed deploy's log names it, without
+its value: `Invalid configuration — <NAME>: invalid_type`.
+
+Listener accounts (October 2026) added `LISTENER_EMAIL_ENCRYPTION_SECRET`. To add it:
+
+1. On your computer, in the repository: `npm run deploy:new-secrets -- LISTENER_EMAIL_ENCRYPTION_SECRET`. It prints
+   one line, `LISTENER_EMAIL_ENCRYPTION_SECRET=…`.
+2. Keep a copy of that line somewhere safe (a password manager). If it is ever lost or changed, every listener's email
+   becomes unreadable and they must make their accounts again.
+3. In Render: **lookup-api** → **Environment** → **Add Environment Variable**. Key `LISTENER_EMAIL_ENCRYPTION_SECRET`,
+   value the part after `=`. Choose **Save, rebuild, and deploy**.
+4. Clear the terminal.
+5. Wait for the deploy to show **Live**, then check `https://<address>/api/v1/health` answers `{"status":"ok"}`.
+
+Never paste the other four secrets again into a running site: a new `AUTHENTICATION_SECRET` signs everyone out, a new
+`LISTENER_INSTALL_ID_PEPPER` or `LISTENER_INSTALL_TOKEN_SECRET` makes every phone register again, and a new
+`TWO_FACTOR_ENCRYPTION_SECRET` makes the super admins' sign-in codes unreadable.
+
+The listener-account gate stays off (`LISTENER_ACCOUNT_REQUIRED` is `false`) until it is switched on as in
+`docs/design/listener-accounts.md` §8; the new routes and the "Who is listening" panel work as soon as the deploy is live.
 
 ## Notes and known limits of the showcase
 
