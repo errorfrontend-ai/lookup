@@ -11,9 +11,9 @@ const owner = signedInUserWith([{ role: 'OWNER' }]);
 const stationId = owner.stations[0]?.id as string;
 const clientsPath = `/stations/${stationId}/clients`;
 
-const brandA: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000a1', name: 'Brand A', adCount: 3, liveNowAdCount: 1 };
-const brandB: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000b2', name: 'Brand B', adCount: 1, liveNowAdCount: 0 };
-const brandC: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000c3', name: 'Brand C', adCount: 0, liveNowAdCount: 0 };
+const brandA: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000a1', name: 'Brand A', adCount: 3, liveNowAdCount: 1, viewerCount: 0, pendingInvitationCount: 0 };
+const brandB: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000b2', name: 'Brand B', adCount: 1, liveNowAdCount: 0, viewerCount: 0, pendingInvitationCount: 0 };
+const brandC: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000c3', name: 'Brand C', adCount: 0, liveNowAdCount: 0, viewerCount: 0, pendingInvitationCount: 0 };
 
 afterEach(() => {
   queryClient.clear();

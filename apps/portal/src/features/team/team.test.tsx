@@ -98,7 +98,7 @@ describe('Team', () => {
 
 describe('accepting an invitation', () => {
   const token = 'C'.repeat(43);
-  const open = { state: 'OPEN', stationName: 'Radio Phoenix', frequencyLabel: '89.5 FM', role: 'MANAGER', invitedEmail: 'new@example.test', hasAccount: false, expiresAt: new Date(Date.now() + 86_400_000).toISOString() };
+  const open = { kind: 'STATION_MEMBER', state: 'OPEN', stationName: 'Radio Phoenix', frequencyLabel: '89.5 FM', role: 'MANAGER', clientName: null, invitedEmail: 'new@example.test', hasAccount: false, expiresAt: new Date(Date.now() + 86_400_000).toISOString() };
 
   it('a new person joins with a new account and goes to the station', async () => {
     window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
@@ -106,7 +106,7 @@ describe('accepting an invitation', () => {
       'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
       'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
       'POST /invitations/description': () => jsonResponse(200, open),
-      'POST /invitations/acceptance-with-new-account': () => jsonResponse(201, { stationId }),
+      'POST /invitations/acceptance-with-new-account': () => jsonResponse(201, { kind: 'STATION_MEMBER', stationId, clientId: null }),
     });
     const { router } = renderPortalAt('/invitations/accept');
     expect(await screen.findByRole('heading', { name: "You're invited to join Radio Phoenix · 89.5 FM as a Manager" })).toBeInTheDocument();

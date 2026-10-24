@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ClientAccess } from '../clients/client-viewer-schemas.js';
 
 /**
  * Password rules (NIST SP 800-63B revision 4, single-factor passwords): at least 15 and at most 128
@@ -45,6 +46,8 @@ export interface SignedInPortalUser {
   isTwoFactorCodeNeeded: boolean;
   /** A station still at step 1 or 2 of sign-up has no name or frequency yet. */
   stations: Array<{ id: string; name: string | null; frequencyLabel: string | null; status: StationStatus; role: StationRole }>;
+  /** The clients whose adverts the person follows (ADR-006), at active stations. Empty for most station members. */
+  clientAccesses: ClientAccess[];
 }
 
 /** POST /auth/two-factor-code — the 6-digit code from the super admin's authenticator app. */

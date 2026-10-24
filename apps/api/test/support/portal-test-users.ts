@@ -63,6 +63,29 @@ export class PortalTestUsers {
     return { userId, email, password, stationId };
   }
 
+  /**
+   * A person who follows one client at one station (ADR-006) and belongs to no station: what a station's invitation
+   * makes, written straight to the database for tests that are not about the invitation itself.
+   */
+  async createClientViewer(stationId: string, clientId: string, options: { password?: string; fullName?: string } = {}): Promise<PortalTestUser> {
+    const runTag = randomUUID().slice(0, 8);
+    const password = options.password ?? `calm harbour ${runTag} evening walk`;
+    const userId = randomUUID();
+    const email = `client-${runTag}@example.test`;
+    await this.setupClient.query(
+      `INSERT INTO app.portal_users (id, email, password_hash, full_name) VALUES ($1, $2, $3, $4)`,
+      [userId, email, await this.passwordHasher.hashNewPassword(password), options.fullName ?? 'Chipo Client'],
+    );
+    await this.addClientAccess(userId, stationId, clientId);
+    this.createdUserIds.push(userId);
+    return { userId, email, password, stationId };
+  }
+
+  /** Another client this person follows, perhaps at another station (one login for every station, ADR-006). */
+  async addClientAccess(portalUserId: string, stationId: string, clientId: string): Promise<void> {
+    await this.setupClient.query('INSERT INTO app.client_viewers (client_id, station_id, portal_user_id) VALUES ($1, $2, $3)', [clientId, stationId, portalUserId]);
+  }
+
   /** The stations created so far. */
   get stationIds(): readonly string[] {
     return this.createdStationIds;

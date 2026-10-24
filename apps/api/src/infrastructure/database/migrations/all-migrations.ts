@@ -10,6 +10,7 @@ import { FingerprintVersionTwo1791700000000 } from './1791700000000-FingerprintV
 import { RegistrationAndAdmin1791800000000 } from './1791800000000-RegistrationAndAdmin.js';
 import { ListenerAccounts1791900000000 } from './1791900000000-ListenerAccounts.js';
 import { ListenerAudienceMix1791900100000 } from './1791900100000-ListenerAudienceMix.js';
+import { ClientAccounts1792000000000 } from './1792000000000-ClientAccounts.js';
 
 /** Every migration, oldest first. The migration script runs these; the API never does. */
 export const ALL_MIGRATIONS = [
@@ -25,4 +26,5 @@ export const ALL_MIGRATIONS = [
   RegistrationAndAdmin1791800000000,
   ListenerAccounts1791900000000,
   ListenerAudienceMix1791900100000,
+  ClientAccounts1792000000000,
 ];

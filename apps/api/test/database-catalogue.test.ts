@@ -25,6 +25,8 @@ const TABLES_WITHOUT_ROW_LEVEL_SECURITY: Record<string, string> = {
 const TABLES_WITH_A_STATION_BUT_NO_STATION_POLICY: Record<string, string> = {
   'app.recognition_reports': '"Report this" reports are for super admins only (the 5a console); no station ever reads them (P4-D28)',
   'app.email_verification_links': 'only the registration functions touch it (P5A design §2.3)',
+  'app.client_viewers': 'who follows which client (ADR-006); only the client-access functions touch it, each checking the station or the person',
+  'app.client_viewer_muted_ads': 'a client’s own muted adverts (ADR-006); only the settings and reminder functions touch it',
 };
 /** Tables with row-level security and no policy at all: no service role reads or writes them directly. */
 const TABLES_WITH_NO_POLICY: Record<string, string> = {
@@ -35,6 +37,11 @@ const TABLES_WITH_NO_POLICY: Record<string, string> = {
   'app.recognition_idempotency_keys': 'only the recognition functions touch it',
   'app.refresh_tokens': 'only the sign-in functions touch it',
   'app.listener_accounts': 'listeners’ emails, genders and ages (ADR-005); only the account functions and the audience figures touch it',
+  'app.client_viewers': 'who follows which client (ADR-006); only the client-access functions touch it (P5C-DATABASE-01)',
+  'app.client_viewer_notification_settings': 'a client’s own reminder settings (ADR-006); only the settings and reminder functions touch it',
+  'app.client_viewer_muted_ads': 'a client’s own muted adverts (ADR-006); only the settings and reminder functions touch it',
+  'app.web_push_subscriptions': 'push endpoints and keys are secrets (ADR-006); only the device functions and the push sender touch it',
+  'app.air_time_reminders': 'which reminders went out (ADR-006); only the reminder functions touch it',
 };
 /** Tables whose ids the API makes (UUID version 7, time-ordered for the busiest tables), or that number their rows. */
 const TABLES_WITHOUT_AN_ID_DEFAULT = ['migrations', 'recognition_events', 'audit_events', 'engagement_events'];
@@ -264,7 +271,7 @@ describe('database catalogue', () => {
         'app.ads.upload_content_sha256', 'app.email_verification_links.token_hash', 'app.invitations.token_hash',
         'app.listener_accounts.email_hash', 'app.listener_accounts.email_sealed', 'app.listener_installs.install_id_hash',
         'app.portal_users.two_factor_secret_ciphertext', 'app.refresh_tokens.token_hash',
-        'fingerprints.audio_assets.content_sha256',
+        'app.web_push_subscriptions.endpoint_hash', 'fingerprints.audio_assets.content_sha256',
       ]);
     });
 

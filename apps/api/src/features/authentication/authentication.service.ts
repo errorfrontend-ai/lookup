@@ -198,7 +198,8 @@ export class AuthenticationService {
   }
 
   /**
-   * The signed-in person and the stations they belong to, read through row-level security as that user.
+   * The signed-in person, the stations they belong to (read through row-level security as that user) and the clients
+   * whose adverts they follow.
    * `isTwoFactorVerified`: whether this session passed the super admin's second factor (false for a new session).
    */
   describeSignedInUser(portalUserId: string, isTwoFactorVerified = false): Promise<SignedInPortalUser> {
@@ -215,6 +216,10 @@ export class AuthenticationService {
             WHERE memberships.portal_user_id = app.current_user_id()
             ORDER BY stations.name`,
         )) as Array<{ id: string; name: string | null; frequency_label: string | null; status: StationStatus; role: StationRole }>;
+        // The clients whose adverts the person follows (ADR-006), through the function that checks it is them.
+        const clientAccesses = (await database.query(
+          'SELECT station_id, station_name, station_frequency_label, client_id, client_name FROM app.list_client_viewer_accesses()',
+        )) as Array<{ station_id: string; station_name: string | null; station_frequency_label: string | null; client_id: string; client_name: string }>;
         return {
           user: { id: user.id, fullName: user.full_name, email: user.email, platformRole: user.platform_role },
           // A super admin's second factor is asked before the admin console opens (P5A-D19), once per session.
@@ -225,6 +230,13 @@ export class AuthenticationService {
             frequencyLabel: station.frequency_label,
             status: station.status,
             role: station.role,
+          })),
+          clientAccesses: clientAccesses.map((access) => ({
+            stationId: access.station_id,
+            stationName: access.station_name,
+            frequencyLabel: access.station_frequency_label,
+            clientId: access.client_id,
+            clientName: access.client_name,
           })),
         };
       },

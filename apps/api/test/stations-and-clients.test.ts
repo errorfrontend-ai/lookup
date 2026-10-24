@@ -259,7 +259,7 @@ describe('station access, the station profile and clients', () => {
       const sentAt = Date.now();
       const created = expectStatus(await post(owner, `/api/v1/stations/${owner.stationId}/clients`, { name: '  Brand A  ' }), 201);
       const answeredAt = Date.now();
-      expect(created.body).toEqual({ id: expect.any(String), name: 'Brand A' });
+      expect(created.body).toEqual({ id: expect.any(String), name: 'Brand A', invitedEmail: null });
       const audit = (
         await setupClient.query(
           'SELECT station_id, actor_portal_user_id, action, entity_type, entity_id, changes, request_id, occurred_at FROM app.audit_events WHERE entity_id = $1',

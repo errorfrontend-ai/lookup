@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import type { StationRole, StationStatus } from '../authentication/authentication-schemas.js';
+import { EmailAddress } from '../registration/email-address.js';
 
 export const MAXIMUM_CLIENT_NAME_LENGTH = 80;
 
 export const CreateClientInput = z.strictObject({
   name: z.string().trim().min(1).max(MAXIMUM_CLIENT_NAME_LENGTH),
+  /** The client's email (ADR-006): when given, the client is invited to view their adverts in the same step. */
+  email: EmailAddress.optional(),
 });
 export type CreateClientInput = z.infer<typeof CreateClientInput>;
 
@@ -61,8 +64,17 @@ export interface ClientSummary {
   name: string;
 }
 
-/** A client in the clients list: how many ads the station has for it, and how many are on air right now. */
+/** What adding a client answers: the client, and the email invited to view its adverts (null when none was given). */
+export interface CreatedClient extends ClientSummary {
+  invitedEmail: string | null;
+}
+
+/** A client in the clients list: how many ads the station has for it, how many are on air right now, and who can view them. */
 export interface ClientListItem extends ClientSummary {
   adCount: number;
   liveNowAdCount: number;
+  /** People who follow this client's adverts (ADR-006). */
+  viewerCount: number;
+  /** Invitations to view them not yet accepted or cancelled (expired ones too). */
+  pendingInvitationCount: number;
 }

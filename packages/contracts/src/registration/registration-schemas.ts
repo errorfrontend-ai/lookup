@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { StationStatus } from '../authentication/authentication-schemas.js';
 import { normalizeZambianPhoneInput } from '../phone-numbers/zambian-phone-numbers.js';
+import { EmailAddress, MAXIMUM_EMAIL_LENGTH } from './email-address.js';
 import { MAXIMUM_CITY_LENGTH, ZAMBIAN_PROVINCES } from '../stations/station-schemas.js';
 import type { LicenceDocumentSummary } from './station-upload-schemas.js';
 
@@ -26,7 +27,6 @@ export const REGISTRATION_RULE_REASONS = [
 export type RegistrationRuleReason = (typeof REGISTRATION_RULE_REASONS)[number];
 
 export const MAXIMUM_FULL_NAME_LENGTH = 120;
-export const MAXIMUM_EMAIL_LENGTH = 254;
 export const MAXIMUM_STATION_NAME_LENGTH = 120;
 export const MAXIMUM_FREQUENCY_LABEL_LENGTH = 32;
 export const MAXIMUM_COVERAGE_NOTE_LENGTH = 300;
@@ -47,7 +47,7 @@ export const EMAIL_LINK_LIFETIME_HOURS = 24;
 export const APPLICATION_REVIEW_TIME_TEXT = '2 working days';
 
 export const FullName = z.string().trim().min(1).max(MAXIMUM_FULL_NAME_LENGTH);
-export const EmailAddress = z.string().trim().max(MAXIMUM_EMAIL_LENGTH).pipe(z.email());
+export { EmailAddress, MAXIMUM_EMAIL_LENGTH };
 
 /** A Zambian mobile number as typed ("97 123 4567", "0977 123 456", "+260…"), stored as E.164. */
 export const ZambianMobileNumber = z

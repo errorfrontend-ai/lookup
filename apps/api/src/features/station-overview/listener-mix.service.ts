@@ -5,7 +5,7 @@ import { StationScopedTransaction } from '../../infrastructure/database/station-
 import { suppressSmallGroups } from './listener-mix-suppression.js';
 
 /** What the database functions return: counts only, every group present, with a zero where nobody is. */
-interface ListenerMixRow {
+export interface ListenerMixRow {
   first_day: string;
   last_day: string;
   known_listeners: number;
@@ -42,21 +42,29 @@ export class ListenerMixService {
   }
 
   private shown(query: ListenerMixQuery, row: ListenerMixRow): ListenerMix {
-    return {
-      range: query.range,
-      firstDay: row.first_day,
-      lastDay: row.last_day,
-      listeners: row.known_listeners + row.not_known_yet_listeners,
-      knownListeners: row.known_listeners,
-      notKnownYetListeners: row.not_known_yet_listeners,
-      genders: suppressSmallGroups(
-        LISTENER_GENDERS.map((group) => ({ group, listeners: Number(row.genders[group] ?? 0) })),
-        row.known_listeners,
-      ),
-      ageBands: suppressSmallGroups(
-        LISTENER_AGE_BANDS.map((group) => ({ group, listeners: Number(row.age_bands[group] ?? 0) })),
-        row.known_listeners,
-      ),
-    };
+    return toListenerMix(query.range, row);
   }
+}
+
+/**
+ * What a reader may see of one mix row (the station's, or a client's for one advert, ADR-006): the counts, and each
+ * breakdown under the small-group rule.
+ */
+export function toListenerMix(range: ListenerMix['range'], row: ListenerMixRow): ListenerMix {
+  return {
+    range,
+    firstDay: row.first_day,
+    lastDay: row.last_day,
+    listeners: row.known_listeners + row.not_known_yet_listeners,
+    knownListeners: row.known_listeners,
+    notKnownYetListeners: row.not_known_yet_listeners,
+    genders: suppressSmallGroups(
+      LISTENER_GENDERS.map((group) => ({ group, listeners: Number(row.genders[group] ?? 0) })),
+      row.known_listeners,
+    ),
+    ageBands: suppressSmallGroups(
+      LISTENER_AGE_BANDS.map((group) => ({ group, listeners: Number(row.age_bands[group] ?? 0) })),
+      row.known_listeners,
+    ),
+  };
 }

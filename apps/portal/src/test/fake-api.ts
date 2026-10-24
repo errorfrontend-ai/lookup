@@ -58,6 +58,7 @@ export function signedInUserWith(stations: Partial<SignedInPortalUser['stations'
       role: 'OWNER',
       ...station,
     })),
+    clientAccesses: [],
   };
 }
 

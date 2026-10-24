@@ -17,7 +17,8 @@ export type NotificationMessage =
   | { template: 'change_request_rejected'; stationName: string; reason: string }
   | { template: 'station_suspended'; stationName: string; reason: string }
   | { template: 'station_reactivated'; stationName: string }
-  | { template: 'team_invitation'; linkToken: string; stationName: string; stationRole: string };
+  | { template: 'team_invitation'; linkToken: string; stationName: string; stationRole: string }
+  | { template: 'client_viewer_invitation'; linkToken: string; stationName: string; frequencyLabel: string | null; clientName: string };
 
 export type NotificationTemplate = NotificationMessage['template'];
 
@@ -105,6 +106,14 @@ export function emailTextOf(message: NotificationMessage, portalOrigin: string):
         subject: `You're invited to ${message.stationName} on Look Up`,
         text: `You're invited to join ${message.stationName}'s team on Look Up as ${ROLE_WORDS[message.stationRole] ?? 'a member'}.\n\n${portalOrigin}/invitations/accept#token=${message.linkToken}\n\nThe invitation works once and lasts 7 days.`,
       };
+    // Word for word like the team's invitation where it can be (ADR-006, P5C-ONBOARDING-04).
+    case 'client_viewer_invitation': {
+      const station = message.frequencyLabel ? `${message.stationName} (${message.frequencyLabel})` : message.stationName;
+      return {
+        subject: `You're invited to view ${message.clientName}'s adverts on Look Up`,
+        text: `${station} has invited you to view ${message.clientName}'s adverts on Look Up: when they air, how listeners respond, and a reminder before each one airs.\n\n${portalOrigin}/invitations/accept#token=${message.linkToken}\n\nThe invitation works once and lasts 7 days.`,
+      };
+    }
     default:
       return null;
   }

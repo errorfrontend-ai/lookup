@@ -26,6 +26,11 @@ export const HUMAN_CHECK_TEST_SECRET_KEYS = [
 /** Dependency-injection token for the validated application configuration. */
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
+/** An environment variable set to nothing reads as unset (Render and .env files can hold empty values). */
+function emptyAsUnset(value: unknown): unknown {
+  return value === '' ? undefined : value;
+}
+
 /** Comma-separated list of exact browser origins, e.g. "https://portal.example.com". */
 const BrowserOrigins = z
   .string()
@@ -198,6 +203,16 @@ const AppConfigSchema = z
     LISTENER_EMAIL_CODE_CHECKS_PER_INSTALL_PER_HOUR: z.coerce.number().int().min(1).max(1_000).default(20),
     /** Accounts one install may create per day. */
     LISTENER_ACCOUNTS_CREATED_PER_INSTALL_PER_DAY: z.coerce.number().int().min(1).max(1_000).default(5),
+    /**
+     * Web Push for clients' reminders (ADR-006): the server's VAPID key pair (P-256: the public key's 65 bytes and the
+     * private key's 32, in base64url) and the address push services may write to. All three or none: without them push is
+     * off and reminders go by email. An empty value counts as unset.
+     */
+    WEB_PUSH_PUBLIC_KEY: z.preprocess(emptyAsUnset, z.string().regex(/^[A-Za-z0-9_-]{87}$/).optional()),
+    WEB_PUSH_PRIVATE_KEY: z.preprocess(emptyAsUnset, z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional()),
+    WEB_PUSH_CONTACT_EMAIL: z.preprocess(emptyAsUnset, z.email().max(254).optional()),
+    /** How often the air-time reminder job looks for slots about to start. */
+    AIR_TIME_REMINDER_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
   })
   .superRefine((config, context) => {
     // The template's placeholder has the right shape, so refuse it by name in every environment.
@@ -215,6 +230,10 @@ const AppConfigSchema = z
     ];
     if (new Set(secrets).size < secrets.length) {
       context.addIssue({ code: 'custom', path: ['LISTENER_INSTALL_TOKEN_SECRET'], message: 'the secrets must all be different' });
+    }
+    const webPushSettingsGiven = [config.WEB_PUSH_PUBLIC_KEY, config.WEB_PUSH_PRIVATE_KEY, config.WEB_PUSH_CONTACT_EMAIL].filter((value) => value !== undefined).length;
+    if (webPushSettingsGiven !== 0 && webPushSettingsGiven !== 3) {
+      context.addIssue({ code: 'custom', path: ['WEB_PUSH_PUBLIC_KEY'], message: 'set all three web push settings, or none' });
     }
     if (config.ADMIN_DATABASE_URL === config.DATABASE_URL) {
       context.addIssue({ code: 'custom', path: ['ADMIN_DATABASE_URL'], message: "must be the super-admin role's own address" });

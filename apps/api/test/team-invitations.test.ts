@@ -98,7 +98,7 @@ describe('team invitations', () => {
 
     const password = `morning tide window ${randomUUID().slice(24)}`;
     const joined = await publicly('/invitations/acceptance-with-new-account').send({ token, fullName: 'Bwalya Phiri', mobileNumber: null, password }).expect(201);
-    expect(joined.body).toEqual({ stationId: owner.stationId });
+    expect(joined.body).toEqual({ kind: 'STATION_MEMBER', stationId: owner.stationId, clientId: null });
     const inviteeCookie = cookieHeader(cookiesSetBy(joined));
     const seen = await at(inviteeCookie, 'get', `/stations/${owner.stationId}/members`).expect(200);
     expect(seen.body).toMatchObject({ canManage: false, pendingInvitations: [] });
@@ -121,7 +121,7 @@ describe('team invitations', () => {
     const asStranger = await signedIn(stranger);
     expect((await at(asStranger, 'post', '/invitations/acceptance').send({ token: second.token }).expect(403)).body.error.code).toBe('INVITATION_FOR_ANOTHER_EMAIL');
     const asOther = await signedIn(other);
-    expect((await at(asOther, 'post', '/invitations/acceptance').send({ token: second.token }).expect(200)).body).toEqual({ stationId: owner.stationId });
+    expect((await at(asOther, 'post', '/invitations/acceptance').send({ token: second.token }).expect(200)).body).toEqual({ kind: 'STATION_MEMBER', stationId: owner.stationId, clientId: null });
     const withAccount = await publicly('/invitations/acceptance-with-new-account').send({ token: second.token, fullName: 'X', mobileNumber: null, password: `a password long enough ${randomUUID()}` }).expect(400);
     expect(withAccount.body.error.code).toBe('INVITATION_NOT_VALID');
     expect((await at(ownerCookie, 'post', `/stations/${owner.stationId}/invitations`).send({ email: other.email, role: 'ANALYST' }).expect(409)).body.error.code).toBe('ALREADY_A_MEMBER');

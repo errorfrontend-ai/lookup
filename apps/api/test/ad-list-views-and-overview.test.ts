@@ -361,8 +361,8 @@ describe('ad list views, search, sorting and the overview', () => {
       const response = await get(owner, `/api/v1/stations/${owner.stationId}/clients`);
       expect(response.status).toBe(200);
       expect(response.body).toEqual([
-        { id: clients.brandX, name: 'Brand X', adCount: 6, liveNowAdCount: 2 },
-        { id: clients.brandY, name: 'Brand Y', adCount: 4, liveNowAdCount: 0 },
+        { id: clients.brandX, name: 'Brand X', adCount: 6, liveNowAdCount: 2, viewerCount: 0, pendingInvitationCount: 0 },
+        { id: clients.brandY, name: 'Brand Y', adCount: 4, liveNowAdCount: 0, viewerCount: 0, pendingInvitationCount: 0 },
       ]);
     });
   });

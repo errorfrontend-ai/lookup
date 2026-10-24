@@ -15,8 +15,8 @@ const owner = signedInUserWith([{ role: 'OWNER' }]);
 const stationId = owner.stations[0]?.id as string;
 const adId = '0190f1a2-0000-7000-8000-00000000ad77';
 
-const brandA: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000a1', name: 'Brand A', adCount: 3, liveNowAdCount: 1 };
-const brandB: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000b2', name: 'Brand B', adCount: 0, liveNowAdCount: 0 };
+const brandA: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000a1', name: 'Brand A', adCount: 3, liveNowAdCount: 1, viewerCount: 0, pendingInvitationCount: 0 };
+const brandB: ClientListItem = { id: '0190f1a2-0000-7000-8000-0000000000b2', name: 'Brand B', adCount: 0, liveNowAdCount: 0, viewerCount: 0, pendingInvitationCount: 0 };
 
 const uploadInstructions: UploadInstructions = {
   method: 'PUT',

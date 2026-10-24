@@ -16,6 +16,8 @@ import { AuthenticationModule } from './features/authentication/authentication.m
 import { ClientErrorsModule } from './features/client-errors/client-errors.module.js';
 import { CampaignsModule } from './features/campaigns/campaigns.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
+import { ClientViewersModule } from './features/client-viewers/client-viewers.module.js';
+import { ClientAreaModule } from './features/client-area/client-area.module.js';
 import { HealthModule } from './features/health/health.module.js';
 import { ListenerInstallsModule } from './features/listener-installs/listener-installs.module.js';
 import { ListenerAccountsModule } from './features/listener-accounts/listener-accounts.module.js';
@@ -66,6 +68,8 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     AdminModule,
     MembersModule,
     ClientsModule,
+    ClientViewersModule,
+    ClientAreaModule,
     AdsModule,
     ActionCardsModule,
     AdHistoryModule,

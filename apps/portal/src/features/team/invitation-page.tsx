@@ -41,9 +41,30 @@ const UNUSABLE_WORDS: Record<Exclude<InvitationDescription['state'], 'OPEN'>, st
   ACCEPTED: 'This invitation has already been used. Sign in to see the station.',
 };
 
+/** What the invitation offers, in the words the page shows: joining the team, or viewing a client's adverts. */
+function invitationWords(invitation: InvitationDescription): { heading: string; explanation: string; accept: string; busy: string } {
+  const station = [invitation.stationName, invitation.frequencyLabel].filter(Boolean).join(' · ');
+  if (invitation.kind === 'CLIENT_VIEWER') {
+    return {
+      heading: `${station} invites you to view ${invitation.clientName}'s adverts`,
+      explanation: `See when ${invitation.clientName}'s adverts air, how listeners respond, and get a reminder before each one airs. You can view everything; only the station can change it.`,
+      accept: 'Accept',
+      busy: 'Accepting…',
+    };
+  }
+  const role = ROLE_CHOICES[invitation.role ?? 'ANALYST'];
+  return {
+    heading: `You're invited to join ${station} as ${/^[AEIOU]/.test(role.name) ? 'an' : 'a'} ${role.name}`,
+    explanation: `${role.explanation}.`,
+    accept: `Join ${invitation.stationName ?? 'the station'}`,
+    busy: 'Joining…',
+  };
+}
+
 /**
  * An invitation opened from its email (P5A design §4.5; journey F): who invites, to which role; then "Join" with a
- * new account, or "Sign in to accept" for an email that has one, coming back here after signing in.
+ * new account, or "Sign in to accept" for an email that has one, coming back here after signing in. A client's
+ * invitation (ADR-006) uses the same page and steps, and lands on the client's own pages.
  */
 export function InvitationPage() {
   const [token] = useState(readInvitationToken);
@@ -68,7 +89,7 @@ export function InvitationPage() {
   const joined = async (accepted: AcceptedInvitation) => {
     forgetInvitationToken();
     await queryClient.invalidateQueries({ queryKey: SIGNED_IN_USER_QUERY_KEY });
-    void navigate(`/stations/${accepted.stationId}/overview`, { replace: true });
+    void navigate(accepted.kind === 'CLIENT_VIEWER' ? '/client' : `/stations/${accepted.stationId}/overview`, { replace: true });
   };
   const joinWithNewAccount = useMutation({
     mutationFn: () =>
@@ -82,9 +103,7 @@ export function InvitationPage() {
   if (description.isError) return <InvitationMessage heading="This invitation link doesn't work" words={description.error.message} />;
   const invitation = description.data;
   if (invitation.state !== 'OPEN') return <InvitationMessage heading="This invitation can't be used" words={UNUSABLE_WORDS[invitation.state]} />;
-  const station = [invitation.stationName, invitation.frequencyLabel].filter(Boolean).join(' · ');
-  const roleName = ROLE_CHOICES[invitation.role].name;
-  const heading = `You're invited to join ${station} as ${/^[AEIOU]/.test(roleName) ? 'an' : 'a'} ${roleName}`;
+  const words = invitationWords(invitation);
   const signedInEmail = signedInUser.data?.user.email;
   const fieldErrors = fieldErrorsFrom(joinWithNewAccount.error);
 
@@ -96,14 +115,14 @@ export function InvitationPage() {
   return (
     <main id="main-content" className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-5 px-4 py-10">
       <span className="font-display text-title">Look Up</span>
-      <h1 className="text-display">{heading}</h1>
-      <p className="text-body text-muted">{ROLE_CHOICES[invitation.role].explanation}.</p>
+      <h1 className="text-display">{words.heading}</h1>
+      <p className="text-body text-muted">{words.explanation}</p>
       {invitation.hasAccount ? (
         signedInEmail && signedInEmail.toLowerCase() === invitation.invitedEmail.toLowerCase() ? (
           <div className="flex flex-col gap-3">
             {joinSignedIn.isError ? <ErrorNotice error={joinSignedIn.error} /> : null}
-            <Button onClick={() => joinSignedIn.mutate()} isBusy={joinSignedIn.isPending} busyLabel="Joining…">
-              Join {invitation.stationName}
+            <Button onClick={() => joinSignedIn.mutate()} isBusy={joinSignedIn.isPending} busyLabel={words.busy}>
+              {words.accept}
             </Button>
           </div>
         ) : signedInEmail ? (
@@ -126,8 +145,8 @@ export function InvitationPage() {
           <TextField label="Mobile number (optional)" type="tel" autoComplete="tel-national" placeholder="97 123 4567" value={mobileNumber} onChange={(event) => setMobileNumber(event.target.value)} error={fieldErrors.mobileNumber} />
           <TextField label="Password" type="password" autoComplete="new-password" required hint="At least 15 characters." value={password} onChange={(event) => setPassword(event.target.value)} error={fieldErrors.password} />
           {joinWithNewAccount.isError && Object.keys(fieldErrors).length === 0 ? <ErrorNotice error={joinWithNewAccount.error} /> : null}
-          <Button type="submit" disabled={!fullName.trim() || !password} isBusy={joinWithNewAccount.isPending} busyLabel="Joining…">
-            Join
+          <Button type="submit" disabled={!fullName.trim() || !password} isBusy={joinWithNewAccount.isPending} busyLabel={words.busy}>
+            {invitation.kind === 'CLIENT_VIEWER' ? 'Create account and accept' : 'Join'}
           </Button>
         </form>
       )}

@@ -70,6 +70,8 @@ export const ERROR_CATALOG = {
   INVITATION_EXPIRED: { httpStatus: 400, message: "This invitation has expired. Ask the station's owner for a new one." },
   INVITATION_FOR_ANOTHER_EMAIL: { httpStatus: 403, message: 'This invitation was sent to another email address. Sign in with that one.' },
   ALREADY_A_MEMBER: { httpStatus: 409, message: 'This person is already in your team.' },
+  CLIENT_VIEWER_ALREADY_HAS_ACCESS: { httpStatus: 409, message: "This person can already view this client's ads." },
+  PUSH_NOT_AVAILABLE: { httpStatus: 503, message: "Notifications on this device aren't available yet. Reminders come by email." },
   LAST_OWNER: { httpStatus: 409, message: 'A station needs at least one owner. Invite another owner first.' },
   STATION_STATUS_CHANGE_NOT_ALLOWED: { httpStatus: 409, message: "This station's status can't change that way." },
   INTERNAL: { httpStatus: 500, message: 'Something went wrong on our side. Please try again.' },

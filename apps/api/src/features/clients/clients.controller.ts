@@ -1,5 +1,6 @@
-import { type ClientListItem, type ClientSummary, CreateClientInput, SetClientDefaultActionCardInput } from '@lookup/contracts';
-import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { type ClientListItem, CreateClientInput, type CreatedClient, SetClientDefaultActionCardInput } from '@lookup/contracts';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Req, Res, UseGuards } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { UuidOrNotFoundPipe } from '../../common/validation/uuid-or-not-found.pipe.js';
 import { ZodValidationPipe } from '../../common/validation/zod-validation.pipe.js';
 import { CHANGE_STATION_CONTENT, StationAccess } from '../stations/station-access.decorator.js';
@@ -19,8 +20,12 @@ export class ClientsController {
 
   @Post()
   @StationAccess(CHANGE_STATION_CONTENT)
-  create(@Body(new ZodValidationPipe(CreateClientInput)) input: CreateClientInput): Promise<ClientSummary> {
-    return this.clientsService.create(input);
+  create(
+    @Body(new ZodValidationPipe(CreateClientInput)) input: CreateClientInput,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<CreatedClient> {
+    return this.clientsService.create(input, { requestId: (request as Request & { id?: string }).id ?? 'unknown', clientAddress: request.ip ?? 'unknown' }, response);
   }
 
   /**

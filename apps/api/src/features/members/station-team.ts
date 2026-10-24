@@ -133,9 +133,13 @@ export class StationTeams {
 
   // ---- the invitee -------------------------------------------------------------------------------------------
 
-  /** What the invitation page shows before anyone signs in. */
+  /**
+   * What the invitation page shows before anyone signs in. One link page serves both kinds of invitation: joining the
+   * station's team, and following one of its clients' adverts (ADR-006), each with its own database function.
+   */
   async describeInvitation(linkToken: string): Promise<InvitationDescription> {
-    const [row] = (await this.dataSource.query('SELECT * FROM app.describe_invitation($1)', [hashLinkToken(linkToken)])) as Array<{
+    const tokenHash = hashLinkToken(linkToken);
+    const [member] = (await this.dataSource.query('SELECT * FROM app.describe_invitation($1)', [tokenHash])) as Array<{
       invitation_state: InvitationDescription['state'];
       station_name: string | null;
       station_frequency_label: string | null;
@@ -144,41 +148,71 @@ export class StationTeams {
       has_account: boolean;
       invitation_expires_at: Date;
     }>;
-    if (!row) throw new AppError('INVITATION_NOT_VALID', { internalDetail: 'no invitation with that token' });
+    if (member) {
+      return {
+        kind: 'STATION_MEMBER',
+        state: member.invitation_state,
+        stationName: member.station_name,
+        frequencyLabel: member.station_frequency_label,
+        role: member.invited_role,
+        clientName: null,
+        invitedEmail: member.invited_email,
+        hasAccount: member.has_account,
+        expiresAt: member.invitation_expires_at.toISOString(),
+      };
+    }
+    const [client] = (await this.dataSource.query('SELECT * FROM app.describe_client_viewer_invitation($1)', [tokenHash])) as Array<{
+      invitation_state: InvitationDescription['state'];
+      station_name: string | null;
+      station_frequency_label: string | null;
+      client_name: string;
+      invited_email: string;
+      has_account: boolean;
+      invitation_expires_at: Date;
+    }>;
+    if (!client) throw new AppError('INVITATION_NOT_VALID', { internalDetail: 'no invitation with that token' });
     return {
-      state: row.invitation_state,
-      stationName: row.station_name,
-      frequencyLabel: row.station_frequency_label,
-      role: row.invited_role,
-      invitedEmail: row.invited_email,
-      hasAccount: row.has_account,
-      expiresAt: row.invitation_expires_at.toISOString(),
+      kind: 'CLIENT_VIEWER',
+      state: client.invitation_state,
+      stationName: client.station_name,
+      frequencyLabel: client.station_frequency_label,
+      role: null,
+      clientName: client.client_name,
+      invitedEmail: client.invited_email,
+      hasAccount: client.has_account,
+      expiresAt: client.invitation_expires_at.toISOString(),
     };
   }
 
-  /** Joins with a new account for the invited email (the link proves it) and signs in. */
+  /** Joins (or starts following the client) with a new account for the invited email (the link proves it) and signs in. */
   async acceptWithNewAccount(input: AcceptInvitationWithNewAccountInput & { mobileNumber: string | null }, request: RequestFacts, response: Response): Promise<AcceptedInvitation> {
     const invitation = await this.describeInvitation(input.token);
     const refusalReason = this.passwordPolicy.check(input.password, {
       fullName: input.fullName,
       email: invitation.invitedEmail,
-      stationNames: invitation.stationName ? [invitation.stationName] : [],
+      stationNames: [invitation.stationName, invitation.clientName].filter((name): name is string => Boolean(name)),
     });
     if (refusalReason) {
       throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'password', code: refusalReason }], internalDetail: `invitee password refused: ${refusalReason}` });
     }
     const passwordHash = await this.passwordHasher.hashNewPassword(input.password);
     const refreshToken = createRefreshToken();
-    let accepted: { outcome: string; new_portal_user_id: string | null; joined_station_id: string | null; new_portal_session_id: string | null; new_refresh_token_expires_at: Date | null };
+    const isClientInvitation = invitation.kind === 'CLIENT_VIEWER';
+    let accepted: {
+      outcome: string;
+      new_portal_user_id: string | null;
+      joined_station_id: string | null;
+      joined_client_id?: string | null;
+      new_portal_session_id: string | null;
+      new_refresh_token_expires_at: Date | null;
+    };
     try {
-      [accepted] = (await this.dataSource.query('SELECT * FROM app.accept_invitation_with_new_account($1, $2, $3, $4, $5, $6)', [
-        hashLinkToken(input.token),
-        input.fullName,
-        input.mobileNumber,
-        passwordHash,
-        hashRefreshToken(refreshToken),
-        request.requestId,
-      ])) as [typeof accepted];
+      [accepted] = (await this.dataSource.query(
+        isClientInvitation
+          ? 'SELECT * FROM app.accept_client_viewer_invitation_with_new_account($1, $2, $3, $4, $5, $6)'
+          : 'SELECT * FROM app.accept_invitation_with_new_account($1, $2, $3, $4, $5, $6)',
+        [hashLinkToken(input.token), input.fullName, input.mobileNumber, passwordHash, hashRefreshToken(refreshToken), request.requestId],
+      )) as [typeof accepted];
     } catch (problem) {
       if (isUniqueViolation(problem, 'portal_users_email_unique')) throw new AppError('EMAIL_ALREADY_REGISTERED', { internalDetail: 'invited email took an account meanwhile', cause: problem });
       throw problem;
@@ -192,20 +226,33 @@ export class StationTeams {
       refreshToken,
       accepted.new_refresh_token_expires_at as Date,
     );
-    return { stationId: accepted.joined_station_id as string };
+    return { kind: invitation.kind, stationId: accepted.joined_station_id as string, clientId: accepted.joined_client_id ?? null };
   }
 
-  /** Joins as the signed-in person, whose email must be the invited one. */
+  /** Joins (or starts following the client) as the signed-in person, whose email must be the invited one. */
   async acceptSignedIn(linkToken: string, request: RequestFacts): Promise<AcceptedInvitation> {
-    const [result] = (await this.stationScopedTransaction.run(
-      (database) => database.query('SELECT * FROM app.accept_invitation_for_signed_in_user($1, $2)', [hashLinkToken(linkToken), request.requestId]),
+    const tokenHash = hashLinkToken(linkToken);
+    // One transaction finds which kind of invitation the link is and accepts it.
+    const result = (await this.stationScopedTransaction.run(
+      async (database) => {
+        const [clientInvitation] = (await database.query('SELECT 1 FROM app.describe_client_viewer_invitation($1)', [tokenHash])) as unknown[];
+        const [accepted] = (await database.query(
+          clientInvitation
+            ? 'SELECT * FROM app.accept_client_viewer_invitation_for_signed_in_user($1, $2)'
+            : 'SELECT * FROM app.accept_invitation_for_signed_in_user($1, $2)',
+          [tokenHash, request.requestId],
+        )) as Array<{ outcome: string; joined_station_id: string | null; joined_client_id?: string | null }>;
+        return { kind: clientInvitation ? ('CLIENT_VIEWER' as const) : ('STATION_MEMBER' as const), ...accepted };
+      },
       { stationId: '' },
-    )) as Array<{ outcome: string; joined_station_id: string | null }>;
-    if (result?.outcome === 'FOR_ANOTHER_EMAIL') throw new AppError('INVITATION_FOR_ANOTHER_EMAIL', { internalDetail: 'signed in with another email' });
+    )) as { kind: AcceptedInvitation['kind']; outcome?: string; joined_station_id?: string | null; joined_client_id?: string | null };
+    if (result.outcome === 'FOR_ANOTHER_EMAIL') throw new AppError('INVITATION_FOR_ANOTHER_EMAIL', { internalDetail: 'signed in with another email' });
     // Already in the team: joining again changes nothing, and the person goes to the station.
-    if (result?.outcome === 'ALREADY_A_MEMBER' && result.joined_station_id) return { stationId: result.joined_station_id };
-    this.throwUnlessAccepted(result?.outcome);
-    return { stationId: result?.joined_station_id as string };
+    if (result.kind === 'STATION_MEMBER' && result.outcome === 'ALREADY_A_MEMBER' && result.joined_station_id) {
+      return { kind: 'STATION_MEMBER', stationId: result.joined_station_id, clientId: null };
+    }
+    this.throwUnlessAccepted(result.outcome);
+    return { kind: result.kind, stationId: result.joined_station_id as string, clientId: result.joined_client_id ?? null };
   }
 
   private throwUnlessAccepted(outcome: string | undefined): void {

@@ -20,6 +20,7 @@ function superAdmin(isTwoFactorCodeNeeded = false): SignedInPortalUser {
     user: { id: '0190f1a2-0000-7000-8000-0000000000aa', fullName: 'Console Operator', email: 'operator@example.test', platformRole: 'SUPER_ADMIN' },
     isTwoFactorCodeNeeded,
     stations: [],
+    clientAccesses: [],
   };
 }
 const queueEntry = (overrides: Partial<ApplicationQueueEntry> = {}): ApplicationQueueEntry => ({
