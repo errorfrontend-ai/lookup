@@ -30,8 +30,16 @@ const API_BASE_PATH = '/api/v1';
 const SESSION_REFRESH_LOCK = 'lookup-session-refresh';
 const NETWORK_FAILURE_MESSAGE = "We couldn't reach Look Up. Check your connection and try again.";
 
+/** A file the API answered with: its bytes, and the name the API gave it (Content-Disposition), if any. */
+export interface DownloadedFile {
+  blob: Blob;
+  fileName: string | null;
+}
+
 export interface ApiClient {
   get<Result>(path: string): Promise<Result>;
+  /** A file to save, such as a spreadsheet: refused answers are ApiErrors like any other call. */
+  getFile(path: string): Promise<DownloadedFile>;
   post<Result>(path: string, body?: unknown): Promise<Result>;
   put<Result>(path: string, body: unknown): Promise<Result>;
   delete<Result>(path: string): Promise<Result>;
@@ -80,7 +88,8 @@ export function createApiClient(dependencies: ApiClientDependencies = {}): ApiCl
     return refreshInThisTab;
   }
 
-  async function request<Result>(method: string, path: string, body: unknown): Promise<Result> {
+  /** One call, with one refresh and retry when the access cookie has expired; a refused answer becomes an ApiError. */
+  async function exchange(method: string, path: string, body: unknown): Promise<Response> {
     let response = await send(method, path, body);
     const mayRefresh = response.status === 401 && !path.startsWith('/auth/sign-in') && !path.startsWith('/auth/refresh');
     if (mayRefresh) {
@@ -88,16 +97,32 @@ export function createApiClient(dependencies: ApiClientDependencies = {}): ApiCl
       if (response.status === 401) dependencies.onSessionEnded?.();
     }
     if (!response.ok) throw await toApiError(response);
+    return response;
+  }
+
+  async function request<Result>(method: string, path: string, body: unknown): Promise<Result> {
+    const response = await exchange(method, path, body);
     if (response.status === 204) return undefined as Result;
     return (await response.json()) as Result;
   }
 
+  async function getFile(path: string): Promise<DownloadedFile> {
+    const response = await exchange('GET', path, undefined);
+    return { blob: await response.blob(), fileName: fileNameFrom(response.headers.get('Content-Disposition')) };
+  }
+
   return {
     get: (path) => request('GET', path, undefined),
+    getFile,
     post: (path, body) => request('POST', path, body),
     put: (path, body) => request('PUT', path, body),
     delete: (path) => request('DELETE', path, undefined),
   };
+}
+
+/** The file name in a Content-Disposition header ('attachment; filename="look-up-station-2026-10-24.csv"'). */
+export function fileNameFrom(contentDisposition: string | null): string | null {
+  return /filename="([^"\\/]+)"/.exec(contentDisposition ?? '')?.[1] ?? null;
 }
 
 async function toApiError(response: Response): Promise<ApiError> {

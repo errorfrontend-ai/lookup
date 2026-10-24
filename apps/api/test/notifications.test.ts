@@ -7,7 +7,7 @@ import { HUMAN_CHECK_DUMMY_TOKEN } from '../src/common/security/human-check.js';
 import { APP_CONFIG, loadAppConfig, type AppConfig } from '../src/config/app-config.js';
 import { NotificationQueue, NOTIFY_QUEUE_NAME, type NotificationJobData } from '../src/features/notifications/notification-queue.js';
 import { describeSendFailure, notifyWorkerHeartbeatKey } from '../src/features/notifications/notification-worker.js';
-import { smsTextOf, type NotificationMessage } from '../src/features/notifications/notification-messages.js';
+import { emailTextOf, smsTextOf, type NotificationMessage } from '../src/features/notifications/notification-messages.js';
 import { EMAIL_SENDER, type EmailSender, type OutgoingEmail } from '../src/features/notifications/notification-senders.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { PORTAL_ORIGIN } from './support/portal-test-users.js';
@@ -128,6 +128,23 @@ describe('notifications', () => {
       { template: 'station_reactivated', stationName: 'Sunrise FM' },
     ];
     for (const message of urgent) expect(smsTextOf(message, 'http://localhost:5180'), message.template).toMatch(/^(Your Look Up code|Look Up: )/);
+  });
+
+  it("P5C-ONBOARDING-04: a client's invitation reads like the team's: \"You're invited to …\", the link, and \"The invitation works once and lasts 7 days.\"", () => {
+    const linkToken = 'T'.repeat(43);
+    const team = emailTextOf({ template: 'team_invitation', linkToken, stationName: 'Sunrise FM', stationRole: 'MANAGER' }, 'https://portal.example');
+    const client = emailTextOf({ template: 'client_viewer_invitation', linkToken, stationName: 'Sunrise FM', frequencyLabel: '98.1 FM', clientName: 'Brand A' }, 'https://portal.example');
+    for (const email of [team, client]) {
+      expect(email?.subject).toMatch(/^You're invited to .+ on Look Up$/);
+      expect(email?.text.split('\n\n').slice(1)).toEqual([`https://portal.example/invitations/accept#token=${linkToken}`, 'The invitation works once and lasts 7 days.']);
+      expect(email?.text).not.toMatch(/<[a-z]+[ >]/);
+    }
+    expect(client).toEqual({
+      subject: "You're invited to view Brand A's adverts on Look Up",
+      text: `Sunrise FM (98.1 FM) has invited you to view Brand A's adverts on Look Up: when they air, how listeners respond, and a reminder before each one airs.\n\nhttps://portal.example/invitations/accept#token=${linkToken}\n\nThe invitation works once and lasts 7 days.`,
+    });
+    // Without a frequency the station is named alone.
+    expect(emailTextOf({ template: 'client_viewer_invitation', linkToken, stationName: 'Sunrise FM', frequencyLabel: null, clientName: 'Brand A' }, 'https://portal.example')?.text).toMatch(/^Sunrise FM has invited you/);
   });
 
   it('an email link is a plain-text email whose link carries the token in its fragment', async () => {

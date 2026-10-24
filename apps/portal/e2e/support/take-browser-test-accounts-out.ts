@@ -7,7 +7,8 @@ import { BROWSER_TEST_EMAIL_DOMAIN } from './station-applicant';
  *   - The stations they signed up leave the listener app's station list, and one still waiting for review is closed
  *     as rejected, with a note saying why, so the super admin's queue is clear.
  *   - Their invitations to the seeded stations are cancelled, and a test account that joined a seeded station's team
- *     is taken off it, so the seeded Team page is as the seed made it.
+ *     is taken off it, so the seeded Team page is as the seed made it. A test account that follows a seeded station's
+ *     client loses that access too, so the seeded Clients page counts nobody (ADR-006).
  *
  * Like the ad clean-up it is deliberately narrow: only a database on this computer, never production, and only
  * accounts with a browser-test address (browser-test-…@example.test, which can never receive mail). Earlier runs'
@@ -42,10 +43,15 @@ export default async function takeBrowserTestAccountsOut(): Promise<void> {
       `DELETE FROM app.station_memberships WHERE portal_user_id IN (${testAccounts}) AND station_id NOT IN (${testStations})`,
       parameters,
     );
+    const unfollowed = await client.query(
+      `DELETE FROM app.client_viewers WHERE portal_user_id IN (${testAccounts}) AND station_id NOT IN (${testStations})`,
+      parameters,
+    );
     await client.query('COMMIT');
     console.log(
       `Browser test accounts: ${hidden.rowCount ?? 0} station(s) taken out of the app's list, ${closed.rowCount ?? 0} closed in the review queue, ` +
-        `${cancelled.rowCount ?? 0} invitation(s) cancelled and ${removed.rowCount ?? 0} member(s) taken off the seeded teams.`,
+        `${cancelled.rowCount ?? 0} invitation(s) cancelled, ${removed.rowCount ?? 0} member(s) taken off the seeded teams and ` +
+        `${unfollowed.rowCount ?? 0} client access(es) removed.`,
     );
   } catch (error) {
     await client.query('ROLLBACK');

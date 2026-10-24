@@ -133,6 +133,41 @@ describe('accepting an invitation', () => {
     expect(readInvitationToken()).toBe(token);
   });
 
+  it('P5C-INVITATIONS-02, P5C-ONBOARDING-04: a client invitation uses the same page and steps, and lands on the client’s adverts', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    const clientInvitation = { ...open, kind: 'CLIENT_VIEWER', role: null, clientName: 'Brand A', invitedEmail: 'chipo@brand-a.example' };
+    const api = installFakeApi({
+      'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /invitations/description': () => jsonResponse(200, clientInvitation),
+      'POST /invitations/acceptance-with-new-account': () => jsonResponse(201, { kind: 'CLIENT_VIEWER', stationId, clientId: '0190f1a2-0000-7000-8000-0000000000a1' }),
+    });
+    const { router } = renderPortalAt('/invitations/accept');
+    expect(await screen.findByRole('heading', { name: "Radio Phoenix · 89.5 FM invites you to view Brand A's adverts" })).toBeInTheDocument();
+    expect(screen.getByText(/You can view everything; only the station can change it\./)).toBeInTheDocument();
+    expect(screen.getByText('Your account will use chipo@brand-a.example.')).toBeInTheDocument();
+    await person.type(screen.getByLabelText('Your full name'), 'Chipo Banda');
+    await person.type(screen.getByLabelText('Password'), 'morning tide on the river bank');
+    await person.click(screen.getByRole('button', { name: 'Create account and accept' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/client'));
+    expect(api.calls.find((call) => call.path === '/invitations/acceptance-with-new-account')?.body).toEqual({
+      token, fullName: 'Chipo Banda', mobileNumber: null, password: 'morning tide on the river bank',
+    });
+  });
+
+  it('P5C-ONBOARDING-03: a client invitation to an email with an account is accepted by signing in, with the same words', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    const signedInClient = { ...signedInUserWith([]), user: { id: '0190f1a2-0000-7000-8000-0000000000c9', fullName: 'Chipo Banda', email: 'chipo@brand-a.example', platformRole: null } };
+    installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, signedInClient),
+      'POST /invitations/description': () => jsonResponse(200, { ...open, kind: 'CLIENT_VIEWER', role: null, clientName: 'Brand A', invitedEmail: 'chipo@brand-a.example', hasAccount: true }),
+      'POST /invitations/acceptance': () => jsonResponse(200, { kind: 'CLIENT_VIEWER', stationId, clientId: '0190f1a2-0000-7000-8000-0000000000a1' }),
+    });
+    const { router } = renderPortalAt('/invitations/accept');
+    await person.click(await screen.findByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/client'));
+  });
+
   it('an expired invitation says so', async () => {
     window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
     installFakeApi({

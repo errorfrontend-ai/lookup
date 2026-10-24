@@ -1,4 +1,5 @@
 import { LISTENER_FIGURES_RANGES, LISTENER_MIX_MINIMUM_GROUP_SIZE, type ListenerFiguresRange, type ListenerMix } from '@lookup/contracts';
+import type { UseQueryResult } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -111,9 +112,24 @@ export function ListenerMixSection({
   /** Given, the section offers its own date choice; left out, it follows the page's. */
   onRangeChange?: (range: ListenerFiguresRange) => void;
 }) {
-  const headingId = useId();
   const mix = useListenerMix(stationId, range, adId);
-  const whose = adId ? 'this ad' : 'your ads';
+  return <ListenerMixPanel mix={mix} whose={adId ? 'this ad' : 'your ads'} range={range} onRangeChange={onRangeChange} />;
+}
+
+/** The section itself, from whichever request answers it: the station's, or a client's for one of their adverts (ADR-006). */
+export function ListenerMixPanel({
+  mix,
+  whose,
+  range,
+  onRangeChange,
+}: {
+  mix: UseQueryResult<ListenerMix>;
+  /** What the listeners identified, as the sentences say it: "this ad", "your ads". */
+  whose: string;
+  range: ListenerFiguresRange;
+  onRangeChange?: (range: ListenerFiguresRange) => void;
+}) {
+  const headingId = useId();
   // The dates the numbers on screen are for: while new dates load, the last numbers stay, under their own dates.
   const shownRange = mix.data?.range ?? range;
   return (

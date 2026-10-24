@@ -19,6 +19,9 @@ const loadAdDetailPage = () => import('../features/ads/ad-detail-page').then((mo
 // Sign-up is its own download: a station's people never fetch it once they are approved.
 type SignUpPageName = keyof typeof import('../features/sign-up/sign-up-pages');
 const loadSignUp = (pageName: SignUpPageName) => () => import('../features/sign-up/sign-up-pages').then((module) => ({ Component: module[pageName] }));
+// A client's pages are their own download (ADR-006): station people never fetch them, and clients never fetch the station's.
+type ClientPageName = keyof typeof import('../features/client-area/client-pages');
+const loadClient = (pageName: ClientPageName) => () => import('../features/client-area/client-pages').then((module) => ({ Component: module[pageName] }));
 // The super admin's console is its own download too: station people never fetch it.
 type AdminPageName = keyof typeof import('../features/admin/admin-pages');
 const loadAdmin = (pageName: AdminPageName) => () => import('../features/admin/admin-pages').then((module) => ({ Component: module[pageName] }));
@@ -56,6 +59,17 @@ export const PORTAL_ROUTES: RouteObject[] = [
                   { path: '*', element: <NotFoundPage /> },
                 ],
               },
+            ],
+          },
+          {
+            // The business that pays for an advert follows it here (ADR-006): view only, every station that invited them.
+            path: '/client',
+            lazy: loadClient('ClientShell'),
+            children: [
+              { index: true, lazy: loadClient('ClientHomePage') },
+              { path: 'stations/:stationId/ads/:adId', lazy: loadClient('ClientAdPage') },
+              { path: 'account', lazy: loadClient('ClientAccountPage') },
+              { path: '*', lazy: loadClient('ClientNotFound') },
             ],
           },
           {

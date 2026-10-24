@@ -1,4 +1,4 @@
-import type { ClientListItem, ClientSummary, CreateClientInput } from '@lookup/contracts';
+import type { ClientListItem, CreateClientInput, CreatedClient } from '@lookup/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../../app/portal-api';
 import { stationQueryKeys } from '../stations/station-query-keys';
@@ -11,11 +11,11 @@ export function useClients(stationId: string) {
   });
 }
 
-/** Adds a client. The clients list (and anything counting clients) refreshes afterwards. */
+/** Adds a client, and invites it when an email is given (ADR-006). The clients list (and anything counting clients) refreshes afterwards. */
 export function useCreateClient(stationId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateClientInput) => portalApi.post<ClientSummary>(`/stations/${stationId}/clients`, input),
+    mutationFn: (input: CreateClientInput) => portalApi.post<CreatedClient>(`/stations/${stationId}/clients`, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: stationQueryKeys.clients(stationId) }),
   });
 }

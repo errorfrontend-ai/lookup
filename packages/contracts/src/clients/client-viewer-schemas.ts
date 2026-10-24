@@ -90,6 +90,8 @@ export interface ClientStationSection {
   stationId: string;
   stationName: string | null;
   frequencyLabel: string | null;
+  /** The station's IANA time zone: its slots, days and "today" are in this zone. */
+  timeZone: string;
   contact: ClientStationContact;
   /** The clients the person follows at this station (usually one). */
   clients: Array<{ id: string; name: string }>;
@@ -105,7 +107,7 @@ export interface ClientHome {
 
 /** GET /client/stations/{stationId}/ads/{adId} */
 export interface ClientAdDetail extends ClientAdSummary {
-  station: { id: string; name: string | null; frequencyLabel: string | null; contact: ClientStationContact };
+  station: { id: string; name: string | null; frequencyLabel: string | null; timeZone: string; contact: ClientStationContact };
   actionCard: ActionCard | null;
   /** The next 5 slots within 14 days. */
   nextTimesOnAir: ClientSlot[];

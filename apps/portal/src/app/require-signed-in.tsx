@@ -27,14 +27,18 @@ export function RequireSignedIn() {
     );
   }
   if (!signedInUser.data) return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
-  // A super admin belongs to no station; the console is theirs (P5A design §4.1).
-  if (signedInUser.data.stations.length === 0 && signedInUser.data.user.platformRole !== 'SUPER_ADMIN') {
-    return <NoStationPage onSignOut={() => void signOut()} />;
-  }
+  // A super admin belongs to no station; the console is theirs (P5A design §4.1). A client belongs to none either: their
+  // pages are under /client (ADR-006), which also says so when a station has taken their access away.
+  const hasPlace =
+    signedInUser.data.stations.length > 0 ||
+    signedInUser.data.user.platformRole === 'SUPER_ADMIN' ||
+    signedInUser.data.clientAccesses.length > 0 ||
+    location.pathname.startsWith('/client');
+  if (!hasPlace) return <NoStationPage onSignOut={() => void signOut()} />;
   return <Outlet />;
 }
 
-/** "/" goes to the person's first station. */
+/** "/" goes to the person's first station, or a client's adverts. */
 export function HomeRedirect() {
   const signedInUser = useSignedInUser();
   if (!signedInUser.data) return null;

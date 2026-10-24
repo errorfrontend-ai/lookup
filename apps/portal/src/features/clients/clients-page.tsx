@@ -1,4 +1,4 @@
-import { MAXIMUM_CLIENT_NAME_LENGTH } from '@lookup/contracts';
+import { type ClientListItem, MAXIMUM_CLIENT_NAME_LENGTH } from '@lookup/contracts';
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router';
 import { ApiError } from '../../api/api-client';
@@ -12,6 +12,7 @@ import { OnAirBadge } from '../../components/status-badges';
 import { TextField } from '../../components/text-field';
 import { useToast } from '../../components/toast-region';
 import { canChangeStationContent, useRequiredCurrentStation } from '../stations/use-current-station';
+import { ClientAccessDialog, describeClientAccess } from './client-access-dialog';
 import { useClients, useCreateClient } from './use-clients';
 import { browserMaxLength } from '../../formatting/text-length';
 
@@ -21,38 +22,47 @@ export function describeClientAdCount(adCount: number): string {
   return adCount === 1 ? '1 ad' : `${adCount} ads`;
 }
 
-/** The words for a refused "add client": the server's own sentence for a duplicate, our own for a bad name. */
-function clientNameProblem(error: unknown): string | null {
-  if (!(error instanceof ApiError)) return null;
-  if (error.code === 'CONFLICT') return error.message;
-  if (error.code === 'VALIDATION_FAILED') return `Enter a name between 1 and ${MAXIMUM_CLIENT_NAME_LENGTH} characters.`;
-  return null;
+/** The words for a refused "add client": the server's own sentence for a duplicate, our own for a bad name or email. */
+function addClientProblems(error: unknown): { name: string | null; email: string | null } {
+  if (!(error instanceof ApiError)) return { name: null, email: null };
+  if (error.code === 'CONFLICT') return { name: error.message, email: null };
+  if (error.code !== 'VALIDATION_FAILED') return { name: null, email: null };
+  const isEmail = error.fields.some((field) => field.path === 'email');
+  const isName = error.fields.some((field) => field.path === 'name') || !isEmail;
+  return {
+    name: isName ? `Enter a name between 1 and ${MAXIMUM_CLIENT_NAME_LENGTH} characters.` : null,
+    email: isEmail ? 'Enter an email address, or leave it empty.' : null,
+  };
 }
 
+/**
+ * "Add a client", with the client's email if the station has it (P5C-ONBOARDING-01): the client is added and invited to see
+ * their ads in one step. A refused invitation adds no client.
+ */
 function AddClientForm({ stationId }: { stationId: string }) {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const createClient = useCreateClient(stationId);
   const showToast = useToast();
-  const problem = clientNameProblem(createClient.error);
+  const problems = addClientProblems(createClient.error);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
     if (!trimmedName) return;
-    createClient.mutate(
-      { name: trimmedName },
-      {
-        onSuccess: () => {
-          setName('');
-          showToast(`${trimmedName} added`);
-        },
+    createClient.mutate(trimmedEmail ? { name: trimmedName, email: trimmedEmail } : { name: trimmedName }, {
+      onSuccess: (created) => {
+        setName('');
+        setEmail('');
+        showToast(created.invitedEmail ? `${trimmedName} added. Invitation sent to ${created.invitedEmail}.` : `${trimmedName} added`);
       },
-    );
+    });
   };
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-4 md:flex-row md:items-end">
-      <div className="flex-1">
+    <form onSubmit={submit} noValidate className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface p-4">
+      <div className="grid items-start gap-3 md:grid-cols-2">
         <TextField
           label="Add a client"
           hint="The business you upload ads for, like “Brand A”."
@@ -60,14 +70,25 @@ function AddClientForm({ stationId }: { stationId: string }) {
           onChange={(event) => setName(event.target.value)}
           maxLength={browserMaxLength(MAXIMUM_CLIENT_NAME_LENGTH)}
           counter={`${[...name].length} / ${MAXIMUM_CLIENT_NAME_LENGTH}`}
-          error={problem}
+          error={problems.name}
+          autoComplete="off"
+        />
+        <TextField
+          label="Client's email (optional)"
+          hint="We invite them to see their ads, when they air and how listeners respond. They can't change anything."
+          type="email"
+          inputMode="email"
+          maxLength={254}
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          error={problems.email}
           autoComplete="off"
         />
       </div>
-      <Button type="submit" isBusy={createClient.isPending} busyLabel="Adding…" disabled={!name.trim()}>
-        Add client
+      <Button type="submit" className="self-start" isBusy={createClient.isPending} busyLabel="Adding…" disabled={!name.trim()}>
+        {email.trim() ? 'Add client and invite' : 'Add client'}
       </Button>
-      {createClient.isError && !problem ? <ErrorNotice error={createClient.error} /> : null}
+      {createClient.isError && !problems.name && !problems.email ? <ErrorNotice error={createClient.error} /> : null}
     </form>
   );
 }
@@ -76,6 +97,7 @@ export function ClientsPage() {
   const station = useRequiredCurrentStation();
   const clients = useClients(station.id);
   const canAddClients = canChangeStationContent(station);
+  const [managing, setManaging] = useState<ClientListItem | null>(null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -108,20 +130,32 @@ export function ClientsPage() {
                   {describeClientAdCount(clientItem.adCount)}
                   {clientItem.liveNowAdCount > 0 ? <OnAirBadge /> : null}
                 </span>
+                <span className="text-caption text-muted">{describeClientAccess(clientItem)}</span>
               </div>
-              {clientItem.adCount > 0 ? (
-                <Link
-                  to={`/stations/${station.id}/ads?client=${clientItem.id}`}
+              <div className="flex flex-col items-end gap-1 sm:flex-row sm:items-center">
+                {clientItem.adCount > 0 ? (
+                  <Link
+                    to={`/stations/${station.id}/ads?client=${clientItem.id}`}
+                    className="flex min-h-11 items-center rounded-md px-3 text-label text-accent hover:bg-accent-soft"
+                    aria-label={`See ${clientItem.name}'s ads`}
+                  >
+                    See ads
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setManaging(clientItem)}
                   className="flex min-h-11 items-center rounded-md px-3 text-label text-accent hover:bg-accent-soft"
-                  aria-label={`See ${clientItem.name}'s ads`}
+                  aria-label={`Manage who can see ${clientItem.name}'s ads`}
                 >
-                  See ads
-                </Link>
-              ) : null}
+                  Manage access
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       ) : null}
+      {managing ? <ClientAccessDialog stationId={station.id} client={managing} onClose={() => setManaging(null)} /> : null}
     </div>
   );
 }

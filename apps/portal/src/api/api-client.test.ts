@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, createApiClient } from './api-client';
+import { ApiError, createApiClient, fileNameFrom } from './api-client';
 
 const jsonResponse = (httpStatus: number, body: unknown, requestId = 'request-from-server') =>
   new Response(httpStatus === 204 ? null : JSON.stringify(body), {
@@ -18,6 +18,34 @@ describe('API client', () => {
       headers: { 'X-Request-Id': 'request-1', Accept: 'application/json', 'Content-Type': 'application/json' },
       body: '{"name":"Brand A"}',
     });
+  });
+
+  it('downloads a file with the name the API gave it, refreshing an expired session first like any call', async () => {
+    const fetchFunction = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'UNAUTHENTICATED', message: 'Please sign in.', request_id: 'r1' } }))
+      .mockResolvedValueOnce(jsonResponse(204, null))
+      .mockResolvedValueOnce(new Response('Day,Advert\r\n', { status: 200, headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="look-up-station-a-2026-10-24.csv"' } }));
+    const client = createApiClient({ fetchFunction, locks: undefined });
+    const file = await client.getFile('/client/stations/abc/export.csv');
+    expect(file.fileName).toBe('look-up-station-a-2026-10-24.csv');
+    expect(await file.blob.text()).toBe('Day,Advert\r\n');
+    expect(fetchFunction.mock.calls.map(([path, init]) => `${init.method} ${path}`)).toEqual([
+      'GET /api/v1/client/stations/abc/export.csv',
+      'POST /api/v1/auth/refresh',
+      'GET /api/v1/client/stations/abc/export.csv',
+    ]);
+    const refused = vi.fn().mockResolvedValue(jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'We could not find that.', request_id: 'r2' } }));
+    await expect(createApiClient({ fetchFunction: refused, locks: undefined }).getFile('/client/stations/abc/export.csv')).rejects.toMatchObject({ code: 'NOT_FOUND', requestId: 'r2' });
+  });
+
+  it.each([
+    ['attachment; filename="look-up-a-2026-10-24.csv"', 'look-up-a-2026-10-24.csv'],
+    ['attachment', null],
+    [null, null],
+    ['attachment; filename="../secret.csv"', null],
+  ])('reads the file name from %s as %s', (header, expected) => {
+    expect(fileNameFrom(header)).toBe(expected);
   });
 
   it('turns the error envelope into an ApiError with the plain message, the fields and the request id', async () => {

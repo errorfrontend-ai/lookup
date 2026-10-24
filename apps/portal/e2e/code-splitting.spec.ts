@@ -9,11 +9,12 @@ import { anotherDevice } from './support/another-device';
 import { signInAsSeededOwner } from './support/sign-in';
 
 /**
- * Sign-up and the super admin's console are downloads of their own (P5A-STRUCTURE-05; plan §Mobile D "route-level code
- * splitting"): a station's own pages never fetch them, and the production build keeps them out of the main file.
+ * Sign-up, the super admin's console and a client's pages are downloads of their own (P5A-STRUCTURE-05, P5C-ACCESS-06;
+ * plan §Mobile D "route-level code splitting"): a station's own pages never fetch them, and the production build keeps
+ * them out of the main file.
  */
 test.describe('code splitting of the phase 5a areas', () => {
-  test('a station’s Ads page loads neither the sign-up nor the console code; the sign-up page loads only its own', async ({ page, browser }, testInfo) => {
+  test('a station’s Ads page loads neither the sign-up, the console nor the client code; the sign-up page loads only its own', async ({ page, browser }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'Checked once, on the desktop.');
     const fetched: string[] = [];
     page.on('request', (request) => fetched.push(new URL(request.url()).pathname));
@@ -21,7 +22,7 @@ test.describe('code splitting of the phase 5a areas', () => {
     await page.goto(`/stations/${stationId}/ads`);
     await expect(page.getByRole('heading', { level: 1, name: 'Ads' })).toBeVisible();
     await page.waitForLoadState('networkidle');
-    expect(fetched.filter((path) => /\/features\/(sign-up|admin)\//.test(path))).toEqual([]);
+    expect(fetched.filter((path) => /\/features\/(sign-up|admin|client-area)\//.test(path))).toEqual([]);
 
     const visitor = await anotherDevice(browser, testInfo);
     try {
@@ -38,7 +39,7 @@ test.describe('code splitting of the phase 5a areas', () => {
     }
   });
 
-  test('the production build puts sign-up and the console in files of their own, and the main file holds neither', async ({}, testInfo) => {
+  test('the production build puts sign-up, the console and the client pages in files of their own, and the main file holds none of them', async ({}, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop', 'Checked once, on the desktop.');
     test.setTimeout(240_000);
     const portalFolder = fileURLToPath(new URL('..', import.meta.url));
@@ -52,12 +53,14 @@ test.describe('code splitting of the phase 5a areas', () => {
       const files = readdirSync(join(outputFolder, 'assets')).filter((name) => name.endsWith('.js'));
       expect(files.some((name) => /^sign-up-pages-.+\.js$/.test(name))).toBe(true);
       expect(files.some((name) => /^admin-pages-.+\.js$/.test(name))).toBe(true);
+      expect(files.some((name) => /^client-pages-.+\.js$/.test(name))).toBe(true);
       const html = readFileSync(join(outputFolder, 'index.html'), 'utf8');
       const mainFile = /src="\/assets\/(index-[^"]+\.js)"/.exec(html)?.[1];
       expect(mainFile).toBeDefined();
       const main = readFileSync(join(outputFolder, 'assets', mainFile as string), 'utf8');
       expect(main).not.toContain('About 5 minutes. We save as you go');
       expect(main).not.toContain('Enter the 6-digit code from your authenticator app');
+      expect(main).not.toContain("You can't view any adverts right now");
     } finally {
       rmSync(outputFolder, { recursive: true, force: true });
     }

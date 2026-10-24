@@ -23,7 +23,7 @@ class RecordingEmailSender implements EmailSender {
 
 const HOUR = 3_600_000;
 const CLIENT_RESPONSE_KEYS = new Set([
-  'stations', 'stationId', 'stationName', 'frequencyLabel', 'contact', 'name', 'phoneNumberE164', 'clients', 'id', 'nextOnAir',
+  'stations', 'stationId', 'stationName', 'frequencyLabel', 'timeZone', 'contact', 'name', 'phoneNumberE164', 'clients', 'id', 'nextOnAir',
   'startsAt', 'endsAt', 'localDate', 'localStartTime', 'localEndTime', 'adId', 'adTitle', 'lastSevenDays', 'heard', 'calls',
   'whatsApp', 'directions', 'website', 'ads', 'title', 'clientId', 'clientName', 'status', 'startsOn', 'endsOn', 'timeWindows',
   'daysOfWeek', 'heardLastSevenDays', 'station', 'actionCard', 'nextTimesOnAir', 'range', 'firstDay', 'lastDay', 'listeners',
@@ -391,6 +391,7 @@ describe('client accounts', () => {
       expect(sectionB?.lastSevenDays).toEqual({ heard: 2, calls: 0, whatsApp: 0, directions: 0, website: 0 });
       expect(Object.keys(home)).toEqual(['stations']);
       expect(sectionA?.contact).toEqual({ name: 'Mwila Banda', phoneNumberE164: '+447700900123' });
+      expect(sectionA?.timeZone).toBe('Africa/Lusaka');
       expect(sectionA?.clients).toEqual([{ id: brandAAtA, name: 'Brand A' }]);
     });
 
@@ -491,7 +492,7 @@ describe('client accounts', () => {
       const cookie = await signedIn(follower);
       const detail = (await at(cookie, 'get', `/client/stations/${ownerA.stationId}/ads/${ads.live.adId}`).expect(200)).body as ClientAdDetail;
       expect(detail.actionCard).toEqual({ schema_version: 1 });
-      expect(detail.station).toMatchObject({ id: ownerA.stationId, frequencyLabel: '98.1 FM', contact: { name: 'Mwila Banda', phoneNumberE164: '+447700900123' } });
+      expect(detail.station).toMatchObject({ id: ownerA.stationId, frequencyLabel: '98.1 FM', timeZone: 'Africa/Lusaka', contact: { name: 'Mwila Banda', phoneNumberE164: '+447700900123' } });
       expect(JSON.stringify(detail)).not.toMatch(/engagement_limit|engagementLimit|grace|audio_asset|audioAsset/);
     });
 

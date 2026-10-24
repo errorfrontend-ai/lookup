@@ -14,7 +14,8 @@ import { stationHomePath } from '../stations/station-home-path';
 export function homePathFor(signedInUser: SignedInPortalUser): string {
   if (signedInUser.user.platformRole === 'SUPER_ADMIN') return signedInUser.isTwoFactorCodeNeeded ? '/two-factor' : '/admin/applications';
   const firstStation = signedInUser.stations[0];
-  return firstStation ? stationHomePath(firstStation) : '/';
+  if (firstStation) return stationHomePath(firstStation);
+  return signedInUser.clientAccesses.length > 0 ? '/client' : '/';
 }
 
 /**

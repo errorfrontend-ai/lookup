@@ -475,6 +475,22 @@ describe('client accounts in the database', () => {
     });
   });
 
+  describe("a client's next times on air", () => {
+    const nextSlots = async () =>
+      asLookupApi(apiClient, { userId: people.viewerB }, async (client) => (await client.query('SELECT slot_starts_at FROM app.list_client_viewer_next_slots($1, $2, 5)', [stations.lusaka, ads.brandB])).rows.length);
+
+    it('P5C-ADVERT-01: only an active campaign has next times on air: a paused one has none, nor one whose dates have passed', async () => {
+      const aroundNow = { from: new Date(Date.now() - 86_400_000).toISOString(), until: new Date(Date.now() + 20 * 86_400_000).toISOString(), windows: [[[1, 2, 3, 4, 5, 6, 7], '06:00', '09:00']] as Array<[number[], string, string]> };
+      await campaign(stations.lusaka, ads.brandB, aroundNow);
+      expect(await nextSlots()).toBe(5);
+      await campaign(stations.lusaka, ads.brandB, { ...aroundNow, status: 'PAUSED' });
+      expect(await nextSlots()).toBe(0);
+      await campaign(stations.lusaka, ads.brandB, { ...aroundNow, from: '2026-01-01T00:00:00Z', until: new Date(Date.now() - 3_600_000).toISOString() });
+      expect(await nextSlots()).toBe(0);
+      await campaign(stations.lusaka, ads.brandB);
+    });
+  });
+
   describe('which air-time reminders are due', () => {
     // Brand A's slot: Monday 5 October 07:00 in Lusaka, 05:00 UTC. Viewer A follows Brand A; viewer B follows Brand B.
     it('P5C-NOTIFY-04: with the default 15 minutes, a reminder is due from 04:45 UTC until the slot starts, and only for its followers', async () => {
