@@ -153,9 +153,29 @@ export interface ClientNotificationSettings extends ClientNotificationSettingsIn
   ads: Array<{ stationId: string; stationName: string | null; adId: string; title: string }>;
 }
 
+/**
+ * The browsers' own push services: Chrome and other Chromium browsers (Google), Firefox (Mozilla), Safari on iPhone and
+ * Mac (Apple), Edge (Microsoft). A device's push address must be on one of them, so a client can never make the server
+ * post somewhere else.
+ */
+const PUSH_SERVICE_HOSTS = [/^fcm\.googleapis\.com$/, /^updates\.push\.services\.mozilla\.com$/, /^web\.push\.apple\.com$/, /^[a-z0-9-]{1,63}\.notify\.windows\.com$/];
+
+/** Whether [endpoint] is an https address on a browser's own push service, with no user name, password or port. */
+export function isKnownPushServiceEndpoint(endpoint: string): boolean {
+  if (endpoint.length > 2048 || !/^https:\/\/\S+$/.test(endpoint)) return false;
+  try {
+    const address = new URL(endpoint);
+    return address.protocol === 'https:' && !address.username && !address.password && !address.port && PUSH_SERVICE_HOSTS.some((host) => host.test(address.hostname));
+  } catch {
+    return false;
+  }
+}
+
+const PushEndpoint = z.string().max(2048).regex(/^https:\/\/\S+$/).refine(isKnownPushServiceEndpoint, { message: 'not a browser push service' });
+
 /** POST /client/push-subscriptions: what the browser's PushSubscription gives (its expiry is not used). */
 export const PushSubscriptionInput = z.strictObject({
-  endpoint: z.string().max(2048).regex(/^https:\/\/\S+$/),
+  endpoint: PushEndpoint,
   expirationTime: z.number().nullable().optional(),
   keys: z.strictObject({
     p256dh: z.string().regex(/^[A-Za-z0-9_-]{80,100}$/),
@@ -165,7 +185,7 @@ export const PushSubscriptionInput = z.strictObject({
 export type PushSubscriptionInput = z.infer<typeof PushSubscriptionInput>;
 
 /** POST /client/push-subscriptions/removal: this device turned off. */
-export const PushSubscriptionRemovalInput = z.strictObject({ endpoint: z.string().max(2048).regex(/^https:\/\/\S+$/) });
+export const PushSubscriptionRemovalInput = z.strictObject({ endpoint: PushEndpoint });
 export type PushSubscriptionRemovalInput = z.infer<typeof PushSubscriptionRemovalInput>;
 
 /** What a test notification reached. */

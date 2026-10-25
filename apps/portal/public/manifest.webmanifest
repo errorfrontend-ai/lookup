@@ -1,0 +1,16 @@
+{
+  "name": "Look Up",
+  "short_name": "Look Up",
+  "description": "Your adverts on the radio: when they air, how listeners respond, and a reminder before each one.",
+  "id": "/client",
+  "start_url": "/client",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F5F2EE",
+  "theme_color": "#A8431A",
+  "icons": [
+    { "src": "/icons/look-up-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/look-up-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/look-up-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

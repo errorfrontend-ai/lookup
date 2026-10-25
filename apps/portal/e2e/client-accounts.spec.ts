@@ -107,11 +107,33 @@ test.describe('client accounts', () => {
       expect(await pageProblems(client, 'advert page', 12)).toEqual([]);
       const advertPath = new URL(client.url()).pathname;
 
-      // P5C-DASHBOARD-05: the menu's Account page.
-      if (testInfo.project.name === 'phone') await client.getByRole('button', { name: 'Menu' }).click();
-      await client.getByRole('navigation', { name: testInfo.project.name === 'phone' ? 'Menu' : 'Client menu' }).getByRole('link', { name: 'Account' }).click();
+      // P5C-DASHBOARD-05: the menu's Notifications and Account pages.
+      const openMenuPage = async (name: string) => {
+        if (testInfo.project.name === 'phone') await client.getByRole('button', { name: 'Menu' }).click();
+        await client.getByRole('navigation', { name: testInfo.project.name === 'phone' ? 'Menu' : 'Client menu' }).getByRole('link', { name }).click();
+      };
+      await openMenuPage('Notifications');
+      await expect(client.getByRole('heading', { level: 1, name: 'Notifications' })).toBeVisible();
+      await expect(client.getByRole('region', { name: 'On this device' })).toBeVisible();
+      await expect(client.getByRole('radio', { name: '15 minutes' })).toBeChecked();
+      // P5C-DASHBOARD-10: the notification switches are 48 px rows.
+      expect((await client.getByRole('switch', { name: 'Email me a reminder too' }).locator('xpath=ancestor::label').boundingBox())?.height).toBeGreaterThanOrEqual(47.5);
+      expect(await pageProblems(client, 'notifications page', 12)).toEqual([]);
+      // P5C-INSTALL-01: the client area registers the service worker and offers the manifest, which is served.
+      const workerScript = await client.evaluate(async () => (await navigator.serviceWorker.ready).active?.scriptURL ?? null);
+      expect(workerScript).toBe('http://localhost:5180/service-worker.js');
+      await expect(client.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
+      const manifest = await client.request.get('/manifest.webmanifest');
+      expect(manifest.status()).toBe(200);
+      expect(await manifest.json()).toMatchObject({ name: 'Look Up', start_url: '/client', display: 'standalone' });
+
+      await openMenuPage('Account');
       await expect(client.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
       expect(await pageProblems(client, 'account page', 8)).toEqual([]);
+
+      // P5C-INSTALL-01: a station's own pages register no worker and offer no manifest.
+      expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
+      await expect(page.locator('link[rel="manifest"]')).toHaveCount(0);
 
       // P5C-ONBOARDING-03, P5C-TESTS-01: Station B invites the same person, who accepts signed in; two stations, apart.
       const secondInvitation = await inviteBrandA(page, stationB, invitedEmail, alreadyRead);

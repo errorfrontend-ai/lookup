@@ -1,11 +1,13 @@
-import { randomInt, randomUUID } from 'node:crypto';
+import { createECDH, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { ClsService } from 'nestjs-cls';
 import type pg from 'pg';
 import supertest from 'supertest';
 import { type DataSource, QueryFailedError } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { APP_CONFIG, loadAppConfig } from '../src/config/app-config.js';
 import { PasswordHasher } from '../src/features/authentication/password-hasher.js';
+import { newVapidKeys } from '../src/features/notifications/web-push.js';
 import { StationScopedTransaction } from '../src/infrastructure/database/station-scoped-transaction.js';
 import { databaseSetupClient } from './support/database-clients.js';
 import { assertErrorEnvelope } from './support/internal-detail-patterns.js';
@@ -21,6 +23,13 @@ const failureSwitch = {
   successfulTransactionsLeft: 0,
   sqlToFail: null as RegExp | null,
 };
+
+/** A browser's subscription on Google's push service. */
+function browserSubscription() {
+  const keys = createECDH('prime256v1');
+  keys.generateKeys();
+  return { endpoint: `https://fcm.googleapis.com/fcm/send/${randomBytes(24).toString('base64url')}`, keys: { p256dh: keys.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') } };
+}
 
 /** Failures carrying exactly what must never reach a response: SQL, a table name, a value. */
 function injectedFailure(kind: FailureKind): Error {
@@ -49,9 +58,12 @@ describe('phase 5c routes when something underneath fails', () => {
   const client = () => supertest(testApplication.application.getHttpServer());
 
   beforeAll(async () => {
+    // Push is configured, so a device route reaches its own work (and its failure) rather than "not available".
+    const vapid = newVapidKeys();
+    const config = { ...loadAppConfig(), WEB_PUSH_PUBLIC_KEY: vapid.publicKey, WEB_PUSH_PRIVATE_KEY: vapid.privateKey, WEB_PUSH_CONTACT_EMAIL: 'push@lookup.example' };
     testApplication = await createTestApplication({
       overrideProviders: (builder) =>
-        builder.overrideProvider(StationScopedTransaction).useFactory({
+        builder.overrideProvider(APP_CONFIG).useValue(config).overrideProvider(StationScopedTransaction).useFactory({
           inject: [getDataSourceToken(), ClsService],
           factory: (dataSource: DataSource, requestContext: ClsService) => {
             const real = new StationScopedTransaction(dataSource, requestContext);
@@ -139,6 +151,9 @@ describe('phase 5c routes when something underneath fails', () => {
     ['the home', 'get', () => '/client/home'],
     ['the notification settings', 'get', () => '/client/notification-settings'],
     ['saving the notification settings', 'put', () => '/client/notification-settings', () => ({ isPushOn: true, isEmailOn: false, leadMinutes: 15, mutedAds: [] })],
+    ['turning a device on', 'post', () => '/client/push-subscriptions', () => browserSubscription()],
+    ['turning a device off', 'post', () => '/client/push-subscriptions/removal', () => ({ endpoint: browserSubscription().endpoint })],
+    ['a test notification', 'post', () => '/client/test-notification'],
   ];
 
   describe.each(['database', 'programming'] as const)('a %s error inside the route', (kind) => {

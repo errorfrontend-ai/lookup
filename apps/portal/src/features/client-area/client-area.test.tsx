@@ -108,14 +108,14 @@ describe('the client area', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your adverts' })).toBeInTheDocument();
   });
 
-  it('P5C-DASHBOARD-05: the header says Look Up and whose adverts these are, with Home, Account and Sign out', async () => {
+  it('P5C-DASHBOARD-05: the header says Look Up and whose adverts these are, with Home, Notifications, Account and Sign out', async () => {
     clientApi();
     renderPortalAt('/client');
     const banner = await screen.findByRole('banner');
     expect(within(banner).getByText('Look Up')).toBeInTheDocument();
     expect(within(banner).getByText('Brand A')).toBeInTheDocument();
     const menu = within(banner).getByRole('navigation', { name: 'Client menu' });
-    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['Home', 'Account']);
+    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['Home', 'Notifications', 'Account']);
     expect(within(menu).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
     // On a phone the same menu opens behind a Menu button.
     await person.click(within(banner).getByRole('button', { name: 'Menu' }));

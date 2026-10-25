@@ -17,6 +17,7 @@ import { ClientErrorsModule } from './features/client-errors/client-errors.modul
 import { CampaignsModule } from './features/campaigns/campaigns.module.js';
 import { ClientsModule } from './features/clients/clients.module.js';
 import { ClientViewersModule } from './features/client-viewers/client-viewers.module.js';
+import { AirTimeRemindersModule } from './features/air-time-reminders/air-time-reminders.module.js';
 import { ClientAreaModule } from './features/client-area/client-area.module.js';
 import { HealthModule } from './features/health/health.module.js';
 import { ListenerInstallsModule } from './features/listener-installs/listener-installs.module.js';
@@ -70,6 +71,7 @@ import { ObjectStorageModule } from './infrastructure/object-storage/object-stor
     ClientsModule,
     ClientViewersModule,
     ClientAreaModule,
+    AirTimeRemindersModule,
     AdsModule,
     ActionCardsModule,
     AdHistoryModule,

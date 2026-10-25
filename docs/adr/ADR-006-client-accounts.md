@@ -78,7 +78,8 @@ The owner chose, from options put to them:
 - **More personal data about businesses' people:** a client's name, email and password hash, like station members.
   The Phase 8 privacy work (privacy notice, data-protection registration) covers them too.
 - **Push depends on the browser's push service** (Google's for Chrome on Android). The payload is encrypted end to end by
-  the Web Push protocol; the endpoint address is a secret, stored only to send and never logged or shown.
+  the Web Push protocol; the endpoint address is a secret, stored only to send and never logged or shown. Only the
+  browsers' own push services are accepted as addresses, so the server cannot be made to post elsewhere.
 - **iPhones** receive Web Push only when Look Up is added to the home screen (iOS 16.4 or newer); the portal says so.
 - **Reminder volume:** a slot every weekday is a reminder every weekday. The client controls it per advert, and each
   slot is reminded once.

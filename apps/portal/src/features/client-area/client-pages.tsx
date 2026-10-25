@@ -5,4 +5,5 @@
 export { ChangePasswordPage as ClientAccountPage } from '../account/change-password-page';
 export { ClientAdPage, ClientNotFound } from './client-ad-page';
 export { ClientHomePage } from './client-home-page';
+export { ClientNotificationsPage } from './client-notifications-page';
 export { ClientShell } from './client-shell';

@@ -14,3 +14,9 @@ process.env.QUEUE_KEY_PREFIX = `lookup-test-${randomBytes(4).toString('hex')}`;
 process.env.INGEST_SWEEP_INTERVAL_SECONDS = '0';
 // No test application sends notifications unless its test turns the worker on (notifications.test.ts does).
 process.env.NOTIFICATION_SENDING_ENABLED = 'false';
+// Nor does any send air-time reminders on its own: air-time-reminders.test.ts runs the job by hand.
+process.env.AIR_TIME_REMINDER_INTERVAL_SECONDS = '0';
+// Push is off unless a test turns it on (a development key pair in .env must not change what the tests see).
+process.env.WEB_PUSH_PUBLIC_KEY = '';
+process.env.WEB_PUSH_PRIVATE_KEY = '';
+process.env.WEB_PUSH_CONTACT_EMAIL = '';

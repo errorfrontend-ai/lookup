@@ -1,4 +1,5 @@
 import { APPLICATION_REVIEW_TIME_TEXT, LISTENER_EMAIL_CODE_LIFETIME_SECONDS, PHONE_CODE_LIFETIME_SECONDS } from '@lookup/contracts';
+import type { PushNotice } from './web-push.js';
 
 /**
  * Every SMS and email Look Up sends (P5A design §3.6): plain text from named parameters, never HTML. A link is the
@@ -18,7 +19,24 @@ export type NotificationMessage =
   | { template: 'station_suspended'; stationName: string; reason: string }
   | { template: 'station_reactivated'; stationName: string }
   | { template: 'team_invitation'; linkToken: string; stationName: string; stationRole: string }
-  | { template: 'client_viewer_invitation'; linkToken: string; stationName: string; frequencyLabel: string | null; clientName: string };
+  | { template: 'client_viewer_invitation'; linkToken: string; stationName: string; frequencyLabel: string | null; clientName: string }
+  // A client's reminder before a slot of their advert (ADR-006 decision 6): the slot, never a minute, nothing about listeners.
+  | {
+      template: 'air_time_reminder';
+      stationId: string;
+      adId: string;
+      adTitle: string;
+      stationName: string | null;
+      frequencyLabel: string | null;
+      localStartTime: string;
+      localEndTime: string;
+      isToday: boolean;
+      /** Which slot: a newer notice for the same slot replaces an older one on the phone. */
+      slotTag: string;
+      /** Until when the reminder is worth showing: the slot's start. */
+      slotStartsAtEpochMilliseconds: number;
+    }
+  | { template: 'test_notification' };
 
 export type NotificationTemplate = NotificationMessage['template'];
 
@@ -47,6 +65,45 @@ export function smsTextOf(message: NotificationMessage, portalOrigin: string): s
       return `Look Up: ${message.stationName} is suspended. Listeners no longer see its ads. Sign in to see why.`;
     case 'station_reactivated':
       return `Look Up: ${message.stationName} is active again. Listeners see its ads again.`;
+    default:
+      return null;
+  }
+}
+
+/** "Station A (98.1 FM)", or the station's name alone, or "your station". */
+function stationWithFrequency(stationName: string | null, frequencyLabel: string | null): string {
+  if (!stationName) return 'your station';
+  return frequencyLabel ? `${stationName} (${frequencyLabel})` : stationName;
+}
+
+/** "between 07:00 and 09:00 today": the slot, as the station's clock shows it. */
+function slotWords(message: Extract<NotificationMessage, { template: 'air_time_reminder' }>): string {
+  return `between ${message.localStartTime} and ${message.localEndTime} ${message.isToday ? 'today' : 'tomorrow'}`;
+}
+
+/** The page a reminder opens: the advert's own page in the client's area. */
+export function airTimeReminderPath(message: Pick<Extract<NotificationMessage, { template: 'air_time_reminder' }>, 'stationId' | 'adId'>): string {
+  return `/client/stations/${message.stationId}/ads/${message.adId}`;
+}
+
+/** A push notice (ADR-006 decision 7), for the templates that have one, with how long it is worth delivering. */
+export function pushNoticeOf(message: NotificationMessage, nowMilliseconds = Date.now()): { notice: PushNotice; ttlSeconds: number } | null {
+  switch (message.template) {
+    case 'air_time_reminder':
+      return {
+        notice: {
+          title: `${message.adTitle} airs soon`,
+          body: `On ${stationWithFrequency(message.stationName, message.frequencyLabel)} ${slotWords(message)}. Listen in to check it.`,
+          url: airTimeReminderPath(message),
+          tag: message.slotTag,
+        },
+        ttlSeconds: Math.max(0, Math.floor((message.slotStartsAtEpochMilliseconds - nowMilliseconds) / 1000)),
+      };
+    case 'test_notification':
+      return {
+        notice: { title: 'Look Up notifications are on', body: "This is a test. You'll get a notice like this before each of your adverts airs.", url: '/client/notifications', tag: 'test-notification' },
+        ttlSeconds: 5 * 60,
+      };
     default:
       return null;
   }
@@ -105,6 +162,18 @@ export function emailTextOf(message: NotificationMessage, portalOrigin: string):
       return {
         subject: `You're invited to ${message.stationName} on Look Up`,
         text: `You're invited to join ${message.stationName}'s team on Look Up as ${ROLE_WORDS[message.stationRole] ?? 'a member'}.\n\n${portalOrigin}/invitations/accept#token=${message.linkToken}\n\nThe invitation works once and lasts 7 days.`,
+      };
+    case 'air_time_reminder': {
+      const station = stationWithFrequency(message.stationName, message.frequencyLabel);
+      return {
+        subject: `${message.adTitle} airs soon on ${message.stationName ?? 'your station'}`,
+        text: `${message.adTitle} airs on ${station} ${slotWords(message)}. Listen in to check it.\n\n${portalOrigin}${airTimeReminderPath(message)}\n\nTo change your reminders: ${portalOrigin}/client/notifications`,
+      };
+    }
+    case 'test_notification':
+      return {
+        subject: 'Test notification from Look Up',
+        text: `This is a test. You'll get an email like this before each of your adverts airs.\n\nTo change your reminders: ${portalOrigin}/client/notifications`,
       };
     // Word for word like the team's invitation where it can be (ADR-006, P5C-ONBOARDING-04).
     case 'client_viewer_invitation': {

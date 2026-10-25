@@ -149,6 +149,20 @@ Never paste the other four secrets again into a running site: a new `AUTHENTICAT
 The listener-account gate stays off (`LISTENER_ACCOUNT_REQUIRED` is `false`) until it is switched on as in
 `docs/design/listener-accounts.md` §8; the new routes and the "Who is listening" panel work as soon as the deploy is live.
 
+### Client accounts: push notifications (optional)
+
+Client accounts (ADR-006, October 2026) work without anything new: clients' reminders go by email. To send them as
+notifications on clients' phones too, add the push key pair once:
+
+1. On your computer: `npm run deploy:new-secrets -- WEB_PUSH_KEYS`. It prints two lines, `WEB_PUSH_PUBLIC_KEY=…` and
+   `WEB_PUSH_PRIVATE_KEY=…`.
+2. In Render: **lookup-api** → **Environment** → add the two, each value the part after `=`, and a third,
+   `WEB_PUSH_CONTACT_EMAIL`, an address you read (push services may write to it about this server). All three or none:
+   the API refuses to start with only some, or with halves that do not belong together.
+3. **Save, rebuild, and deploy**, clear the terminal, and wait for **Live**.
+
+Keep the pair: a new pair later means every client must turn notifications on again on each device.
+
 ## Notes and known limits of the showcase
 
 - **Database roles.** The pre-deploy step creates `lookup_api`, `lookup_admin_api`, `lookup_fingerprint_worker` and

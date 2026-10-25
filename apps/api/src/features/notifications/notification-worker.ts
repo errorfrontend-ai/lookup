@@ -4,10 +4,12 @@ import { Redis } from 'ioredis';
 import { PinoLogger } from 'nestjs-pino';
 import { DerivedKeys } from '../../common/security/derived-keys.js';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
+import { StationScopedTransaction } from '../../infrastructure/database/station-scoped-transaction.js';
 import { workerHeartbeatKey } from '../../infrastructure/job-queues/worker-heartbeat-key.js';
-import { emailTextOf, smsTextOf } from './notification-messages.js';
+import { emailTextOf, pushNoticeOf, smsTextOf } from './notification-messages.js';
 import { NOTIFICATION_ATTEMPTS, NOTIFY_QUEUE_NAME, type NotificationJobData } from './notification-queue.js';
 import { EMAIL_SENDER, SMS_SENDER, type EmailSender, type SmsSender } from './notification-senders.js';
+import { PUSH_SENDER, type PushSender } from './web-push.js';
 
 /** Two sends at once per API instance; more instances add more (P5A-D9). */
 const CONCURRENCY = 2;
@@ -65,6 +67,8 @@ export class NotificationWorker implements OnApplicationBootstrap, OnApplication
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(EMAIL_SENDER) private readonly emailSender: EmailSender,
     @Inject(SMS_SENDER) private readonly smsSender: SmsSender,
+    @Inject(PUSH_SENDER) private readonly pushSender: PushSender,
+    private readonly stationScopedTransaction: StationScopedTransaction,
     private readonly derivedKeys: DerivedKeys,
     private readonly logger: PinoLogger,
   ) {
@@ -110,6 +114,10 @@ export class NotificationWorker implements OnApplicationBootstrap, OnApplication
       this.logger.warn(this.describe(job), 'notification dropped: past its deadline');
       return;
     }
+    if (channel === 'push') {
+      await this.sendPush(job);
+      return;
+    }
     if (channel === 'sms') {
       const text = smsTextOf(message, this.config.PORTAL_PUBLIC_ORIGIN);
       if (text === null) throw new Error(`the ${message.template} template has no SMS`);
@@ -124,6 +132,42 @@ export class NotificationWorker implements OnApplicationBootstrap, OnApplication
       });
     }
     this.logger.info({ ...this.describe(job), attempt: job.attemptsMade + 1 }, 'notification sent');
+  }
+
+
+  /**
+   * One notice to every device of the person (ADR-006): a device the push service no longer knows is forgotten, a sent
+   * one noted. The job is tried again only when no device took it, so a phone that did never gets it twice.
+   */
+  private async sendPush(job: Job<NotificationJobData>): Promise<void> {
+    const push = pushNoticeOf(job.data.message);
+    if (push === null) throw new Error(`the ${job.data.message.template} template has no push notice`);
+    // No station in the transaction's context: the definer functions need none, and nothing else is reachable.
+    const devices = (await this.stationScopedTransaction.run((database) => database.query('SELECT * FROM app.list_web_push_subscriptions_of($1)', [job.data.recipient]))) as Array<{
+      endpoint: string;
+      endpoint_hash: Buffer;
+      receiver_public_key: string;
+      authentication_secret: string;
+    }>;
+    let sent = 0;
+    let gone = 0;
+    let lastFailure: unknown = null;
+    for (const device of devices) {
+      try {
+        const outcome = await this.pushSender.send({ endpoint: device.endpoint, receiverPublicKey: device.receiver_public_key, authenticationSecret: device.authentication_secret }, push.notice, push.ttlSeconds);
+        if (outcome === 'GONE') {
+          gone += 1;
+          await this.stationScopedTransaction.run((database) => database.query('SELECT app.forget_web_push_subscription($1)', [device.endpoint_hash]));
+        } else {
+          sent += 1;
+          await this.stationScopedTransaction.run((database) => database.query('SELECT app.note_web_push_sent($1)', [device.endpoint_hash]));
+        }
+      } catch (problem) {
+        lastFailure = problem;
+      }
+    }
+    this.logger.info({ ...this.describe(job), attempt: job.attemptsMade + 1, devices: devices.length, sent, gone, failed: devices.length - sent - gone }, 'push notice sent');
+    if (sent === 0 && lastFailure !== null) throw new SendFailure(lastFailure);
   }
 
   private describe(job: Job<NotificationJobData>) {

@@ -9,6 +9,7 @@ import { CampaignStatusBadge } from '../../components/status-badges';
 import { describeScheduleSummary } from '../../formatting/describe-schedule';
 import { describeCampaignDates, describeHeardLastSevenDays, describeSlot, describeStation, stationToday } from '../../plain-words/client-words';
 import { ClientFigureTiles, SpreadsheetButton, ViewOnlyNote } from './client-parts';
+import { notificationPermission, pushSupport } from './this-device';
 import { useClientHome } from './use-client-area';
 
 /** The address of one advert's page. */
@@ -81,6 +82,27 @@ function StationSection({ section }: { section: ClientStationSection }) {
 }
 
 /**
+ * The first visit's offer (P5C-NOTIFY-02): reminders before each slot, set up on the Notifications page. Shown while this
+ * browser has never been asked, or on an iPhone not yet on the Home Screen; never asks for permission by itself.
+ */
+function RemindersCard() {
+  const support = pushSupport();
+  const isNeverAsked = support === 'SUPPORTED' && notificationPermission() === 'default';
+  if (!isNeverAsked && support !== 'NEEDS_HOME_SCREEN') return null;
+  return (
+    <section aria-labelledby="client-reminders-card" className="flex flex-col items-start gap-2 rounded-lg border border-line-soft bg-surface p-4">
+      <h2 id="client-reminders-card" className="text-heading">
+        Get a notification before your adverts air
+      </h2>
+      <p className="text-body text-muted">A reminder before each time slot, so you can listen in and check.</p>
+      <Link to="/client/notifications" className="flex min-h-11 items-center text-label text-accent underline underline-offset-4">
+        Set up reminders
+      </Link>
+    </section>
+  );
+}
+
+/**
  * A client's home (ADR-006 decision 4; P5C-DASHBOARD-02, -07, -08): every station that gave access, each its own section
  * with its next slot, the last 7 days and the adverts. Nothing adds stations together.
  */
@@ -89,6 +111,7 @@ export function ClientHomePage() {
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-display">Your adverts</h1>
+      {home.isSuccess && home.data.stations.length > 0 ? <RemindersCard /> : null}
       {home.isPending ? <SkeletonRows count={3} rowClassName="h-28" /> : null}
       {home.isError ? (
         <div className="flex flex-col items-start gap-3">

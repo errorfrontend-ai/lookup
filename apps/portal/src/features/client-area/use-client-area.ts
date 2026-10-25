@@ -1,5 +1,14 @@
-import type { ClientAdDetail, ClientAdFigures, ClientHome, ListenerFiguresRange, ListenerMix } from '@lookup/contracts';
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import type {
+  ClientAdDetail,
+  ClientAdFigures,
+  ClientHome,
+  ClientNotificationSettings,
+  ClientNotificationSettingsInput,
+  ListenerFiguresRange,
+  ListenerMix,
+  TestNotificationResult,
+} from '@lookup/contracts';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../../app/portal-api';
 
 const ONE_MINUTE_MILLISECONDS = 60_000;
@@ -11,7 +20,27 @@ export const clientQueryKeys = {
   ad: (stationId: string, adId: string) => ['client', 'stations', stationId, 'ads', adId] as const,
   adFigures: (stationId: string, adId: string, range: ListenerFiguresRange) => ['client', 'stations', stationId, 'ads', adId, 'figures', range] as const,
   adListenerMix: (stationId: string, adId: string, range: ListenerFiguresRange) => ['client', 'stations', stationId, 'ads', adId, 'listener-mix', range] as const,
+  notificationSettings: ['client', 'notification-settings'] as const,
 };
+
+/** The person's reminder settings, and whether this server can send push at all. */
+export function useClientNotificationSettings() {
+  return useQuery({ queryKey: clientQueryKeys.notificationSettings, queryFn: () => portalApi.get<ClientNotificationSettings>('/client/notification-settings') });
+}
+
+/** Saves the settings at once (no Save button, like a phone's settings), keeping the server's answer. */
+export function useSaveNotificationSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ClientNotificationSettingsInput) => portalApi.put<ClientNotificationSettings>('/client/notification-settings', input),
+    onSuccess: (saved) => queryClient.setQueryData(clientQueryKeys.notificationSettings, saved),
+  });
+}
+
+/** "Send a test notification": to each of the person's devices, and the email when that is on. */
+export function useSendTestNotification() {
+  return useMutation({ mutationFn: () => portalApi.post<TestNotificationResult>('/client/test-notification') });
+}
 
 /** The client's home: one section per station that gave access (ADR-006 decision 4). Fresh every minute while open. */
 export function useClientHome() {

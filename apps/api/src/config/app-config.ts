@@ -1,3 +1,4 @@
+import { createECDH } from 'node:crypto';
 import { z } from 'zod';
 import { isListenerAppVersion } from '@lookup/contracts';
 import { InvalidConfigurationError } from './invalid-configuration-error.js';
@@ -27,6 +28,17 @@ export const HUMAN_CHECK_TEST_SECRET_KEYS = [
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
 /** An environment variable set to nothing reads as unset (Render and .env files can hold empty values). */
+/** The P-256 public key (base64url) that belongs to a private key, or null for a value that is not one. */
+function publicKeyOf(privateKey: string): string | null {
+  try {
+    const keys = createECDH('prime256v1');
+    keys.setPrivateKey(Buffer.from(privateKey, 'base64url'));
+    return keys.getPublicKey().toString('base64url');
+  } catch {
+    return null;
+  }
+}
+
 function emptyAsUnset(value: unknown): unknown {
   return value === '' ? undefined : value;
 }
@@ -211,8 +223,14 @@ const AppConfigSchema = z
     WEB_PUSH_PUBLIC_KEY: z.preprocess(emptyAsUnset, z.string().regex(/^[A-Za-z0-9_-]{87}$/).optional()),
     WEB_PUSH_PRIVATE_KEY: z.preprocess(emptyAsUnset, z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional()),
     WEB_PUSH_CONTACT_EMAIL: z.preprocess(emptyAsUnset, z.email().max(254).optional()),
-    /** How often the air-time reminder job looks for slots about to start. */
-    AIR_TIME_REMINDER_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
+    /** How often the air-time reminder job looks for slots about to start; 0 switches it off (tests run it by hand). */
+    AIR_TIME_REMINDER_INTERVAL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(600)
+      .default(60)
+      .refine((seconds) => seconds === 0 || seconds >= 10, { message: 'must be 0 (off) or at least 10 seconds' }),
   })
   .superRefine((config, context) => {
     // The template's placeholder has the right shape, so refuse it by name in every environment.
@@ -234,6 +252,9 @@ const AppConfigSchema = z
     const webPushSettingsGiven = [config.WEB_PUSH_PUBLIC_KEY, config.WEB_PUSH_PRIVATE_KEY, config.WEB_PUSH_CONTACT_EMAIL].filter((value) => value !== undefined).length;
     if (webPushSettingsGiven !== 0 && webPushSettingsGiven !== 3) {
       context.addIssue({ code: 'custom', path: ['WEB_PUSH_PUBLIC_KEY'], message: 'set all three web push settings, or none' });
+    }
+    if (config.WEB_PUSH_PUBLIC_KEY && config.WEB_PUSH_PRIVATE_KEY && publicKeyOf(config.WEB_PUSH_PRIVATE_KEY) !== config.WEB_PUSH_PUBLIC_KEY) {
+      context.addIssue({ code: 'custom', path: ['WEB_PUSH_PUBLIC_KEY'], message: 'the web push public key does not belong to the private key' });
     }
     if (config.ADMIN_DATABASE_URL === config.DATABASE_URL) {
       context.addIssue({ code: 'custom', path: ['ADMIN_DATABASE_URL'], message: "must be the super-admin role's own address" });

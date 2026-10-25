@@ -69,6 +69,14 @@ services:
         sync: false
       - key: LISTENER_ACCOUNT_REQUIRED
         value: 'false'
+      # Client accounts (ADR-006): the push key pair from `npm run deploy:new-secrets -- WEB_PUSH_KEYS` and an address push
+      # services may write to. Optional: left empty, push is off and clients' reminders go by email.
+      - key: WEB_PUSH_PUBLIC_KEY
+        sync: false
+      - key: WEB_PUSH_PRIVATE_KEY
+        sync: false
+      - key: WEB_PUSH_CONTACT_EMAIL
+        sync: false
       # The portal is served by this service, so its address is this service's own (https://….onrender.com).
       - key: PORTAL_PUBLIC_ORIGIN
         sync: false

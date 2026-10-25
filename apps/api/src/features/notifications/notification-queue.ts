@@ -13,12 +13,13 @@ export const NOTIFICATION_ATTEMPTS = 5;
 const PHONE_CODE_DEADLINE_MILLISECONDS = 10 * 60_000;
 const OTHER_DEADLINE_MILLISECONDS = 24 * 60 * 60_000;
 
-export type NotificationChannel = 'sms' | 'email';
+/** A push job's recipient is the person's portal user id: their devices are read when it is sent, never kept in Valkey. */
+export type NotificationChannel = 'sms' | 'email' | 'push';
 
 /** One notify job: who, what, and until when it is worth sending; the request that caused it, for the log. */
 export interface NotificationJobData {
   channel: NotificationChannel;
-  /** An E.164 number or an email address; the job is removed once sent or given up. */
+  /** An E.164 number, an email address, or (for push) a portal user id; the job is removed once sent or given up. */
   recipient: string;
   /** For an SMS: the email of the person it is for, used only when SMS_SENDER is `email-stand-in`. */
   smsStandInEmail?: string;
@@ -68,7 +69,11 @@ export class NotificationQueue implements OnApplicationShutdown {
     options: { smsStandInEmail?: string | null } = {},
   ): Promise<void> {
     const isShortLived = message.template === 'phone_verification_code' || message.template === 'listener_email_code';
-    const deadline = Date.now() + (isShortLived ? PHONE_CODE_DEADLINE_MILLISECONDS : OTHER_DEADLINE_MILLISECONDS);
+    // A reminder is worth nothing once its slot has started.
+    const deadline =
+      message.template === 'air_time_reminder'
+        ? message.slotStartsAtEpochMilliseconds
+        : Date.now() + (isShortLived ? PHONE_CODE_DEADLINE_MILLISECONDS : OTHER_DEADLINE_MILLISECONDS);
     const standIn = channel === 'sms' && options.smsStandInEmail ? { smsStandInEmail: options.smsStandInEmail } : {};
     try {
       await this.queue.add(message.template, { channel, recipient, ...standIn, message, requestId, deadlineEpochMilliseconds: deadline }, {

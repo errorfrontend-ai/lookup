@@ -5,10 +5,12 @@ import { Icon } from '../../components/icons';
 import { useFocusHeadingOnChange } from '../../components/use-focus-heading-on-change';
 import { useSignOut } from '../session/use-sign-out';
 import { useSignedInUser } from '../session/use-signed-in-user';
+import { offerTheManifest, serviceWorker } from './this-device';
 
 /** The places in the client's area, in the order the menu lists them. */
 export const CLIENT_MENU_ITEMS = [
   { path: '/client', label: 'Home', isEnd: true },
+  { path: '/client/notifications', label: 'Notifications', isEnd: false },
   { path: '/client/account', label: 'Account', isEnd: false },
 ] as const;
 
@@ -27,7 +29,8 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
 
 /**
  * The frame around a client's pages (ADR-006; P5C-DASHBOARD-05): "Look Up", whose adverts these are, and a menu with Home,
- * Account and Sign out. On a phone the menu folds behind a Menu button; from 768 px it sits in the header.
+ * Notifications, Account and Sign out. On a phone the menu folds behind a Menu button; from 768 px it sits in the header.
+ * The client area alone is installable (P5C-INSTALL-01): its manifest and service worker are offered from here.
  */
 export function ClientShell() {
   const signedInUser = useSignedInUser();
@@ -36,6 +39,11 @@ export function ClientShell() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   useEffect(() => setIsMenuOpen(false), [location.pathname]);
   useFocusHeadingOnChange(location.pathname);
+  useEffect(() => {
+    offerTheManifest();
+    // A browser that refuses the worker (a private window, an old browser) still shows every page.
+    serviceWorker().catch(() => undefined);
+  }, []);
 
   const menu = (
     <>

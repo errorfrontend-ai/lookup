@@ -3,10 +3,11 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 import { NotificationQueue } from './notification-queue.js';
 import { ClosedSmsSender, DevelopmentSmsSender, EMAIL_SENDER, EmailStandInSmsSender, SMS_SENDER, type SmsSender, SmtpEmailSender, type EmailSender } from './notification-senders.js';
 import { NotificationWorker } from './notification-worker.js';
+import { PUSH_SENDER, WebPushSender } from './web-push.js';
 
 /**
- * SMS and email (P5A design §3.1, §3.6; P5A-STRUCTURE-04): features queue a message with NotificationQueue; the
- * worker in this process sends it with the configured senders.
+ * SMS, email and push (P5A design §3.1, §3.6; P5A-STRUCTURE-04; ADR-006): features queue a message with
+ * NotificationQueue; the worker in this process sends it with the configured senders.
  */
 @Global()
 @Module({
@@ -14,6 +15,7 @@ import { NotificationWorker } from './notification-worker.js';
     NotificationQueue,
     NotificationWorker,
     { provide: EMAIL_SENDER, inject: [APP_CONFIG], useFactory: (config: AppConfig) => new SmtpEmailSender(config) },
+    { provide: PUSH_SENDER, inject: [APP_CONFIG], useFactory: (config: AppConfig) => new WebPushSender(config) },
     {
       provide: SMS_SENDER,
       inject: [APP_CONFIG, EMAIL_SENDER],
@@ -24,7 +26,7 @@ import { NotificationWorker } from './notification-worker.js';
       },
     },
   ],
-  exports: [NotificationQueue],
+  exports: [NotificationQueue, PUSH_SENDER],
 })
 export class NotificationsModule implements OnApplicationShutdown {
   constructor(@Inject(EMAIL_SENDER) private readonly emailSender: EmailSender) {}

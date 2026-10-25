@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadAppConfig } from '../src/config/app-config.js';
+import { newVapidKeys } from '../src/features/notifications/web-push.js';
 import { InvalidConfigurationError } from '../src/config/invalid-configuration-error.js';
 import { serializeErrorForLog } from '../src/infrastructure/logging/serialize-error-for-log.js';
 import { assertDatabaseRoleIsRestricted } from '../src/infrastructure/database/database-role-check.js';
@@ -181,6 +182,37 @@ describe('production configuration fails closed', () => {
     }
     // In production too: the key is never optional, so a deployment cannot start without it.
     expect(() => loadAppConfig({ ...soundProductionConfig, LISTENER_EMAIL_ENCRYPTION_SECRET: undefined })).toThrow(/LISTENER_EMAIL_ENCRYPTION_SECRET/);
+  });
+
+  it('P5C-ROLLOUT-01: web push is off without its settings; given, all three come together, as a matching key pair, never printed', () => {
+    const developmentConfig = { ...soundProductionConfig, NODE_ENV: 'development' };
+    const withoutPush = loadAppConfig(developmentConfig);
+    expect([withoutPush.WEB_PUSH_PUBLIC_KEY, withoutPush.WEB_PUSH_PRIVATE_KEY, withoutPush.WEB_PUSH_CONTACT_EMAIL]).toEqual([undefined, undefined, undefined]);
+    expect(withoutPush.AIR_TIME_REMINDER_INTERVAL_SECONDS).toBe(60);
+    expect(loadAppConfig({ ...developmentConfig, WEB_PUSH_PUBLIC_KEY: '', WEB_PUSH_PRIVATE_KEY: '', WEB_PUSH_CONTACT_EMAIL: '' }).WEB_PUSH_PUBLIC_KEY).toBeUndefined();
+    const pair = newVapidKeys();
+    const other = newVapidKeys();
+    const push = { WEB_PUSH_PUBLIC_KEY: pair.publicKey, WEB_PUSH_PRIVATE_KEY: pair.privateKey, WEB_PUSH_CONTACT_EMAIL: 'push@lookup.example' };
+    expect(loadAppConfig({ ...soundProductionConfig, ...push })).toMatchObject(push);
+    const refusals: Array<[Record<string, unknown>, RegExp]> = [
+      [{ ...push, WEB_PUSH_CONTACT_EMAIL: undefined }, /WEB_PUSH_PUBLIC_KEY.*set all three web push settings, or none/],
+      [{ ...push, WEB_PUSH_PRIVATE_KEY: other.privateKey }, /WEB_PUSH_PUBLIC_KEY.*does not belong to the private key/],
+      [{ ...push, WEB_PUSH_PUBLIC_KEY: 'short' }, /WEB_PUSH_PUBLIC_KEY/],
+      [{ ...push, WEB_PUSH_PRIVATE_KEY: `${pair.privateKey}x` }, /WEB_PUSH_PRIVATE_KEY/],
+      [{ ...push, WEB_PUSH_CONTACT_EMAIL: 'not an email' }, /WEB_PUSH_CONTACT_EMAIL/],
+      [{ AIR_TIME_REMINDER_INTERVAL_SECONDS: '5' }, /AIR_TIME_REMINDER_INTERVAL_SECONDS/],
+    ];
+    for (const [change, reason] of refusals) {
+      let message = '';
+      try {
+        loadAppConfig({ ...developmentConfig, ...change });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message, JSON.stringify(Object.keys(change))).toMatch(reason);
+      for (const secret of [pair.privateKey, other.privateKey]) expect(message).not.toContain(secret);
+    }
+    expect(loadAppConfig({ ...developmentConfig, AIR_TIME_REMINDER_INTERVAL_SECONDS: '0' }).AIR_TIME_REMINDER_INTERVAL_SECONDS).toBe(0);
   });
 
   it('LA-ROLLOUT-01: the account gate is off unless it is switched on, and the code and creation limits have safe defaults', () => {

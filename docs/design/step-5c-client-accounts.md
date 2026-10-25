@@ -154,10 +154,16 @@ Functions (SECURITY DEFINER, `search_path = pg_catalog, app, pg_temp`, EXECUTE f
 - Each run asks `list_due_air_time_reminders` for slot starts between now and now + 31 minutes: ACTIVE campaigns at ACTIVE
   stations, the slot's day inside the campaign's dates, worked out in the station's time zone (a slot past midnight
   belongs to its start day), joined to the client's viewers whose reminders are on and whose advert is not muted, where
-  `slot start − lead ≤ now < slot start`. For each, `claim_air_time_reminder` then the queue: one push job per device
-  (when push is on and configured), one email job (when email is on).
-- The `push` channel in the notification worker sends with the `web-push` library (VAPID, `aes128gcm`), with a 12-hour
-  time to live and urgency `high`; 404 or 410 deletes the device; other failures retry as the queue does.
+  `slot start − lead ≤ now < slot start`. For each, `claim_air_time_reminder` then the queue: one push job for the person
+  (when push is on and configured), one email job (when email is on). A reminder's job is dropped once its slot starts.
+- The `push` channel in the notification worker reads the person's devices when it sends (no device address is kept in
+  Valkey) and sends to each with urgency `high` and a time to live up to the slot's start; 404 or 410 deletes the device;
+  the job is tried again only when no device took it, so no phone gets a notice twice.
+- **As built (24 October 2026):** the encryption (RFC 8291, `aes128gcm`) and the VAPID signature (RFC 8292) are written
+  with Node's own crypto in `features/notifications/web-push.ts`, not the `web-push` library: npm could not add it (an
+  internal npm error), and the two standards are short. The tests reproduce RFC 8291's worked example byte for byte. A
+  device's address must be on a browser's own push service (Google, Mozilla, Apple, Microsoft), checked when it is
+  saved and again before each send, so a client can never make the server post anywhere else.
 - Portal: `public/manifest.webmanifest` (name "Look Up", short name, theme colour from the tokens, icons 192 and 512, start
   `/client`, display `standalone`) and `public/service-worker.js` (registered only from the client area, scope `/`;
   handles `push` and `notificationclick`; caches nothing).

@@ -68,6 +68,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
             children: [
               { index: true, lazy: loadClient('ClientHomePage') },
               { path: 'stations/:stationId/ads/:adId', lazy: loadClient('ClientAdPage') },
+              { path: 'notifications', lazy: loadClient('ClientNotificationsPage') },
               { path: 'account', lazy: loadClient('ClientAccountPage') },
               { path: '*', lazy: loadClient('ClientNotFound') },
             ],

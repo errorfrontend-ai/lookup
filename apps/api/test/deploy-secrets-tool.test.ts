@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { vapidPublicKeyOf } from '../src/features/notifications/web-push.js';
 
 const TOOL = fileURLToPath(new URL('../../../scripts/make-deploy-secrets.mjs', import.meta.url));
 const ALL_SECRETS = ['AUTHENTICATION_SECRET', 'TWO_FACTOR_ENCRYPTION_SECRET', 'LISTENER_INSTALL_TOKEN_SECRET', 'LISTENER_INSTALL_ID_PEPPER', 'LISTENER_EMAIL_ENCRYPTION_SECRET'];
@@ -29,6 +30,18 @@ describe('the deploy secrets tool', () => {
     expect(result.status).toBe(0);
     expect(linesOf(result.stdout)).toEqual([expect.stringMatching(/^LISTENER_EMAIL_ENCRYPTION_SECRET=[A-Za-z0-9_-]{43}$/)]);
     expect(result.stderr).toBe('');
+  });
+
+  it('P5C-ROLLOUT-01: WEB_PUSH_KEYS prints a matching push key pair in the shape the API accepts, and says to add the contact email', () => {
+    const result = run('WEB_PUSH_KEYS');
+    expect(result.status).toBe(0);
+    const lines = linesOf(result.stdout);
+    expect(lines).toEqual([expect.stringMatching(/^WEB_PUSH_PUBLIC_KEY=[A-Za-z0-9_-]{87}$/), expect.stringMatching(/^WEB_PUSH_PRIVATE_KEY=[A-Za-z0-9_-]{43}$/)]);
+    const [publicKey, privateKey] = lines.map((line) => line.split('=')[1] as string);
+    expect(vapidPublicKeyOf(privateKey as string)).toBe(publicKey);
+    expect(result.stderr).toContain('WEB_PUSH_CONTACT_EMAIL');
+    // Not part of a first deploy's five: push is optional until it is added.
+    expect(linesOf(run().stdout).some((line) => line.startsWith('WEB_PUSH'))).toBe(false);
   });
 
   it('refuses a name that is not a deploy secret, prints no secret, and lists the ones there are', () => {
