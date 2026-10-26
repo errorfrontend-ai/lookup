@@ -37,12 +37,20 @@ function routerSegmentsOf(path: string): string[] | null {
   }
 }
 
+/** The part of the portal a path is in ('stations', 'client', 'admin', '' for the home …), read as the router reads it. */
+export function portalAreaOf(path: string): string | null {
+  const segments = routerSegmentsOf(path);
+  return segments === null ? null : (segments[0] ?? '').toLowerCase();
+}
+
 /**
  * The page to go back to after signing in, only when the person who signed in can open it. The page left open may be
  * someone else's (a shared computer, an old tab): another station's pages, the super admin's console, another client's
  * advert. Then they land at their own home instead of on a "not found". Paths are read as the router reads them (decoded,
  * capital letters ignored), and only the pages a sign-in can come from are kept: the person's own stations, the console
- * for a super admin, the client area, the invitation page (how an invited person accepts) and "/".
+ * for a super admin, the client area, the invitation page (how an invited person accepts; only for the invited email
+ * when the page named it, `forEmail`) and "/". An advert of another client at a station the person also follows can only
+ * be told apart by asking for it: the advert page sends a person just signed in (`afterSignIn`) to their home instead.
  */
 export function returnPathFor(signedInUser: SignedInPortalUser, locationState: unknown): string | null {
   const from = returnPathFrom(locationState);
@@ -53,8 +61,11 @@ export function returnPathFor(signedInUser: SignedInPortalUser, locationState: u
   switch (area.toLowerCase()) {
     case '':
       return segments.length === 1 ? from : null;
-    case 'invitations':
-      return rest.length === 1 && rest[0]?.toLowerCase() === 'accept' ? from : null;
+    case 'invitations': {
+      const forEmail = (locationState as { forEmail?: unknown } | null)?.forEmail;
+      const isForThisPerson = typeof forEmail !== 'string' || forEmail.toLowerCase() === signedInUser.user.email.toLowerCase();
+      return rest.length === 1 && rest[0]?.toLowerCase() === 'accept' && isForThisPerson ? from : null;
+    }
     case 'stations':
       return signedInUser.stations.some((station) => station.id === rest[0]) ? from : null;
     case 'admin':
@@ -64,6 +75,8 @@ export function returnPathFor(signedInUser: SignedInPortalUser, locationState: u
       // A station's people and super admins have their own home; the client area is for clients, and for a person with
       // no station at all, whom it tells when a station has taken their access away (P5C-ONBOARDING-06).
       if (isSuperAdmin || (signedInUser.clientAccesses.length === 0 && signedInUser.stations.length > 0)) return null;
+      // With no access left, every client page would refuse them: the client home is the one that says why.
+      if (signedInUser.clientAccesses.length === 0) return '/client';
       const isAdvertPage = rest[0]?.toLowerCase() === 'stations' && rest[1] !== undefined;
       if (isAdvertPage && !signedInUser.clientAccesses.some((access) => access.stationId === rest[1])) return '/client';
       return from;
@@ -89,11 +102,11 @@ export function SignInPage() {
     onSuccess: (signedIn) => {
       queryClient.setQueryData(SIGNED_IN_USER_QUERY_KEY, signedIn);
       setPassword('');
-      void navigate(returnPathFor(signedIn, location.state) ?? homePathFor(signedIn), { replace: true });
+      void navigate(returnPathFor(signedIn, location.state) ?? homePathFor(signedIn), { replace: true, state: { afterSignIn: true } });
     },
   });
 
-  if (signedInUser.data) return <Navigate to={returnPathFor(signedInUser.data, location.state) ?? homePathFor(signedInUser.data)} replace />;
+  if (signedInUser.data) return <Navigate to={returnPathFor(signedInUser.data, location.state) ?? homePathFor(signedInUser.data)} replace state={{ afterSignIn: true }} />;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

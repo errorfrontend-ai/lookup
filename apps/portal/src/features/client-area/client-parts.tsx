@@ -1,9 +1,19 @@
 import type { ClientFigures, ClientStationContact } from '@lookup/contracts';
 import { Button } from '../../components/button';
+import { EmptyState } from '../../components/empty-state';
 import { ErrorNotice } from '../../components/error-notice';
 import { FigureTile } from '../../components/figure-tile';
 import { Icon } from '../../components/icons';
 import { useSpreadsheetDownload } from './use-client-area';
+
+/** What a person with no access left sees, wherever they arrive in the client area (P5C-ONBOARDING-06). */
+export function NoAdvertsToView() {
+  return (
+    <EmptyState icon="ads" title="You can't view any adverts right now">
+      Ask the station to invite you again. Their invitation email has the link to accept.
+    </EmptyState>
+  );
+}
 
 /** The four buttons listeners tap, as a client's figures name them, with what each tile says it counts. */
 export const TAP_KINDS = [

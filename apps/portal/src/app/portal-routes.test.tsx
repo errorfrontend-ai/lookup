@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RouteObject } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { returnPathFor, returnPathFrom } from '../features/sign-in/sign-in-page';
+import { portalAreaOf, returnPathFor, returnPathFrom } from '../features/sign-in/sign-in-page';
 import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, signedInUserWith } from '../test/fake-api';
 import { renderPortalAt } from '../test/render-portal';
 import { queryClient } from './portal-api';
@@ -139,9 +139,18 @@ describe('signing in', () => {
     expect(back(client, `/Client/Stations/${other}/ads/a1`)).toBe('/client');
     expect(back(client, `/stations/${own}/overview`)).toBeNull();
     expect(back(member, '/client/notifications')).toBeNull();
-    // Someone with no station and no access left: the client area tells them so (P5C-ONBOARDING-06).
+    // Someone with no station and no access left: the client home tells them so (P5C-ONBOARDING-06), from any client page.
     expect(back(nobody, '/client')).toBe('/client');
     expect(back(nobody, `/client/stations/${own}/ads/a1`)).toBe('/client');
+    expect(back(nobody, '/client/notifications')).toBe('/client');
+    expect(back(nobody, '/Client')).toBe('/client');
+    // Read as the router reads it: these answers depend on the decoding.
+    expect(back(client, `/client/%73tations/${other}/ads/a1`)).toBe('/client');
+    expect(back(member, `/%73tations/${own}/ads`)).toBe(`/%73tations/${own}/ads`);
+    // An invitation that named its email is kept only for that email, whatever its capitals.
+    expect(returnPathFor(member, { from: '/invitations/accept', forEmail: 'someone.else@example.test' })).toBeNull();
+    expect(returnPathFor(member, { from: '/invitations/accept', forEmail: member.user.email.toUpperCase() })).toBe('/invitations/accept');
+    expect([portalAreaOf('/Client/notifications'), portalAreaOf('/%63lient'), portalAreaOf('/'), portalAreaOf('/%E0%A4%A')]).toEqual(['client', 'client', '', null]);
     // The invitation page and the home are kept; anything else, or an address the router could not read, goes home.
     expect(back(member, '/invitations/accept')).toBe('/invitations/accept');
     expect(back(member, '/invitations/accept/more')).toBeNull();
@@ -164,6 +173,20 @@ describe('signing in', () => {
     expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/client');
     expect(screen.queryByText("You're not part of a station yet")).not.toBeInTheDocument();
+  });
+
+  it('P5C-ONBOARDING-06: a client with no access left who signs in from any client page, even one typed with capitals, is told so on the client home', async () => {
+    const nobody = signedInUserWith([]);
+    installFakeApi({ ...notSignedIn, 'POST /auth/sign-in': () => jsonResponse(200, nobody), 'GET /client/home': () => jsonResponse(200, { stations: [] }) });
+
+    const { router } = renderPortalAt('/Client/notifications');
+    expect(await screen.findByRole('heading', { name: 'Sign in to your station' })).toBeInTheDocument();
+    await person.type(screen.getByLabelText('Email'), 'chipo@brand-a.example');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/client');
   });
 
   it("another station's sign-up pages are not found, like its other pages, and its application is never asked for", async () => {

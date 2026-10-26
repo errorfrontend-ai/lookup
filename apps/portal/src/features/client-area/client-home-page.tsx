@@ -2,13 +2,12 @@ import type { ClientAdSummary, ClientStationSection } from '@lookup/contracts';
 import { useId } from 'react';
 import { Link } from 'react-router';
 import { Button } from '../../components/button';
-import { EmptyState } from '../../components/empty-state';
 import { ErrorNotice } from '../../components/error-notice';
 import { SkeletonRows } from '../../components/skeleton';
 import { CampaignStatusBadge } from '../../components/status-badges';
 import { describeScheduleSummary } from '../../formatting/describe-schedule';
 import { describeCampaignDates, describeHeardLastSevenDays, describeSlot, describeStation, stationToday } from '../../plain-words/client-words';
-import { ClientFigureTiles, SpreadsheetButton, ViewOnlyNote } from './client-parts';
+import { ClientFigureTiles, NoAdvertsToView, SpreadsheetButton, ViewOnlyNote } from './client-parts';
 import { notificationPermission, pushSupport } from './this-device';
 import { useClientHome } from './use-client-area';
 
@@ -121,11 +120,7 @@ export function ClientHomePage() {
           </Button>
         </div>
       ) : null}
-      {home.isSuccess && home.data.stations.length === 0 ? (
-        <EmptyState icon="ads" title="You can't view any adverts right now">
-          Ask the station to invite you again. Their invitation email has the link to accept.
-        </EmptyState>
-      ) : null}
+      {home.isSuccess && home.data.stations.length === 0 ? <NoAdvertsToView /> : null}
       {home.isSuccess
         ? home.data.stations.map((section) => (
             <div key={section.stationId} className="border-t border-line-soft pt-6 first-of-type:border-t-0 first-of-type:pt-0">

@@ -3,7 +3,7 @@ import { ErrorNotice } from '../components/error-notice';
 import { LoadingScreen, NoStationPage } from '../components/plain-pages';
 import { useSignOut } from '../features/session/use-sign-out';
 import { useSignedInUser } from '../features/session/use-signed-in-user';
-import { homePathFor } from '../features/sign-in/sign-in-page';
+import { homePathFor, portalAreaOf, returnPathFrom } from '../features/sign-in/sign-in-page';
 
 /** Lets signed-in people through; everyone else goes to Sign in. */
 export function RequireSignedIn() {
@@ -26,14 +26,18 @@ export function RequireSignedIn() {
       </main>
     );
   }
-  if (!signedInUser.data) return <Navigate to="/sign-in" replace state={{ from: location.pathname }} />;
+  if (!signedInUser.data) {
+    // On the second-factor page, the page to come back to is the console page waiting behind it.
+    const waitingPage = portalAreaOf(location.pathname) === 'two-factor' ? returnPathFrom(location.state) : null;
+    return <Navigate to="/sign-in" replace state={{ from: waitingPage ?? location.pathname }} />;
+  }
   // A super admin belongs to no station; the console is theirs (P5A design §4.1). A client belongs to none either: their
   // pages are under /client (ADR-006), which also says so when a station has taken their access away.
   const hasPlace =
     signedInUser.data.stations.length > 0 ||
     signedInUser.data.user.platformRole === 'SUPER_ADMIN' ||
     signedInUser.data.clientAccesses.length > 0 ||
-    location.pathname.startsWith('/client');
+    portalAreaOf(location.pathname) === 'client';
   if (!hasPlace) return <NoStationPage onSignOut={() => void signOut()} />;
   return <Outlet />;
 }

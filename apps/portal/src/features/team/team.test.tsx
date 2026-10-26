@@ -162,6 +162,45 @@ describe('accepting an invitation', () => {
     expect(await screen.findByRole('button', { name: 'Join Radio Phoenix' })).toBeInTheDocument();
   });
 
+  it('signed in with another email, the invitation offers a way on to their own pages; if they sign out and back in as themselves they land there, not on the invitation', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    const owner = signedInUserWith([{ role: 'OWNER' }]);
+    let current: typeof owner | null = owner;
+    installFakeApi({
+      'GET /auth/me': () => (current ? jsonResponse(200, current) : errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.')),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-out': () => {
+        current = null;
+        return jsonResponse(204, null);
+      },
+      'POST /auth/sign-in': () => {
+        current = owner;
+        return jsonResponse(200, owner);
+      },
+      'POST /invitations/description': () => jsonResponse(200, { ...open, hasAccount: true }),
+      [`GET /stations/${owner.stations[0]?.id}/overview`]: () => jsonResponse(200, {}),
+    });
+    const { router } = renderPortalAt('/invitations/accept');
+    expect(await screen.findByRole('link', { name: `Continue as ${owner.user.fullName}` })).toHaveAttribute('href', '/');
+    await person.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    await person.type(await screen.findByLabelText('Email'), owner.user.email);
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${owner.stations[0]?.id}/overview`));
+  });
+
+  it('an invitation that cannot be used offers someone already signed in a way on to their own pages', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, signedInUserWith([{ role: 'OWNER' }])),
+      'POST /invitations/description': () => jsonResponse(200, { ...open, state: 'EXPIRED' }),
+    });
+    renderPortalAt('/invitations/accept');
+    expect(await screen.findByText("This invitation has expired. Ask the station's owner for a new one.")).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to your pages' })).toHaveAttribute('href', '/');
+  });
+
   it('P5C-INVITATIONS-02, P5C-ONBOARDING-04: a client invitation uses the same page and steps, and lands on the client’s adverts', async () => {
     window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
     const clientInvitation = { ...open, kind: 'CLIENT_VIEWER', role: null, clientName: 'Brand A', invitedEmail: 'chipo@brand-a.example' };

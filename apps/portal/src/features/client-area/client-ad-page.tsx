@@ -1,6 +1,6 @@
 import { type ClientAdFigures, LISTENER_FIGURES_RANGES, type ListenerFiguresRange } from '@lookup/contracts';
 import { useId, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, Navigate, useLocation, useParams } from 'react-router';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -155,11 +155,16 @@ export function ClientNotFound() {
  */
 export function ClientAdPage() {
   const { stationId = '', adId = '' } = useParams();
+  const location = useLocation();
   const ad = useClientAd(stationId, adId);
 
   if (ad.isPending) return <SkeletonRows count={4} rowClassName="h-24" />;
   if (ad.isError) {
-    if (ad.error instanceof ApiError && ad.error.code === 'NOT_FOUND') return <ClientNotFound />;
+    if (ad.error instanceof ApiError && ad.error.code === 'NOT_FOUND') {
+      // Just signed in on a page left open by someone else (another client's advert): their own adverts instead.
+      const isJustSignedIn = (location.state as { afterSignIn?: unknown } | null)?.afterSignIn === true;
+      return isJustSignedIn ? <Navigate to="/client" replace /> : <ClientNotFound />;
+    }
     return (
       <div className="flex flex-col items-start gap-3">
         <h1 className="text-display">This advert</h1>

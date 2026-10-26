@@ -1,7 +1,7 @@
 import type { AcceptedInvitation, InvitationDescription } from '@lookup/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { portalApi, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -128,14 +128,17 @@ export function InvitationPage() {
         ) : signedInEmail ? (
           <div className="flex flex-col gap-3">
             <p className="text-body">This invitation was sent to {invitation.invitedEmail}. Sign out, then sign in with that email to accept.</p>
-            <Button variant="secondary" onClick={() => void signOut({ returnTo: '/invitations/accept' })}>
+            <Button variant="secondary" onClick={() => void signOut({ returnTo: '/invitations/accept', forEmail: invitation.invitedEmail })}>
               Sign out
             </Button>
+            <Link to="/" className="flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
+              Continue as {signedInUser.data?.user.fullName}
+            </Link>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-body">{invitation.invitedEmail} already has an account.</p>
-            <Button onClick={() => void navigate('/sign-in', { state: { from: '/invitations/accept' } })}>Sign in to accept</Button>
+            <Button onClick={() => void navigate('/sign-in', { state: { from: '/invitations/accept', forEmail: invitation.invitedEmail } })}>Sign in to accept</Button>
           </div>
         )
       ) : (
@@ -154,12 +157,19 @@ export function InvitationPage() {
   );
 }
 
+/** An invitation that can't be used, in plain words; someone already signed in can go on to their own pages. */
 function InvitationMessage({ heading, words }: { heading: string; words: string }) {
+  const signedInUser = useSignedInUser();
   return (
     <main id="main-content" className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4">
       <span className="font-display text-title">Look Up</span>
       <h1 className="text-display">{heading}</h1>
       <p className="text-body text-muted">{words}</p>
+      {signedInUser.data ? (
+        <Link to="/" className="flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
+          Go to your pages
+        </Link>
+      ) : null}
     </main>
   );
 }

@@ -1,5 +1,6 @@
 import { AIR_TIME_REMINDER_LEAD_MINUTES, type AirTimeReminderLeadMinutes, type ClientNotificationSettings, type ClientNotificationSettingsInput } from '@lookup/contracts';
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
+import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { SkeletonRows } from '../../components/skeleton';
@@ -17,6 +18,7 @@ import {
   turnOffThisDevice,
   turnOnThisDevice,
 } from './this-device';
+import { NoAdvertsToView } from './client-parts';
 import { useClientNotificationSettings, useSaveNotificationSettings, useSendTestNotification } from './use-client-area';
 
 /** A yes-or-no setting, saved as soon as it changes, like a phone's settings: a 48 px row with its own words. */
@@ -218,6 +220,15 @@ export function ClientNotificationsPage() {
   }, [settings.data]);
 
   if (settings.isPending) return <SkeletonRows count={4} rowClassName="h-16" />;
+  // Someone whose last access was taken away has no reminders to set: the same explanation as the client home.
+  if (settings.error instanceof ApiError && settings.error.code === 'NOT_FOUND') {
+    return (
+      <div className="flex flex-col gap-6">
+        <h1 className="text-display">Notifications</h1>
+        <NoAdvertsToView />
+      </div>
+    );
+  }
   if (settings.isError || !draft) {
     return (
       <div className="flex flex-col items-start gap-3">

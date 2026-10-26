@@ -2,7 +2,7 @@ import type { ApplicationDetail, ApplicationQueueEntry, SignedInPortalUser } fro
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { queryClient } from '../../app/portal-api';
+import { queryClient, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
 import { findAccessibilityProblems } from '../../test/accessibility';
 import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '../../test/fake-api';
 import { renderPortalAt } from '../../test/render-portal';
@@ -122,6 +122,37 @@ describe('getting into the console', () => {
     expect(afterTheCodePath({ from: '/stations/abc/overview' })).toBe('/admin/applications');
     expect(afterTheCodePath({ from: '//attacker.example' })).toBe('/admin/applications');
     expect(afterTheCodePath(null)).toBe('/admin/applications');
+  });
+
+  it('a super admin whose session ends on the code page signs in again and still reaches the console page they were going to', async () => {
+    let state: 'needs code' | 'signed out' | 'verified' = 'needs code';
+    installFakeApi({
+      'GET /auth/me': () => (state === 'signed out' ? errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.') : jsonResponse(200, superAdmin(state === 'needs code'))),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-in': () => {
+        state = 'needs code';
+        return jsonResponse(200, superAdmin(true));
+      },
+      'POST /auth/two-factor-code': () => {
+        state = 'verified';
+        return jsonResponse(204, null);
+      },
+      'GET /admin/summary': () => jsonResponse(200, { waitingApplicationCount: 0, audioToCheckCount: 0 }),
+    });
+    const { router } = renderPortalAt('/admin/reference-codes');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/two-factor'));
+    // The session ends while the code page is open.
+    state = 'signed out';
+    queryClient.setQueryData(SIGNED_IN_USER_QUERY_KEY, null);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    expect(router.state.location.state).toEqual({ from: '/admin/reference-codes' });
+    await person.type(await screen.findByLabelText('Email'), 'operator@example.test');
+    await person.type(screen.getByLabelText('Password'), 'quiet harbour lantern please');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/two-factor'));
+    await person.type(await screen.findByLabelText('6-digit code'), '287082');
+    await person.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/reference-codes'));
   });
 
   it('P5A-ADMIN-ACCESS-01: a station user is sent to their own station; a super admin without the code is sent to give it', async () => {

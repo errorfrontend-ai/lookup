@@ -188,6 +188,15 @@ describe('notifications on this device', () => {
 });
 
 describe('reminder settings', () => {
+  it('P5C-ONBOARDING-06: with no access left, the Notifications page explains it as the client home does', async () => {
+    withoutPush();
+    clientApi(settings(), { 'GET /client/notification-settings': () => errorResponse(404, 'NOT_FOUND', 'We could not find that.') });
+    renderPortalAt('/client/notifications');
+    expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
+    expect(screen.queryByText("We couldn't load your notifications")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Not found|could not find/i)).not.toBeInTheDocument();
+  });
+
   it('P5C-NOTIFY-01, P5C-DASHBOARD-10: email, how early and each advert are saved as they change, in 48 px rows', async () => {
     withoutPush();
     const api = clientApi(settings());

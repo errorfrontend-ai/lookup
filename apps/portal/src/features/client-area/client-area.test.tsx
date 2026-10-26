@@ -202,6 +202,37 @@ describe('the client area', () => {
     expect(stationA.textContent).not.toMatch(INTERNAL_DETAIL_PATTERN);
   });
 
+  it("signing out of the client area keeps the way back: the next client who signs in lands on their own adverts", async () => {
+    const api = clientApi({ 'POST /auth/sign-out': () => jsonResponse(204, null) });
+    const { router } = renderPortalAt('/client');
+    const banner = await screen.findByRole('banner');
+    await person.click(within(within(banner).getByRole('navigation', { name: 'Client menu' })).getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    expect(router.state.location.state).toEqual({ from: '/client', forEmail: undefined });
+    expect(api.calls.some((call) => call.path === '/auth/sign-out')).toBe(true);
+  });
+
+  it("just signed in on another client's advert at a station they also follow, a client lands on their own adverts, not on \"not found\"", async () => {
+    let isSignedIn = false;
+    const othersAdvert = `/client/stations/${STATION_A}/ads/0190f1a2-0000-7000-8000-00000000ad99`;
+    clientApi({
+      'GET /auth/me': () => (isSignedIn ? jsonResponse(200, client) : errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.')),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-in': () => {
+        isSignedIn = true;
+        return jsonResponse(200, client);
+      },
+      [`GET ${othersAdvert}`]: () => errorResponse(404, 'NOT_FOUND', 'We could not find that.'),
+    });
+    const { router } = renderPortalAt(othersAdvert);
+    await person.type(await screen.findByLabelText('Email'), 'chipo@brand-a.example');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your adverts' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/client');
+    expect(screen.queryByRole('heading', { name: "We couldn't find that advert" })).not.toBeInTheDocument();
+  });
+
   it('P5C-ONBOARDING-06: with no access left, the home says so and what to do', async () => {
     clientApi({ 'GET /client/home': () => jsonResponse(200, { stations: [] }) });
     renderPortalAt('/client');

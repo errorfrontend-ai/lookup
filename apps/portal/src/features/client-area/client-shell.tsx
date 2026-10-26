@@ -52,7 +52,7 @@ export function ClientShell() {
           {item.label}
         </NavLink>
       ))}
-      <button type="button" onClick={() => void signOut()} className="flex min-h-11 items-center rounded-md px-3 text-left text-label text-ink hover:bg-ground">
+      <button type="button" onClick={() => void signOut({ returnTo: '/client' })} className="flex min-h-11 items-center rounded-md px-3 text-left text-label text-ink hover:bg-ground">
         Sign out
       </button>
     </>
