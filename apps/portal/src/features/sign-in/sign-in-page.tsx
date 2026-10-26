@@ -1,7 +1,7 @@
 import type { SignedInPortalUser } from '@lookup/contracts';
 import { useMutation } from '@tanstack/react-query';
 import { type FormEvent, useId, useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { portalApi, startFreshSession } from '../../app/portal-api';
 import { ErrorNotice } from '../../components/error-notice';
 import { useSignedInUser } from '../session/use-signed-in-user';
@@ -172,6 +172,12 @@ export function SignInPage() {
           {signIn.isPending ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      {returnPathFrom(location.state) === '/invitations/accept' ? (
+        // Opened from an invitation, which this page replaced in the history: the way back is here instead.
+        <Link to="/invitations/accept" replace className="flex min-h-11 items-center self-start text-label text-accent underline underline-offset-4">
+          Back to the invitation
+        </Link>
+      ) : null}
     </main>
   );
 }

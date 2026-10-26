@@ -18,10 +18,12 @@ export const SIGNED_IN_USER_QUERY_KEY = ['signed-in-user'] as const;
 /**
  * A new session (signing in, signing up, joining from an invitation) starts with nothing cached from before: an ended
  * session's failed answers ("Please sign in.") or another person's pages would otherwise show until each page refetched.
- * Only the signed-in person's own entry is kept, and replaced when [signedInUser] is given.
+ * Only the signed-in person's own entry is kept, and replaced when [signedInUser] is given, with the entries named in
+ * [keep] that belong to no session (an invitation the page on screen still shows, read by its link's token).
  */
-export function startFreshSession(signedInUser?: SignedInPortalUser): void {
-  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== SIGNED_IN_USER_QUERY_KEY[0] });
+export function startFreshSession(signedInUser?: SignedInPortalUser, { keep = [] }: { keep?: string[] } = {}): void {
+  const kept = new Set<unknown>([SIGNED_IN_USER_QUERY_KEY[0], ...keep]);
+  queryClient.removeQueries({ predicate: (query) => !kept.has(query.queryKey[0]) });
   if (signedInUser) queryClient.setQueryData(SIGNED_IN_USER_QUERY_KEY, signedInUser);
 }
 

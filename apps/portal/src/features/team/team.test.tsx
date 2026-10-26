@@ -238,6 +238,48 @@ describe('accepting an invitation', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/client'));
   });
 
+  it('after joining, the invitation is not asked for again: the page never says the invitation it just used "can\'t be used"', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    let isAccepted = false;
+    const clientId = '0190f1a2-0000-7000-8000-0000000000a1';
+    const clientInvitation = { ...open, kind: 'CLIENT_VIEWER', role: null, clientName: 'Brand A', invitedEmail: 'chipo@brand-a.example' };
+    const joinedClient = { ...signedInUserWith([]), clientAccesses: [{ stationId, stationName: 'Radio Phoenix', frequencyLabel: '89.5 FM', clientId, clientName: 'Brand A' }] };
+    const api = installFakeApi({
+      'GET /auth/me': () => (isAccepted ? jsonResponse(200, joinedClient) : errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.')),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /invitations/description': () => jsonResponse(200, isAccepted ? { ...clientInvitation, state: 'ACCEPTED' } : clientInvitation),
+      'POST /invitations/acceptance-with-new-account': () => {
+        isAccepted = true;
+        return jsonResponse(201, { kind: 'CLIENT_VIEWER', stationId, clientId });
+      },
+      'GET /client/home': () => jsonResponse(200, { stations: [] }),
+    });
+    const { router } = renderPortalAt('/invitations/accept');
+    await person.type(await screen.findByLabelText('Your full name'), 'Chipo Banda');
+    await person.type(screen.getByLabelText('Password'), 'morning tide on the river bank');
+    await person.click(screen.getByRole('button', { name: 'Create account and accept' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/client'));
+    // The invitation's own details survive the fresh session: they belong to the link, not to whoever was signed in.
+    expect(queryClient.getQueryCache().find({ queryKey: ['invitation', token] })).toBeDefined();
+    expect(api.calls.filter((call) => call.path === '/invitations/description')).toHaveLength(1);
+    expect(screen.queryByText("This invitation can't be used")).not.toBeInTheDocument();
+  });
+
+  it('the sign-in page opened from an invitation offers the way back to it', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    installFakeApi({
+      'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /invitations/description': () => jsonResponse(200, { ...open, hasAccount: true }),
+    });
+    const { router } = renderPortalAt('/invitations/accept');
+    await person.click(await screen.findByRole('button', { name: 'Sign in to accept' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    await person.click(await screen.findByRole('link', { name: 'Back to the invitation' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/invitations/accept'));
+    expect(await screen.findByRole('button', { name: 'Sign in to accept' })).toBeInTheDocument();
+  });
+
   it("the token leaves the address bar, and the browser's own record of the page stays as the router wrote it", async () => {
     window.history.replaceState({ usr: null, key: 'k1', idx: 4 }, '', `/invitations/accept#token=${token}`);
     installFakeApi({

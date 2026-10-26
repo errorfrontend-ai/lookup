@@ -89,8 +89,9 @@ export function InvitationPage() {
   });
   const joined = async (accepted: AcceptedInvitation) => {
     forgetInvitationToken();
-    // Joining may have started a new session (a new account): nothing cached from before carries over.
-    startFreshSession();
+    // Joining may have started a new session (a new account): nothing cached from before carries over, except this
+    // invitation, which the page keeps showing until the next page opens (asked again, it would now say "already used").
+    startFreshSession(undefined, { keep: ['invitation'] });
     await queryClient.invalidateQueries({ queryKey: SIGNED_IN_USER_QUERY_KEY });
     void navigate(accepted.kind === 'CLIENT_VIEWER' ? '/client' : `/stations/${accepted.stationId}/overview`, { replace: true });
   };
