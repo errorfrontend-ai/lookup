@@ -293,6 +293,15 @@ describe('application status and the email link', () => {
     expect(window.location.hash).toBe('');
   });
 
+  it("the email link's token leaves the address bar, and the browser's own record of the page stays as the router wrote it", async () => {
+    window.history.replaceState({ usr: null, key: 'k2', idx: 2 }, '', `/verify-email#token=${'C'.repeat(43)}`);
+    installFakeApi({ ...SIGNED_OUT, 'POST /registration/email-verifications': () => jsonResponse(204, null) });
+    renderPortalAt('/verify-email');
+    expect(await screen.findByRole('heading', { name: 'Your email is confirmed' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+    expect(window.history.state).toEqual({ usr: null, key: 'k2', idx: 2 });
+  });
+
   it('an expired link says so in the catalogue\'s words', async () => {
     window.history.replaceState(null, '', `/verify-email#token=${'B'.repeat(43)}`);
     installFakeApi({ ...SIGNED_OUT, 'POST /registration/email-verifications': () => errorResponse(400, 'EMAIL_LINK_EXPIRED', 'This link has expired. Ask for a new one on the sign-up page.') });

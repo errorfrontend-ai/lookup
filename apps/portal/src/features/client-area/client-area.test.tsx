@@ -233,6 +233,25 @@ describe('the client area', () => {
     expect(screen.queryByRole('heading', { name: "We couldn't find that advert" })).not.toBeInTheDocument();
   });
 
+  it('"just signed in" counts once: when the advert has loaded, the mark leaves its entry, so a reload explains itself as usual', async () => {
+    let isSignedIn = false;
+    clientApi({
+      'GET /auth/me': () => (isSignedIn ? jsonResponse(200, client) : errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.')),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-in': () => {
+        isSignedIn = true;
+        return jsonResponse(200, client);
+      },
+    });
+    const { router } = renderPortalAt(adPath);
+    await person.type(await screen.findByLabelText('Email'), 'chipo@brand-a.example');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Summer service offer' })).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.state).toBeNull());
+    expect(router.state.location.pathname).toBe(adPath);
+  });
+
   it('P5C-ONBOARDING-06: with no access left, the home says so and what to do', async () => {
     clientApi({ 'GET /client/home': () => jsonResponse(200, { stations: [] }) });
     renderPortalAt('/client');

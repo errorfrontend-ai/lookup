@@ -21,7 +21,7 @@ export function RequireSuperAdmin() {
   // Anyone else is sent to their own pages: nothing here says the console exists (the API answers 404 too).
   if (user.user.platformRole !== 'SUPER_ADMIN') return <Navigate to={homePathFor(user)} replace />;
   // The page asked for waits through the second factor.
-  if (user.isTwoFactorCodeNeeded) return <Navigate to="/two-factor" replace state={{ from: location.pathname }} />;
+  if (user.isTwoFactorCodeNeeded) return <Navigate to="/two-factor" replace state={{ from: `${location.pathname}${location.search}` }} />;
   return <Outlet />;
 }
 

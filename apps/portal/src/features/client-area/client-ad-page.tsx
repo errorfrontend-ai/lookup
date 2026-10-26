@@ -1,6 +1,6 @@
 import { type ClientAdFigures, LISTENER_FIGURES_RANGES, type ListenerFiguresRange } from '@lookup/contracts';
-import { useId, useState } from 'react';
-import { Link, Navigate, useLocation, useParams } from 'react-router';
+import { useEffect, useId, useState } from 'react';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -156,15 +156,18 @@ export function ClientNotFound() {
 export function ClientAdPage() {
   const { stationId = '', adId = '' } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const ad = useClientAd(stationId, adId);
+  // Just signed in on a page left open by someone else (another client's advert): their own adverts instead. The mark
+  // counts once: when the advert loads it leaves this entry, so a reload or a later answer explains itself as usual.
+  const isJustSignedIn = (location.state as { afterSignIn?: unknown } | null)?.afterSignIn === true;
+  useEffect(() => {
+    if (isJustSignedIn && ad.isSuccess) void navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null });
+  }, [isJustSignedIn, ad.isSuccess, location.pathname, location.search, navigate]);
 
   if (ad.isPending) return <SkeletonRows count={4} rowClassName="h-24" />;
   if (ad.isError) {
-    if (ad.error instanceof ApiError && ad.error.code === 'NOT_FOUND') {
-      // Just signed in on a page left open by someone else (another client's advert): their own adverts instead.
-      const isJustSignedIn = (location.state as { afterSignIn?: unknown } | null)?.afterSignIn === true;
-      return isJustSignedIn ? <Navigate to="/client" replace /> : <ClientNotFound />;
-    }
+    if (ad.error instanceof ApiError && ad.error.code === 'NOT_FOUND') return isJustSignedIn ? <Navigate to="/client" replace /> : <ClientNotFound />;
     return (
       <div className="flex flex-col items-start gap-3">
         <h1 className="text-display">This advert</h1>

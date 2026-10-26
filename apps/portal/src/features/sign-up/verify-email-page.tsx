@@ -22,7 +22,8 @@ export function VerifyEmailPage() {
   // Once, on arrival (a second run in development's strict mode sends nothing more).
   const hasSent = useRef(false);
   useEffect(() => {
-    window.history.replaceState(null, '', window.location.pathname);
+    // The token leaves the address bar; the router's own record of the entry stays.
+    window.history.replaceState(window.history.state, '', window.location.pathname);
     if (token && !hasSent.current) {
       hasSent.current = true;
       mutate(token);

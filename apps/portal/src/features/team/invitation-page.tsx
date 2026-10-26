@@ -2,7 +2,7 @@ import type { AcceptedInvitation, InvitationDescription } from '@lookup/contract
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { portalApi, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
+import { portalApi, SIGNED_IN_USER_QUERY_KEY, startFreshSession } from '../../app/portal-api';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { LoadingScreen } from '../../components/plain-pages';
@@ -77,7 +77,8 @@ export function InvitationPage() {
   const [password, setPassword] = useState('');
   // The token leaves the address bar once read (it is kept for this tab only).
   useEffect(() => {
-    if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
+    // The router's own record of the entry stays (its position is how it warns before unsaved work is lost on Back).
+    if (window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname);
   }, []);
 
   const description = useQuery({
@@ -88,6 +89,8 @@ export function InvitationPage() {
   });
   const joined = async (accepted: AcceptedInvitation) => {
     forgetInvitationToken();
+    // Joining may have started a new session (a new account): nothing cached from before carries over.
+    startFreshSession();
     await queryClient.invalidateQueries({ queryKey: SIGNED_IN_USER_QUERY_KEY });
     void navigate(accepted.kind === 'CLIENT_VIEWER' ? '/client' : `/stations/${accepted.stationId}/overview`, { replace: true });
   };
@@ -138,7 +141,7 @@ export function InvitationPage() {
         ) : (
           <div className="flex flex-col gap-3">
             <p className="text-body">{invitation.invitedEmail} already has an account.</p>
-            <Button onClick={() => void navigate('/sign-in', { state: { from: '/invitations/accept', forEmail: invitation.invitedEmail } })}>Sign in to accept</Button>
+            <Button onClick={() => void navigate('/sign-in', { replace: true, state: { from: '/invitations/accept', forEmail: invitation.invitedEmail } })}>Sign in to accept</Button>
           </div>
         )
       ) : (

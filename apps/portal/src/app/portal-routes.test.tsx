@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RouteObject } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -187,6 +187,75 @@ describe('signing in', () => {
 
     expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/client');
+  });
+
+  it('a new sign-in starts with nothing cached from the ended session: the page it returns to never shows the old "Please sign in."', async () => {
+    const client = { ...signedInUserWith([]), clientAccesses: [{ stationId: '0190f1a2-0000-7000-8000-0000000000c1', stationName: 'Station A', frequencyLabel: '98.1 FM', clientId: '0190f1a2-0000-7000-8000-0000000000d1', clientName: 'Brand A' }] };
+    let phase: 'signed in' | 'ended' | 'signed in again' = 'signed in';
+    let answerHome: (() => void) | null = null;
+    installFakeApi({
+      'GET /auth/me': () => (phase === 'ended' ? errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.') : jsonResponse(200, client)),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-in': () => {
+        phase = 'signed in again';
+        return jsonResponse(200, client);
+      },
+      'GET /client/home': () => {
+        if (phase === 'ended') return errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.');
+        // After signing in again, the home's answer waits: whatever shows meanwhile is what the cache kept.
+        if (phase === 'signed in again') return new Promise<Response>((resolve) => (answerHome = () => resolve(jsonResponse(200, { stations: [] }))));
+        return jsonResponse(200, { stations: [] });
+      },
+    });
+    const { router } = renderPortalAt('/client');
+    expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
+    // The session ends: the home's next refresh is refused and the session cannot be renewed.
+    phase = 'ended';
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['client', 'home'] });
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    await person.type(await screen.findByLabelText('Email'), 'chipo@brand-a.example');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/client'));
+    // The page is drawn while its answer waits: what it shows now is what the cache kept from the ended session.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your adverts' })).toBeInTheDocument();
+    expect(screen.queryByText('Please sign in.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // The home has asked again; once it is answered, the page shows it.
+    await waitFor(() => expect(answerHome).not.toBeNull());
+    act(() => answerHome?.());
+    expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
+  });
+
+  it('a person whose first station is still applying lands on their approved station, which has the way to the other', async () => {
+    const user = signedInUserWith([{ status: 'REJECTED' }, {}]);
+    installFakeApi({ ...notSignedIn, 'POST /auth/sign-in': () => jsonResponse(200, user) });
+    const { router } = renderPortalAt('/sign-in');
+    await person.type(await screen.findByLabelText('Email'), 'chanda@example.test');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${user.stations[1]?.id}/overview`));
+  });
+
+  it('after signing in, the page comes back with the settings in its address (a range, a tab)', async () => {
+    const user = signedInUserWith();
+    const stationId = user.stations[0]?.id as string;
+    installFakeApi({ ...notSignedIn, 'POST /auth/sign-in': () => jsonResponse(200, user) });
+    const { router } = renderPortalAt(`/stations/${stationId}/overview?range=last30Days`);
+    await person.type(await screen.findByLabelText('Email'), 'chanda@example.test');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/stations/${stationId}/overview`));
+    expect(router.state.location.search).toBe('?range=last30Days');
+  });
+
+  it('someone with no station and no client access is told how to get either, a former client included', async () => {
+    installFakeApi({ 'GET /auth/me': () => jsonResponse(200, signedInUserWith([])) });
+    renderPortalAt('/');
+    expect(await screen.findByRole('heading', { name: "You're not part of a station yet" })).toBeInTheDocument();
+    expect(screen.getByText("If a station invited you to view a client's adverts, ask it to invite you again.")).toBeInTheDocument();
   });
 
   it("another station's sign-up pages are not found, like its other pages, and its application is never asked for", async () => {

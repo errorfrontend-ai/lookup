@@ -1,19 +1,20 @@
 import type { SignedInPortalUser } from '@lookup/contracts';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { type FormEvent, useId, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
-import { portalApi, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
+import { portalApi, startFreshSession } from '../../app/portal-api';
 import { ErrorNotice } from '../../components/error-notice';
 import { useSignedInUser } from '../session/use-signed-in-user';
 import { stationHomePath } from '../stations/station-home-path';
 
 /**
  * Where a signed-in person lands: a super admin at the second factor, then the applications (P5A design §4.1);
- * everyone else at their first station.
+ * everyone else at their first approved station (a station still applying or suspended has no way to the others), or
+ * their first station when none is approved yet; a client at their adverts.
  */
 export function homePathFor(signedInUser: SignedInPortalUser): string {
   if (signedInUser.user.platformRole === 'SUPER_ADMIN') return signedInUser.isTwoFactorCodeNeeded ? '/two-factor' : '/admin/applications';
-  const firstStation = signedInUser.stations[0];
+  const firstStation = signedInUser.stations.find((station) => station.status === 'ACTIVE') ?? signedInUser.stations[0];
   if (firstStation) return stationHomePath(firstStation);
   return signedInUser.clientAccesses.length > 0 ? '/client' : '/';
 }
@@ -88,7 +89,6 @@ export function returnPathFor(signedInUser: SignedInPortalUser, locationState: u
 
 export function SignInPage() {
   const signedInUser = useSignedInUser();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -100,7 +100,7 @@ export function SignInPage() {
   const signIn = useMutation({
     mutationFn: () => portalApi.post<SignedInPortalUser>('/auth/sign-in', { email, password }),
     onSuccess: (signedIn) => {
-      queryClient.setQueryData(SIGNED_IN_USER_QUERY_KEY, signedIn);
+      startFreshSession(signedIn);
       setPassword('');
       void navigate(returnPathFor(signedIn, location.state) ?? homePathFor(signedIn), { replace: true, state: { afterSignIn: true } });
     },

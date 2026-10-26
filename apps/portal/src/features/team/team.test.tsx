@@ -131,6 +131,8 @@ describe('accepting an invitation', () => {
     await person.click(await screen.findByRole('button', { name: 'Sign in to accept' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
     expect(readInvitationToken()).toBe(token);
+    // Sign in replaces the invitation in the history, so Back after joining never finds a used-up invitation page.
+    expect(router.state.historyAction).toBe('REPLACE');
   });
 
   it('signed in with another email, "Sign out" leads back to the invitation once the invited email has signed in', async () => {
@@ -234,6 +236,19 @@ describe('accepting an invitation', () => {
     const { router } = renderPortalAt('/invitations/accept');
     await person.click(await screen.findByRole('button', { name: 'Accept' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/client'));
+  });
+
+  it("the token leaves the address bar, and the browser's own record of the page stays as the router wrote it", async () => {
+    window.history.replaceState({ usr: null, key: 'k1', idx: 4 }, '', `/invitations/accept#token=${token}`);
+    installFakeApi({
+      'GET /auth/me': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /invitations/description': () => jsonResponse(200, open),
+    });
+    renderPortalAt('/invitations/accept');
+    expect(await screen.findByRole('heading', { name: "You're invited to join Radio Phoenix · 89.5 FM as a Manager" })).toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+    expect(window.history.state).toEqual({ usr: null, key: 'k1', idx: 4 });
   });
 
   it('an expired invitation says so', async () => {

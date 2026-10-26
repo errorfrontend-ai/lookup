@@ -29,7 +29,8 @@ export function RequireSignedIn() {
   if (!signedInUser.data) {
     // On the second-factor page, the page to come back to is the console page waiting behind it.
     const waitingPage = portalAreaOf(location.pathname) === 'two-factor' ? returnPathFrom(location.state) : null;
-    return <Navigate to="/sign-in" replace state={{ from: waitingPage ?? location.pathname }} />;
+    // The address's settings come back too (a range, a tab): `?…` is part of the page.
+    return <Navigate to="/sign-in" replace state={{ from: waitingPage ?? `${location.pathname}${location.search}` }} />;
   }
   // A super admin belongs to no station; the console is theirs (P5A design §4.1). A client belongs to none either: their
   // pages are under /client (ADR-006), which also says so when a station has taken their access away.

@@ -2,7 +2,7 @@ import type { RegisteredStationApplicant, SignedInPortalUser } from '@lookup/con
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
-import { portalApi, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
+import { portalApi, startFreshSession } from '../../app/portal-api';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
@@ -43,7 +43,7 @@ export function SignUpPage() {
       }),
     onSuccess: (registered) => {
       const { stationId, ...signedIn } = registered;
-      queryClient.setQueryData(SIGNED_IN_USER_QUERY_KEY, signedIn);
+      startFreshSession(signedIn);
       void queryClient.invalidateQueries({ queryKey: stationApplicationQueryKey(stationId) });
       setPassword('');
       void navigate(`/stations/${stationId}/application/verify`, { replace: true });

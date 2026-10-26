@@ -28,6 +28,7 @@ export function NoStationPage({ onSignOut }: { onSignOut: () => void }) {
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 px-4">
       <h1 className="text-title">You're not part of a station yet</h1>
       <p className="text-body text-muted">Ask your station's owner to add you, then sign in again.</p>
+      <p className="text-body text-muted">If a station invited you to view a client's adverts, ask it to invite you again.</p>
       <button type="button" onClick={onSignOut} className="min-h-11 self-start rounded-md border border-line px-4 text-label">
         Sign out
       </button>
