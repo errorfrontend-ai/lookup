@@ -128,7 +128,7 @@ export function InvitationPage() {
         ) : signedInEmail ? (
           <div className="flex flex-col gap-3">
             <p className="text-body">This invitation was sent to {invitation.invitedEmail}. Sign out, then sign in with that email to accept.</p>
-            <Button variant="secondary" onClick={() => void signOut()}>
+            <Button variant="secondary" onClick={() => void signOut({ returnTo: '/invitations/accept' })}>
               Sign out
             </Button>
           </div>

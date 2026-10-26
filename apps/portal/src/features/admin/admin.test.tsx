@@ -8,7 +8,7 @@ import { errorResponse, installFakeApi, jsonResponse, signedInUserWith } from '.
 import { renderPortalAt } from '../../test/render-portal';
 import { setScreenWidth } from '../../test/screen-size';
 import { duplicateWarning, duplicateWords } from './admin-words';
-import { waitWords } from './two-factor-page';
+import { afterTheCodePath, waitWords } from './two-factor-page';
 
 const person = userEvent.setup({ delay: null });
 const STATION = '0190f1a2-0000-7000-8000-0000000000c1';
@@ -100,6 +100,28 @@ describe('getting into the console', () => {
     expect(await screen.findByRole('heading', { name: 'Applications' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/admin/applications');
     expect(api.calls.filter((call) => call.path === '/auth/two-factor-code')).toHaveLength(2);
+  });
+
+  it('a super admin asked for the code on the way to a console page is taken to that page once the code is right', async () => {
+    let needsCode = true;
+    installFakeApi({
+      'GET /auth/me': () => jsonResponse(200, superAdmin(needsCode)),
+      'POST /auth/two-factor-code': () => {
+        needsCode = false;
+        return jsonResponse(204, null);
+      },
+      'GET /admin/summary': () => jsonResponse(200, { waitingApplicationCount: 0, audioToCheckCount: 0 }),
+      'GET /admin/reference-codes/ABCD-1234': () => errorResponse(404, 'NOT_FOUND', 'We could not find that.'),
+    });
+    const { router } = renderPortalAt('/admin/reference-codes');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/two-factor'));
+    await person.type(await screen.findByLabelText('6-digit code'), '287082');
+    await person.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/admin/reference-codes'));
+    expect(afterTheCodePath({ from: '/admin/stations' })).toBe('/admin/stations');
+    expect(afterTheCodePath({ from: '/stations/abc/overview' })).toBe('/admin/applications');
+    expect(afterTheCodePath({ from: '//attacker.example' })).toBe('/admin/applications');
+    expect(afterTheCodePath(null)).toBe('/admin/applications');
   });
 
   it('P5A-ADMIN-ACCESS-01: a station user is sent to their own station; a super admin without the code is sent to give it', async () => {

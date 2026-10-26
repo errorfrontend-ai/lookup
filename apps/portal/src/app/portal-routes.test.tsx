@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RouteObject } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { returnPathFrom } from '../features/sign-in/sign-in-page';
+import { returnPathFor, returnPathFrom } from '../features/sign-in/sign-in-page';
 import { errorResponse, INTERNAL_DETAIL_PATTERN, installFakeApi, jsonResponse, signedInUserWith } from '../test/fake-api';
 import { renderPortalAt } from '../test/render-portal';
 import { queryClient } from './portal-api';
@@ -88,6 +88,95 @@ describe('signing in', () => {
     expect(passwordField).toHaveAttribute('type', 'text');
     await person.click(screen.getByRole('button', { name: 'Hide' }));
     expect(passwordField).toHaveAttribute('type', 'password');
+  });
+
+  it('after signing in, a page left open that belongs to someone else (another station) is not where the person lands: their own station is', async () => {
+    const user = signedInUserWith();
+    const anotherStation = '0190f1a2-0000-7000-8000-0000000009f9';
+    const fakeApi = installFakeApi({ ...notSignedIn, 'POST /auth/sign-in': () => jsonResponse(200, user) });
+
+    const { router } = renderPortalAt(`/stations/${anotherStation}/application`);
+    expect(await screen.findByRole('heading', { name: 'Sign in to your station' })).toBeInTheDocument();
+    await person.type(screen.getByLabelText('Email'), 'chanda@example.test');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/stations/${user.stations[0]?.id}/overview`);
+    expect(fakeApi.calls.some((call) => call.path.includes(anotherStation))).toBe(false);
+  });
+
+  it('returns a person only to a page they can open: their own stations, the console for a super admin, the client pages for a client, and an invitation for anyone', () => {
+    const member = signedInUserWith([{}, {}]);
+    const [own, alsoOwn] = member.stations.map((station) => station.id);
+    const other = '0190f1a2-0000-7000-8000-0000000009f9';
+    const superAdmin = { ...signedInUserWith([]), user: { ...member.user, platformRole: 'SUPER_ADMIN' as const } };
+    const client = { ...signedInUserWith([]), clientAccesses: [{ stationId: own as string, stationName: 'Station A', frequencyLabel: '98.1 FM', clientId: 'c1', clientName: 'Brand A' }] };
+    const nobody = signedInUserWith([]);
+    const back = (signedIn: typeof member, from: string) => returnPathFor(signedIn, { from });
+
+    // A station's pages: the person's own stations only, however the address is spelled.
+    expect(back(member, `/stations/${own}/ads`)).toBe(`/stations/${own}/ads`);
+    expect(back(member, `/stations/${alsoOwn}/team`)).toBe(`/stations/${alsoOwn}/team`);
+    expect(back(member, `/STATIONS/${own}/ads`)).toBe(`/STATIONS/${own}/ads`);
+    expect(back(member, `/stations/${other}/application`)).toBeNull();
+    expect(back(member, `/Stations/${other}/application`)).toBeNull();
+    expect(back(member, `/%73tations/${other}/application`)).toBeNull();
+    expect(back(member, `/stations/${other}/overview?tab=ads#top`)).toBeNull();
+    // The console and the second factor: a super admin only.
+    expect(back(member, '/admin/applications')).toBeNull();
+    expect(back(member, '/Admin/applications')).toBeNull();
+    expect(back(member, '/two-factor')).toBeNull();
+    expect(back(superAdmin, '/admin/stations')).toBe('/admin/stations');
+    expect(back(superAdmin, '/two-factor')).toBe('/two-factor');
+    expect(back(superAdmin, `/stations/${own}/overview`)).toBeNull();
+    expect(back(superAdmin, '/client')).toBeNull();
+    // The client area: a client's own adverts; another station's advert becomes their home; a station's people go home.
+    expect(back(client, '/client')).toBe('/client');
+    expect(back(client, '/client/notifications')).toBe('/client/notifications');
+    expect(back(client, `/client/stations/${own}/ads/a1`)).toBe(`/client/stations/${own}/ads/a1`);
+    expect(back(client, `/client/stations/${other}/ads/a1`)).toBe('/client');
+    expect(back(client, `/Client/Stations/${other}/ads/a1`)).toBe('/client');
+    expect(back(client, `/stations/${own}/overview`)).toBeNull();
+    expect(back(member, '/client/notifications')).toBeNull();
+    // Someone with no station and no access left: the client area tells them so (P5C-ONBOARDING-06).
+    expect(back(nobody, '/client')).toBe('/client');
+    expect(back(nobody, `/client/stations/${own}/ads/a1`)).toBe('/client');
+    // The invitation page and the home are kept; anything else, or an address the router could not read, goes home.
+    expect(back(member, '/invitations/accept')).toBe('/invitations/accept');
+    expect(back(member, '/invitations/accept/more')).toBeNull();
+    expect(back(member, '/')).toBe('/');
+    expect(back(client, '/administrator')).toBeNull();
+    expect(back(member, '/stations/%E0%A4%A/ads')).toBeNull();
+    expect(back(member, '//attacker.example/phish')).toBeNull();
+  });
+
+  it('P5C-ONBOARDING-06: a client whose last access was taken away signs in from the client area and is told so there, not "not part of a station"', async () => {
+    const nobody = signedInUserWith([]);
+    installFakeApi({ ...notSignedIn, 'POST /auth/sign-in': () => jsonResponse(200, nobody), 'GET /client/home': () => jsonResponse(200, { stations: [] }) });
+
+    const { router } = renderPortalAt('/client');
+    expect(await screen.findByRole('heading', { name: 'Sign in to your station' })).toBeInTheDocument();
+    await person.type(screen.getByLabelText('Email'), 'chipo@brand-a.example');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(await screen.findByRole('heading', { name: "You can't view any adverts right now" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/client');
+    expect(screen.queryByText("You're not part of a station yet")).not.toBeInTheDocument();
+  });
+
+  it("another station's sign-up pages are not found, like its other pages, and its application is never asked for", async () => {
+    const user = signedInUserWith();
+    const other = '0190f1a2-0000-7000-8000-0000000009f9';
+    const fakeApi = installFakeApi({ 'GET /auth/me': () => jsonResponse(200, user) });
+    for (const page of ['', '/account', '/verify', '/details', '/licence']) {
+      queryClient.clear();
+      const { unmount } = renderPortalAt(`/stations/${other}/application${page}`);
+      expect(await screen.findByRole('heading', { name: "We couldn't find that page" }), page || 'status').toBeInTheDocument();
+      unmount();
+    }
+    expect(fakeApi.calls.some((call) => call.path.includes(other))).toBe(false);
   });
 
   it('accepts only return paths inside the portal', () => {

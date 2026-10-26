@@ -23,6 +23,16 @@ export function StationScope() {
   );
 }
 
+/**
+ * A station's sign-up pages (/stations/:stationId/application), outside the station's frame: only for its own people.
+ * Anyone else gets "not found", like every other station page, rather than the API's refusal on an application screen.
+ */
+export function OwnStationApplication() {
+  const station = useCurrentStation();
+  if (!station) return <NotFoundPage />;
+  return <Outlet />;
+}
+
 /** Ads and clients exist only once the station is approved; until then this explains why. */
 export function ActiveStationOnly() {
   const station = useRequiredCurrentStation();

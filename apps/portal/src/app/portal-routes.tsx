@@ -10,7 +10,7 @@ import { TeamPage } from '../features/team/team-page';
 import { PortalShell } from './portal-shell';
 import { HomeRedirect, RequireSignedIn } from './require-signed-in';
 import { RouteErrorPage } from './route-error-page';
-import { ActiveStationOnly, ContentEditorsOnly, StationScope } from './station-scope';
+import { ActiveStationOnly, ContentEditorsOnly, OwnStationApplication, StationScope } from './station-scope';
 
 // The new-ad wizard and an ad's own page are the largest parts of the portal and are downloaded only
 // when first opened, so signing in and the lists load sooner on a slow connection.
@@ -76,6 +76,7 @@ export const PORTAL_ROUTES: RouteObject[] = [
           {
             // A station still applying has no name yet, so its application lives outside the station's pages.
             path: '/stations/:stationId/application',
+            element: <OwnStationApplication />,
             children: [
               { index: true, lazy: loadSignUp('ApplicationStatusPage') },
               { path: 'account', lazy: loadSignUp('AccountStep') },

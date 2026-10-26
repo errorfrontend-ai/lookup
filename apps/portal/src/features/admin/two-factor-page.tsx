@@ -1,17 +1,24 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
-import { Navigate, useNavigate } from 'react-router';
+import { Navigate, useLocation, useNavigate } from 'react-router';
 import { portalApi, SIGNED_IN_USER_QUERY_KEY } from '../../app/portal-api';
 import { ApiError } from '../../api/api-client';
 import { Button } from '../../components/button';
 import { ErrorNotice } from '../../components/error-notice';
 import { useSignOut } from '../session/use-sign-out';
 import { useSignedInUser } from '../session/use-signed-in-user';
+import { returnPathFrom } from '../sign-in/sign-in-page';
 
 /** "Try again in N minutes" from a RATE_LIMITED answer's wait, when the fifth wrong code is reached. */
 export function waitWords(retryAfterSeconds: number | null): string {
   const minutes = Math.max(1, Math.ceil((retryAfterSeconds ?? 900) / 60));
   return `Too many wrong codes. Try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+}
+
+/** Where the code leads: the console page that sent the person here, else the applications. */
+export function afterTheCodePath(locationState: unknown): string {
+  const from = returnPathFrom(locationState);
+  return from !== null && /^\/admin(?=[/?#]|$)/i.test(from) ? from : '/admin/applications';
 }
 
 /**
@@ -22,17 +29,18 @@ export function TwoFactorPage() {
   const signedInUser = useSignedInUser();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const signOut = useSignOut();
   const [code, setCode] = useState('');
   const check = useMutation({
     mutationFn: (typed: string) => portalApi.post<void>('/auth/two-factor-code', { code: typed }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: SIGNED_IN_USER_QUERY_KEY });
-      void navigate('/admin/applications', { replace: true });
+      void navigate(afterTheCodePath(location.state), { replace: true });
     },
   });
   if (signedInUser.data?.user.platformRole !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
-  if (!signedInUser.data.isTwoFactorCodeNeeded && !check.isPending) return <Navigate to="/admin/applications" replace />;
+  if (!signedInUser.data.isTwoFactorCodeNeeded && !check.isPending) return <Navigate to={afterTheCodePath(location.state)} replace />;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

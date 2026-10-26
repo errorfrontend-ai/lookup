@@ -15,11 +15,13 @@ export const ADMIN_SUMMARY_QUERY_KEY = ['admin', 'summary'] as const;
 /** Only a super admin past the second factor sees the console; anyone else is told there is no such page. */
 export function RequireSuperAdmin() {
   const signedInUser = useSignedInUser();
+  const location = useLocation();
   const user = signedInUser.data;
   if (!user) return <NotFoundPage />;
   // Anyone else is sent to their own pages: nothing here says the console exists (the API answers 404 too).
   if (user.user.platformRole !== 'SUPER_ADMIN') return <Navigate to={homePathFor(user)} replace />;
-  if (user.isTwoFactorCodeNeeded) return <Navigate to="/two-factor" replace />;
+  // The page asked for waits through the second factor.
+  if (user.isTwoFactorCodeNeeded) return <Navigate to="/two-factor" replace state={{ from: location.pathname }} />;
   return <Outlet />;
 }
 

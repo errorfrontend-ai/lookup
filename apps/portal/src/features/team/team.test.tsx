@@ -133,6 +133,35 @@ describe('accepting an invitation', () => {
     expect(readInvitationToken()).toBe(token);
   });
 
+  it('signed in with another email, "Sign out" leads back to the invitation once the invited email has signed in', async () => {
+    window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
+    const someoneElse = { ...signedInUserWith([]), user: { id: '0190f1a2-0000-7000-8000-0000000000c8', fullName: 'Station Owner', email: 'owner@station-a.example', platformRole: null } };
+    const invited = { ...signedInUserWith([]), user: { id: '0190f1a2-0000-7000-8000-0000000000c9', fullName: 'New Person', email: 'new@example.test', platformRole: null } };
+    let current: typeof invited | null = someoneElse;
+    installFakeApi({
+      'GET /auth/me': () => (current ? jsonResponse(200, current) : errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.')),
+      'POST /auth/refresh': () => errorResponse(401, 'UNAUTHENTICATED', 'Please sign in.'),
+      'POST /auth/sign-out': () => {
+        current = null;
+        return jsonResponse(204, null);
+      },
+      'POST /auth/sign-in': () => {
+        current = invited;
+        return jsonResponse(200, invited);
+      },
+      'POST /invitations/description': () => jsonResponse(200, { ...open, hasAccount: true }),
+    });
+    const { router } = renderPortalAt('/invitations/accept');
+    expect(await screen.findByText('This invitation was sent to new@example.test. Sign out, then sign in with that email to accept.')).toBeInTheDocument();
+    await person.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'));
+    await person.type(await screen.findByLabelText('Email'), 'new@example.test');
+    await person.type(screen.getByLabelText('Password'), 'amber kettle rainy harbour');
+    await person.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/invitations/accept'));
+    expect(await screen.findByRole('button', { name: 'Join Radio Phoenix' })).toBeInTheDocument();
+  });
+
   it('P5C-INVITATIONS-02, P5C-ONBOARDING-04: a client invitation uses the same page and steps, and lands on the client’s adverts', async () => {
     window.history.replaceState(null, '', `/invitations/accept#token=${token}`);
     const clientInvitation = { ...open, kind: 'CLIENT_VIEWER', role: null, clientName: 'Brand A', invitedEmail: 'chipo@brand-a.example' };
